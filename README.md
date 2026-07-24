@@ -6,12 +6,12 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 0 — Repository bootstrap (completed, pending review)**
+**Current phase: Phase 1 — Local infrastructure and database (completed, pending review)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
-| 0 | Repository audit and bootstrap | ✅ Completed (pending review) |
-| 1 | Local infrastructure and database | ⬜ Not started |
+| 0 | Repository audit and bootstrap | ✅ Completed (commit 28f4d25) |
+| 1 | Local infrastructure and database | ✅ Completed (pending review) |
 | 2 | Go API foundation | ⬜ Not started |
 | 3 | Authentication and RBAC | ⬜ Not started |
 | 4 | Academic core management | ⬜ Not started |
@@ -26,7 +26,12 @@ See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 
 ## Implemented Features
 
-None yet — repository structure and documentation only.
+- **Local infrastructure:** PostgreSQL 16 via Docker Compose with health check and persistent named volume (`make db-up`)
+- **Migrations:** Goose v3 with baseline schema v1.2 as `00001_baseline_schema.sql` — 20 tables, 13 enum types, exclusion constraints (no overlapping sessions per class/teacher/location), concurrency-safe capacity triggers; up/down verified on a clean database
+- **Seeds:** roles (ADMIN/TEACHER/STUDENT) ship in the baseline; DEV-ONLY demo accounts via `make db-seed`
+- **API docs:** OpenAPI 3.1 skeleton at `docs/openapi.yaml` viewable through Swagger UI (`make swagger` → http://localhost:8081)
+- **ERD:** `database/schema.dbml` for dbdiagram.io
+- Application code: not started (Phase 2+)
 
 ## Technology Stack
 
@@ -103,7 +108,7 @@ See `.env.example` for the full annotated list. Key groups:
 
 ## Database Commands
 
-Available from Phase 1 (PostgreSQL via Docker Compose + Goose):
+PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 
 | Task | Make | Plain CLI equivalent |
 | ---- | ---- | -------------------- |
@@ -115,6 +120,11 @@ Available from Phase 1 (PostgreSQL via Docker Compose + Goose):
 | Apply migrations | `make migrate-up` | `goose -dir database/migrations postgres "$DATABASE_URL" up` |
 | Roll back one migration | `make migrate-down` | `goose -dir database/migrations postgres "$DATABASE_URL" down` |
 | Migration status | `make migrate-status` | `goose -dir database/migrations postgres "$DATABASE_URL" status` |
+| New migration | `make migrate-create name=add_x` | `goose -dir database/migrations create add_x sql` |
+| Load DEV demo data | `make db-seed` | `docker compose exec -T postgres psql -U nsa -d nsa_training < database/seeds/dev.sql` |
+| Swagger UI (API docs) | `make swagger` | `docker compose up -d swagger-ui` → http://localhost:8081 |
+
+**Demo accounts (DEV ONLY, password `NsaDemo@123`):** `admin@nsa.local` (ADMIN), `teacher@nsa.local` (TEACHER), `student@nsa.local` (STUDENT). Never use these in any shared environment.
 
 ## Testing Commands
 
@@ -126,16 +136,17 @@ Available from Phase 1 (PostgreSQL via Docker Compose + Goose):
 
 ## Current Limitations
 
-- No application code yet — structure only.
-- `compose.yaml` and migrations are added in Phase 1.
+- No application code yet (API arrives in Phase 2, web in Phase 8).
+- Swagger UI currently reads the static `docs/openapi.yaml`; the API will serve its own docs from Phase 2.
 - CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.
 
 ## Documentation
 
 - `docs/AI_CONTEXT.md` — **read first**: current phase, decisions, commands, git state (for developers and AI agents)
+- `docs/openapi.yaml` — API contract source of truth (view with `make swagger`)
+- `database/schema.dbml` — ERD for dbdiagram.io (regenerate when schema changes)
 - `docs/adr/` — architecture decision records (created when a significant decision is made)
-- Database schema baseline v1.2 — applied as the first migration in Phase 1; DBML generated alongside for dbdiagram.io
 
 ## Git Rules for Contributors and AI Agents
 

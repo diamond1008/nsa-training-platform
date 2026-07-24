@@ -28,10 +28,10 @@ DB_URL         ?= $(DATABASE_URL)
 API_DIR        := apps/api
 WEB_DIR        := apps/web
 
-.PHONY: help setup db-up db-down db-logs db-psql db-reset \
+.PHONY: help setup db-up db-down db-logs db-psql db-reset db-seed \
 	migrate-up migrate-down migrate-status migrate-create \
 	api-run api-test api-build api-vet \
-	web-install web-dev web-test web-build check
+	web-install web-dev web-test web-build swagger check
 
 # ---------- Help ----------
 help: ## Show this help
@@ -42,6 +42,7 @@ help: ## Show this help
 	@echo   db-logs          Tail PostgreSQL logs
 	@echo   db-psql          Open psql shell inside the db container
 	@echo   db-reset         Drop and recreate the local database (DESTRUCTIVE)
+	@echo   db-seed          Load DEV-ONLY demo accounts (never in production)
 	@echo   migrate-up       Apply all pending Goose migrations
 	@echo   migrate-down     Roll back the last migration
 	@echo   migrate-status   Show migration status
@@ -54,6 +55,7 @@ help: ## Show this help
 	@echo   web-dev          Start the Vite dev server
 	@echo   web-test         Run web unit tests
 	@echo   web-build        Build the web app for production
+	@echo   swagger          Start Swagger UI docs at http://localhost:8081
 	@echo   check            Run all available checks for the current phase
 
 # ---------- First-time setup ----------
@@ -81,6 +83,10 @@ db-psql: ## Open psql in the postgres container
 db-reset: ## Remove containers AND the local data volume, then start fresh
 	docker compose down -v
 	docker compose up -d postgres
+
+db-seed: ## Load DEV-ONLY demo data (database/seeds/dev.sql) — never in production
+	docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) < database/seeds/dev.sql
+	@echo Dev seed loaded. Demo logins: admin@nsa.local / teacher@nsa.local / student@nsa.local (password: NsaDemo@123)
 
 migrate-up: ## Apply all pending migrations
 	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DB_URL)" up
@@ -119,6 +125,11 @@ web-test:
 
 web-build:
 	cd $(WEB_DIR) && npm run build
+
+# ---------- API documentation ----------
+swagger: ## Start Swagger UI viewing docs/openapi.yaml at http://localhost:8081
+	docker compose up -d swagger-ui
+	@echo Swagger UI: http://localhost:8081
 
 # ---------- Quality gate ----------
 check: ## Run checks available in the current phase

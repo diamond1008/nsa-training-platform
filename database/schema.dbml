@@ -1,0 +1,344 @@
+// ==========================================================================
+// NSA Training Platform — Database schema (DBML for dbdiagram.io)
+// Generated from database/migrations/00001_baseline_schema.sql (v1.2)
+// Regenerate/update whenever a migration changes the schema.
+// Paste into https://dbdiagram.io to view the ERD.
+// ==========================================================================
+
+Project nsa_training_platform {
+  database_type: 'PostgreSQL'
+  note: 'Automotive vocational training center — post-admission lifecycle. All timestamps TIMESTAMPTZ UTC.'
+}
+
+// ------------------------------ ENUMS ------------------------------
+
+Enum user_status { pending active suspended inactive }
+Enum student_status { pending active suspended completed withdrawn }
+Enum teacher_status { active inactive }
+Enum course_status { draft active inactive archived }
+Enum class_status { planning open in_progress completed cancelled archived }
+Enum enrollment_status { enrolled transferred completed withdrawn }
+Enum session_type { theory workshop assessment other }
+Enum session_status { scheduled completed cancelled locked }
+Enum attendance_status { present absent late excused }
+Enum assessment_status { draft submitted locked }
+Enum competency_rating { not_assessed needs_improvement competent good excellent }
+Enum completion_status { pending eligible approved rejected }
+Enum notification_status { unread read archived }
+
+// ------------------------------ IDENTITY ------------------------------
+
+Table roles {
+  id smallint [pk, increment]
+  code varchar(40) [not null, unique]
+  name varchar(100) [not null]
+  description text
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table users {
+  id uuid [pk, default: `gen_random_uuid()`]
+  email citext [not null, unique]
+  password_hash text [not null]
+  status user_status [not null, default: 'pending']
+  must_change_password boolean [not null, default: true]
+  last_login_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table user_roles {
+  user_id uuid [not null, ref: > users.id]
+  role_id smallint [not null, ref: > roles.id]
+  assigned_at timestamptz [not null, default: `now()`]
+  assigned_by uuid [ref: > users.id]
+  indexes { (user_id, role_id) [pk] }
+}
+
+Table refresh_tokens {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [not null, ref: > users.id]
+  token_hash text [not null, unique]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  created_ip inet
+  user_agent text
+  note: 'Only hashed refresh tokens. Rotate + revoke on logout/password change.'
+}
+
+// ------------------------------ PROFILES ------------------------------
+
+Table student_profiles {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [not null, unique, ref: > users.id]
+  student_code varchar(30) [not null, unique]
+  full_name varchar(160) [not null]
+  phone varchar(30)
+  date_of_birth date
+  status student_status [not null, default: 'pending']
+  enrolled_at date
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table teacher_profiles {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [not null, unique, ref: > users.id]
+  teacher_code varchar(30) [not null, unique]
+  full_name varchar(160) [not null]
+  phone varchar(30)
+  specialization varchar(200)
+  status teacher_status [not null, default: 'active']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+// ------------------------------ ACADEMIC CORE ------------------------------
+
+Table courses {
+  id uuid [pk, default: `gen_random_uuid()`]
+  code varchar(30) [not null, unique]
+  name varchar(200) [not null]
+  description text
+  total_sessions int [not null]
+  minimum_attendance_pct numeric(5,2) [not null, default: 80]
+  status course_status [not null, default: 'draft']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  note: 'CHECK total_sessions > 0; CHECK minimum_attendance_pct 0-100.'
+}
+
+Table course_modules {
+  id uuid [pk, default: `gen_random_uuid()`]
+  course_id uuid [not null, ref: > courses.id]
+  code varchar(30) [not null]
+  name varchar(200) [not null]
+  sequence_no int [not null]
+  planned_sessions int [not null, default: 1]
+  description text
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes {
+    (course_id, code) [unique]
+    (course_id, sequence_no) [unique]
+    (id, course_id) [unique]
+  }
+}
+
+Table competency_criteria {
+  id uuid [pk, default: `gen_random_uuid()`]
+  course_id uuid [not null, ref: > courses.id]
+  module_id uuid
+  code varchar(40) [not null]
+  name varchar(200) [not null]
+  description text
+  is_required boolean [not null, default: true]
+  sequence_no int [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes {
+    (course_id, code) [unique]
+    (course_id, sequence_no) [unique]
+    (id, course_id) [unique]
+  }
+}
+
+// Composite FK: (module_id, course_id) -> course_modules(id, course_id)
+Ref: competency_criteria.module_id > course_modules.id
+
+Table classes {
+  id uuid [pk, default: `gen_random_uuid()`]
+  course_id uuid [not null, ref: > courses.id]
+  class_code varchar(40) [not null, unique]
+  name varchar(200) [not null]
+  start_date date [not null]
+  end_date date [not null]
+  maximum_students int [not null]
+  status class_status [not null, default: 'planning']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes { (id, course_id) [unique] }
+  note: 'CHECK end_date >= start_date; capacity enforced by trigger (concurrency-safe).'
+}
+
+Table class_enrollments {
+  id uuid [pk, default: `gen_random_uuid()`]
+  class_id uuid [not null, ref: > classes.id]
+  student_id uuid [not null, ref: > student_profiles.id]
+  status enrollment_status [not null, default: 'enrolled']
+  enrolled_at timestamptz [not null, default: `now()`]
+  ended_at timestamptz
+  created_by uuid [ref: > users.id]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes { (class_id, student_id) [unique] }
+  note: 'A student cannot enroll twice in the same class. status/ended_at must stay consistent.'
+}
+
+Table teacher_assignments {
+  id uuid [pk, default: `gen_random_uuid()`]
+  class_id uuid [not null, ref: > classes.id]
+  teacher_id uuid [not null, ref: > teacher_profiles.id]
+  assignment_role varchar(80) [not null, default: 'Instructor']
+  assigned_at timestamptz [not null, default: `now()`]
+  assigned_by uuid [ref: > users.id]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes { (class_id, teacher_id) [unique] }
+}
+
+Table training_locations {
+  id uuid [pk, default: `gen_random_uuid()`]
+  code varchar(30) [not null, unique]
+  name varchar(160) [not null]
+  location_type varchar(40) [not null]
+  capacity int
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+// ------------------------------ SCHEDULING ------------------------------
+
+Table class_sessions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  class_id uuid [not null, ref: > classes.id]
+  course_id uuid [not null]
+  module_id uuid
+  teacher_id uuid
+  location_id uuid [ref: > training_locations.id]
+  title varchar(200) [not null]
+  session_type session_type [not null, default: 'theory']
+  starts_at timestamptz [not null]
+  ends_at timestamptz [not null]
+  status session_status [not null, default: 'scheduled']
+  attendance_locked_at timestamptz
+  created_by uuid [ref: > users.id]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes {
+    (id, class_id) [unique]
+    (id, class_id, course_id) [unique]
+  }
+  note: 'EXCLUDE constraints (btree_gist): no overlapping non-cancelled sessions per class / per teacher / per location. Composite FKs keep class-course-module-teacher consistent.'
+}
+
+// Composite FKs (documented; see migration SQL for exact definitions)
+Ref: class_sessions.course_id > courses.id
+Ref: class_sessions.module_id > course_modules.id
+
+// ------------------------------ ATTENDANCE ------------------------------
+
+Table attendance_records {
+  id uuid [pk, default: `gen_random_uuid()`]
+  class_session_id uuid [not null]
+  class_id uuid [not null]
+  student_id uuid [not null]
+  status attendance_status [not null]
+  note text
+  recorded_by uuid [not null, ref: > users.id]
+  recorded_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes { (class_session_id, student_id) [unique] }
+  note: 'Composite FKs: (class_session_id,class_id)->class_sessions, (class_id,student_id)->class_enrollments. Attendance only for enrolled students; one record per student per session.'
+}
+
+Ref: attendance_records.class_session_id > class_sessions.id
+Ref: attendance_records.student_id > student_profiles.id
+
+// ------------------------------ ASSESSMENT ------------------------------
+
+Table student_assessments {
+  id uuid [pk, default: `gen_random_uuid()`]
+  class_id uuid [not null]
+  course_id uuid [not null]
+  student_id uuid [not null]
+  assessed_by uuid [not null]
+  session_id uuid
+  assessment_no int [not null, default: 1]
+  status assessment_status [not null, default: 'draft']
+  overall_comment text
+  submitted_at timestamptz
+  locked_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes {
+    (class_id, student_id, assessment_no) [unique]
+    (id, course_id) [unique]
+  }
+  note: 'Status machine: draft -> submitted -> locked (timestamps must match). Composite FKs to classes/enrollments/teacher_assignments/class_sessions.'
+}
+
+Ref: student_assessments.student_id > student_profiles.id
+Ref: student_assessments.assessed_by > teacher_profiles.id
+
+Table assessment_items {
+  id uuid [pk, default: `gen_random_uuid()`]
+  assessment_id uuid [not null]
+  course_id uuid [not null]
+  competency_criterion_id uuid [not null]
+  rating competency_rating [not null, default: 'not_assessed']
+  comment text
+  assessed_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes { (assessment_id, competency_criterion_id) [unique] }
+  note: 'Composite FKs ensure items reference competencies of the same course as the assessment.'
+}
+
+Ref: assessment_items.assessment_id > student_assessments.id
+Ref: assessment_items.competency_criterion_id > competency_criteria.id
+
+// ------------------------------ COMPLETION ------------------------------
+
+Table course_completions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  class_id uuid [not null]
+  student_id uuid [not null]
+  attendance_pct numeric(5,2) [not null, default: 0]
+  required_competencies_met int [not null, default: 0]
+  required_competencies_total int [not null, default: 0]
+  status completion_status [not null, default: 'pending']
+  reviewed_by uuid [ref: > users.id]
+  reviewed_at timestamptz
+  review_note text
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes { (class_id, student_id) [unique] }
+  note: 'approved/rejected require reviewed_by + reviewed_at.'
+}
+
+Ref: course_completions.student_id > student_profiles.id
+Ref: course_completions.class_id > classes.id
+
+// ------------------------------ SYSTEM ------------------------------
+
+Table notifications {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [not null, ref: > users.id]
+  title varchar(200) [not null]
+  message text [not null]
+  type varchar(60) [not null, default: 'general']
+  status notification_status [not null, default: 'unread']
+  action_url text
+  read_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table audit_logs {
+  id bigint [pk, increment]
+  actor_user_id uuid [ref: > users.id]
+  action varchar(100) [not null]
+  entity_type varchar(80) [not null]
+  entity_id uuid
+  old_values jsonb
+  new_values jsonb
+  reason text
+  request_id uuid
+  ip_address inet
+  user_agent text
+  created_at timestamptz [not null, default: `now()`]
+  note: 'Append-only audit trail for administrative changes.'
+}

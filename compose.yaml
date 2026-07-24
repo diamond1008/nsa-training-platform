@@ -1,0 +1,54 @@
+# ==========================================================================
+# NSA Training Platform — Local infrastructure
+# Start database:   docker compose up -d postgres     (or: make db-up)
+# Start API docs:   docker compose up -d swagger-ui   (or: make swagger)
+# Secrets come from .env (copy .env.example first) — never commit .env.
+# ==========================================================================
+
+name: nsa-training-platform
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nsa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      TZ: UTC
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - nsa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    networks:
+      - nsa
+
+  # Local API documentation viewer (Swagger request from project owner).
+  # Reads docs/openapi.yaml — the API contract source of truth.
+  # Dev convenience only; the API will serve its own docs in Phase 2+.
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v5.17.14
+    container_name: nsa-swagger-ui
+    restart: unless-stopped
+    environment:
+      SWAGGER_JSON: /spec/openapi.yaml
+    volumes:
+      - ./docs/openapi.yaml:/spec/openapi.yaml:ro
+    ports:
+      - "8081:8080"
+    networks:
+      - nsa
+
+networks:
+  nsa:
+    driver: bridge
+
+volumes:
+  nsa_pgdata:
