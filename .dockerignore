@@ -1,0 +1,25 @@
+# Keep Docker build contexts small and secret-free.
+.git/
+.gitignore
+.gitattributes
+
+# Local secrets — never copied into images.
+.env
+.env.*
+!.env.example
+
+# Node / frontend artifacts
+node_modules/
+apps/web/dist/
+apps/web/coverage/
+
+# Go build artifacts
+apps/api/bin/
+
+# Docs/editor/temp
+.vscode/
+.idea/
+tmp/
+*.log
+*.md
+!README.md

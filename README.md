@@ -6,13 +6,13 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 1 — Local infrastructure and database (completed, pending review)**
+**Current phase: Phase 2 — Go API foundation (completed, pending review)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
 | 0 | Repository audit and bootstrap | ✅ Completed (commit 28f4d25) |
-| 1 | Local infrastructure and database | ✅ Completed (pending review) |
-| 2 | Go API foundation | ⬜ Not started |
+| 1 | Local infrastructure and database | ✅ Completed (commit e7f8505) |
+| 2 | Go API foundation | ✅ Completed (pending review) |
 | 3 | Authentication and RBAC | ⬜ Not started |
 | 4 | Academic core management | ⬜ Not started |
 | 5 | Scheduling | ⬜ Not started |
@@ -29,9 +29,12 @@ See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 - **Local infrastructure:** PostgreSQL 16 via Docker Compose with health check and persistent named volume (`make db-up`)
 - **Migrations:** Goose v3 with baseline schema v1.2 as `00001_baseline_schema.sql` — 20 tables, 13 enum types, exclusion constraints (no overlapping sessions per class/teacher/location), concurrency-safe capacity triggers; up/down verified on a clean database
 - **Seeds:** roles (ADMIN/TEACHER/STUDENT) ship in the baseline; DEV-ONLY demo accounts via `make db-seed`
-- **API docs:** OpenAPI 3.1 skeleton at `docs/openapi.yaml` viewable through Swagger UI (`make swagger` → http://localhost:8081)
+- **API docs:** OpenAPI 3.1 at `docs/openapi.yaml` — served by the API at `/docs` + `/openapi.yaml`, or via container (`make swagger` → http://localhost:8081)
 - **ERD:** `database/schema.dbml` for dbdiagram.io
-- Application code: not started (Phase 2+)
+- **Go API foundation (`apps/api`):** Chi router, env config (godotenv), pgxpool (pool tuning + ping), slog structured logging, middleware (RequestID, RealIP, request logging, recovery, timeout, CORS), standard success/error envelopes
+- **Operational endpoints:** `GET /health` (liveness), `GET /ready` (readiness incl. DB), graceful shutdown on SIGINT/SIGTERM (verified in container)
+- **API Docker image:** multi-stage `apps/api/Dockerfile` → `nsa-api` (build from repo root)
+- Business endpoints (auth, admin, teacher, student): not started (Phase 3+)
 
 ## Technology Stack
 
@@ -126,19 +129,31 @@ PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 
 **Demo accounts (DEV ONLY, password `NsaDemo@123`):** `admin@nsa.local` (ADMIN), `teacher@nsa.local` (TEACHER), `student@nsa.local` (STUDENT). Never use these in any shared environment.
 
+## API Commands
+
+| Task | Make | Plain CLI |
+| ---- | ---- | --------- |
+| Run API (needs `.env` + database up) | `make api-run` | `cd apps/api; go run ./cmd/api` |
+| API tests | `make api-test` | `cd apps/api; go test ./...` |
+| Vet | `make api-vet` | `cd apps/api; go vet ./...` |
+| Build binary | `make api-build` | `cd apps/api; go build -o bin/api.exe ./cmd/api` |
+| Build Docker image | — | `docker build -f apps/api/Dockerfile -t nsa-api .` |
+
+Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready`.
+
 ## Testing Commands
 
 | Scope | Make | Plain CLI |
 | ----- | ---- | --------- |
-| API tests (Phase 2+) | `make api-test` | `cd apps/api; go test ./...` |
+| API tests | `make api-test` | `cd apps/api; go test ./...` |
 | Web tests (Phase 8+) | `make web-test` | `cd apps/web; npm run test` |
 | All checks for current phase | `make check` | — |
 
 ## Current Limitations
 
-- No application code yet (API arrives in Phase 2, web in Phase 8).
-- Swagger UI currently reads the static `docs/openapi.yaml`; the API will serve its own docs from Phase 2.
-- CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
+- No business endpoints yet (authentication/RBAC arrives in Phase 3).
+- Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
+- Web app starts in Phase 8; CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.
 
 ## Documentation

@@ -18,13 +18,13 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 1 — only `/health` and `/ready` are
-    contractually fixed (implemented in Phase 2). Further groups (auth, admin,
-    teacher, student) are added in Phases 3–7.
+    **Implementation status:** Phase 2 — `/health`, `/ready`, `/docs` and
+    `/openapi.yaml` are live (unversioned operational endpoints).
+    Business endpoints mount under `/api/v1` from Phase 3 onwards.
 
 servers:
-  - url: http://localhost:8080/api/v1
-    description: Local development
+  - url: http://localhost:8080
+    description: Local development (business endpoints are prefixed /api/v1)
 
 tags:
   - name: system
