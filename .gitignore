@@ -1,0 +1,52 @@
+# ============ Secrets / Environment ============
+# Never commit real environment files or credentials.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ============ OS ============
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============ IDE ============
+.idea/
+.vs/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# ============ Go (apps/api) ============
+apps/api/bin/
+apps/api/api.exe
+apps/api/coverage.out
+apps/api/coverage.html
+*.test
+
+# ============ Node / Vite (apps/web) ============
+node_modules/
+apps/web/dist/
+apps/web/coverage/
+apps/web/playwright-report/
+apps/web/test-results/
+*.local
+
+# ============ Logs / Temp ============
+*.log
+tmp/
+tmp.*
+
+# ============ Docker / Infra local data ============
+# Local database volume data must never be committed.
+infra/data/
+**/pgdata/
+
+# ============ Database ============
+# Exported dumps and backups.
+*.dump
+*.backup
+backups/

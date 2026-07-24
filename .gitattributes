@@ -1,2 +1,27 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Files that MUST use LF even on Windows (shell, SQL, Make, Go modules)
+*.sh        text eol=lf
+*.sql       text eol=lf
+Makefile    text eol=lf
+*.mk        text eol=lf
+*.mod       text eol=lf
+*.sum       text eol=lf
+Dockerfile  text eol=lf
+
+# Windows scripts keep CRLF
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Binary files — never normalize
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.webp      binary
+*.pdf       binary
+*.woff      binary
+*.woff2     binary
