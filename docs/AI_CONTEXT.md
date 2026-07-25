@@ -1,43 +1,46 @@
 # AI Context
 
 ## Current Phase
-- Phase 6 — Attendance
-- Status: completed (pending user review; uncommitted)
+- Phase 7 — Skill Assessment and Progress
+- Status: completed; user explicitly authorized commit and push
 
 ## Completed
 - Phase 0 (28f4d25): repository bootstrap, configs, and continuity docs.
 - Phase 1 (e7f8505): PostgreSQL 16, Goose baseline, dev seeds, Swagger UI, and DBML.
 - Phase 2 (bc20225): Go API foundation, pgxpool, middleware, probes, logging, and Dockerfile.
 - Phase 3 (c5b553a): authentication, refresh rotation, RBAC, ownership helpers, sqlc, and tests.
-- Phase 4 (d164a05): academic core administration, capacity-safe enrollment, teacher assignments, audit logs, and OpenAPI 0.2.0.
-- Phase 5 (346ea36, pushed): training locations, class-session scheduling, PostgreSQL overlap protection, and role-scoped schedules.
-- Phase 6:
-  - Teacher/Admin session attendance roster views with recorded/unrecorded and per-status counts.
-  - Transactional Teacher batch recording for Present, Absent, Late, and Excused.
-  - JWT-derived teacher identity plus class-assignment authorization.
-  - Active-enrollment validation, duplicate request detection, and PostgreSQL FK/unique enforcement.
-  - Session-row locking serializes attendance writes with finalization.
-  - Teachers may lock attendance only after the session starts and every active student has one record.
-  - ADMIN correction after locking with required reason and transactional old/new audit log.
-  - Student self-only paginated attendance history and per-class summary.
-  - OpenAPI 0.4.0 documents the Phase 6 contracts.
-  - Integration tests cover authorization, transactional rollback, duplicate prevention, completeness, locking, correction audit, ownership, and summary calculation.
+- Phase 4 (d164a05): academic core administration, safe enrollment, teacher assignments, audits, and OpenAPI.
+- Phase 5 (346ea36): locations, session scheduling, overlap protection, and role-scoped schedules.
+- Phase 6 (b8a580b, pushed): batch attendance, locking, corrections, Student history/summary, and OpenAPI 0.4.0.
+- Phase 7:
+  - Teacher assessment creation/update with transactional per-student assessment numbering.
+  - Draft → Submitted → Locked lifecycle; only drafts are editable and locked history is immutable.
+  - Overall and per-competency teacher comments.
+  - Active enrollment, assigned/owning teacher, optional session, and competency-course validation.
+  - Submission requires every required course competency to have a non-`not_assessed` rating.
+  - Teacher class/student history and Student self-only submitted/locked history/detail.
+  - Deterministic Student progress from sessions, attendance, required competencies, and assessment sessions.
+  - OpenAPI 0.5.0 documents the Phase 7 contracts.
+  - Integration tests cover authorization, rollback, lifecycle, history, ownership, course consistency, latest-rating behavior, and deterministic progress.
 
 ## In Progress
-- Nothing — waiting for user review and approval for Phase 7.
+- Nothing — Phase 7 is complete.
 
 ## Next
-- Phase 7 — Skill Assessment and Progress: competency ratings, assessment lifecycle, comments, completion rules, and Student progress endpoints.
+- Phase 8 — Frontend Foundation and Authenticated Shell.
 
 ## Architecture Decisions
-- Attendance is the `internal/attendance` vertical slice; no migration was required because the baseline already contains `attendance_records`, the status enum, session locking column, FK constraints, uniqueness, indexes, and triggers.
-- Teacher attendance routes are role-protected and derive the user ID only from JWT claims. Service authorization verifies that user's teacher profile is assigned to the session class.
-- Initial attendance is append-only per session/student. A duplicate is a `409`; corrections use the separate ADMIN-only endpoint and require an audit reason.
-- Batch recording and finalization lock the class-session row in one database transaction. This prevents a batch from racing with attendance locking.
-- A Teacher cannot finalize before the session starts or until every currently `enrolled` student has exactly one attendance record.
-- Finalization sets both session status `locked` and `attendance_locked_at`; later Teacher writes fail while ADMIN correction remains available.
-- Student endpoints contain no student path parameter. History and summaries are selected from the authenticated user's profile.
-- Informational attendance percentage counts Present and Late as attended and excludes Excused from the denominator. Phase 7 owns completion eligibility.
+- Assessments and progress are separate vertical slices under `internal/assessments` and `internal/progress`.
+- No migration was required. Existing composite FKs and uniqueness enforce enrollment, assignment, session/class/course, criterion/course, and assessment-number integrity.
+- The class-enrollment row is locked while allocating `assessment_no`, serializing concurrent assessment creation for one class/student.
+- Any currently assigned teacher may view a student's class assessment history. Only the active teacher recorded in `assessed_by` may update or transition that assessment.
+- Students never supply a student ID. JWT user identity scopes assessment history/detail and progress.
+- Drafts are hidden from Students. Submitted and Locked assessments remain visible history.
+- Configurable completion inputs are existing data: `courses.total_sessions`, `courses.minimum_attendance_pct`, `competency_criteria.is_required`, and non-cancelled class sessions with `session_type = assessment`.
+- Required competency progress uses the latest submitted/locked rating by `assessment_no`; Competent, Good, and Excellent satisfy a required criterion.
+- Attendance percentage counts Present and Late as attended and excludes Excused from the denominator.
+- Overall progress averages the session component, attendance-threshold component, and only applicable competency/assessment components. Values are capped and rounded to two decimals.
+- Completion status is derived as Pending or Eligible. Formal ADMIN approval/rejection remains deferred.
 - sqlc generated output remains a committed standalone module under `database/generated`.
 
 ## Important Commands
@@ -46,36 +49,37 @@
 - Unit/check: `make check`
 - Integration: `make db-test-migrate`, then `make api-test-integration`
 - Build: `make api-build`; Docker: `docker build -f apps/api/Dockerfile -t nsa-api .`
-- Docs: `make swagger`; validate with `npx --yes @redocly/cli@latest lint docs/openapi.yaml`
+- Docs: validate with `npx --yes @redocly/cli@latest lint docs/openapi.yaml`
 
 ## Key Files
-- `apps/api/internal/attendance/{service,handler}.go` — Phase 6 use cases and HTTP transport.
-- `database/queries/attendance.sql` — roster, recording, locking, correction, history, and summary queries.
-- `apps/api/internal/attendance/attendance_integration_test.go` — PostgreSQL-backed Phase 6 behavior.
-- `apps/api/cmd/api/main.go` — ADMIN, TEACHER, and STUDENT attendance route boundaries.
-- `docs/openapi.yaml` — external API contract, version 0.4.0.
+- `apps/api/internal/assessments/{service,handler}.go` — assessment lifecycle and role boundaries.
+- `apps/api/internal/progress/{service,handler}.go` — deterministic Student progress.
+- `database/queries/{assessments,progress}.sql` — assessment history/integrity and progress inputs.
+- `apps/api/internal/assessments/assessments_integration_test.go` — Phase 7 PostgreSQL behavior.
+- `apps/api/cmd/api/main.go` — Teacher/Student Phase 7 routes.
+- `docs/openapi.yaml` — external API contract, version 0.5.0.
 
 ## Known Issues / Deferred Work
-- Attendance roster/finalization follows the current `enrolled` relationship; a historical transfer/withdrawal policy is deferred.
-- Phase 6 percentages are informational only. Phase 7 defines configurable completion/progress rules.
+- Formal ADMIN course-completion approval/rejection is not exposed in Phase 7; progress reports computed Pending/Eligible status.
+- Attendance roster/finalization follows the current `enrolled` relationship; historical transfer/withdrawal policy is deferred.
 - Rate limiting is in-memory; Testcontainers remains deferred in favor of `nsa_training_test`.
 - React web app starts in Phase 8; CI/Caddy/Playwright are Phase 10.
 
 ## Database State
-- Latest migration: `00001_baseline_schema.sql` (unchanged in Phase 6).
-- Attendance integrity: `(class_session_id, class_id)` and `(class_id, student_id)` FKs plus unique `(class_session_id, student_id)`.
-- Local demo: admin/teacher/student accounts from `database/seeds/dev.sql`.
-- Test DB: `nsa_training_test`; Phase 3–6 integration suites pass.
+- Latest migration: `00001_baseline_schema.sql` (unchanged in Phase 7).
+- Assessment integrity uses the baseline composite FKs and unique `(class_id, student_id, assessment_no)`.
+- Test DB: `nsa_training_test`; Phase 3–7 integration suites pass.
 
 ## API State
-- Implemented: system probes/docs, `/api/v1/auth/*`, Admin academic core, locations, sessions, and role schedules.
-- Teacher attendance: `GET|POST /api/v1/teacher/sessions/{sessionID}/attendance` and `POST .../attendance/lock`.
-- Admin attendance: `GET /api/v1/admin/sessions/{sessionID}/attendance` and `PUT /api/v1/admin/attendance/{attendanceID}`.
-- Student attendance: `GET /api/v1/student/attendance` and `/attendance/summary`.
-- OpenAPI: version 0.4.0.
+- Teacher assessments:
+  - `GET|POST /api/v1/teacher/classes/{classID}/students/{studentID}/assessments`
+  - `GET|PUT /api/v1/teacher/assessments/{assessmentID}`
+  - `POST /api/v1/teacher/assessments/{assessmentID}/{submit|lock}`
+- Student assessments: `GET /api/v1/student/assessments[/{assessmentID}]`.
+- Student progress: `GET /api/v1/student/progress`.
+- OpenAPI: version 0.5.0.
 
 ## Git State
-- Current branch: `main`, synchronized with `origin/main` at Phase 6 start.
-- Last commit: 346ea36 `feat(api): implement scheduling management` (pushed).
-- Phase 6 changes are uncommitted.
-- Do not commit or push without explicit user permission.
+- Current branch: `main`.
+- Phase 6 commit: b8a580b `feat(api): implement attendance management` (pushed).
+- User explicitly authorized committing and pushing Phase 7 after all checks pass.

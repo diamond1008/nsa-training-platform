@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/assessments"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
@@ -27,6 +28,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/health"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/logging"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/middleware"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/progress"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
@@ -83,6 +85,8 @@ func run() error {
 	classHandler := classes.NewHandler(classes.NewService(pool), log)
 	scheduleHandler := schedules.NewHandler(schedules.NewService(pool), log)
 	attendanceHandler := attendance.NewHandler(attendance.NewService(pool), log)
+	assessmentHandler := assessments.NewHandler(assessments.NewService(pool), log)
+	progressHandler := progress.NewHandler(progress.NewService(pool), log)
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -126,7 +130,10 @@ func run() error {
 			r, tokenService, studentHandler, teacherHandler, courseHandler,
 			classHandler, scheduleHandler, attendanceHandler,
 		)
-		mountRoleRoutes(r, tokenService, scheduleHandler, attendanceHandler)
+		mountRoleRoutes(
+			r, tokenService, scheduleHandler, attendanceHandler,
+			assessmentHandler, progressHandler,
+		)
 	})
 
 	srv := &http.Server{
@@ -252,6 +259,8 @@ func mountRoleRoutes(
 	tokenService *auth.TokenService,
 	scheduleHandler *schedules.Handler,
 	attendanceHandler *attendance.Handler,
+	assessmentHandler *assessments.Handler,
+	progressHandler *progress.Handler,
 ) {
 	r.Route("/teacher", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -260,6 +269,12 @@ func mountRoleRoutes(
 		r.Get("/sessions/{sessionID}/attendance", attendanceHandler.TeacherSession)
 		r.Post("/sessions/{sessionID}/attendance", attendanceHandler.RecordBatch)
 		r.Post("/sessions/{sessionID}/attendance/lock", attendanceHandler.Lock)
+		r.Get("/classes/{classID}/students/{studentID}/assessments", assessmentHandler.ListTeacher)
+		r.Post("/classes/{classID}/students/{studentID}/assessments", assessmentHandler.Create)
+		r.Get("/assessments/{assessmentID}", assessmentHandler.GetTeacher)
+		r.Put("/assessments/{assessmentID}", assessmentHandler.Update)
+		r.Post("/assessments/{assessmentID}/submit", assessmentHandler.Submit)
+		r.Post("/assessments/{assessmentID}/lock", assessmentHandler.Lock)
 	})
 	r.Route("/student", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -267,5 +282,8 @@ func mountRoleRoutes(
 		r.Get("/schedule", scheduleHandler.StudentSchedule)
 		r.Get("/attendance", attendanceHandler.StudentHistory)
 		r.Get("/attendance/summary", attendanceHandler.StudentSummary)
+		r.Get("/assessments", assessmentHandler.ListStudent)
+		r.Get("/assessments/{assessmentID}", assessmentHandler.GetStudent)
+		r.Get("/progress", progressHandler.Dashboard)
 	})
 }

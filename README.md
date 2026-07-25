@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 6 — Attendance (completed, pending review)**
+**Current phase: Phase 7 — Skill Assessment and Progress (completed)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -16,8 +16,8 @@ Training management platform for an automotive vocational training center. It ma
 | 3 | Authentication and RBAC | ✅ Completed (commit c5b553a) |
 | 4 | Academic core management | ✅ Completed (commit d164a05) |
 | 5 | Scheduling | ✅ Completed (commit 346ea36) |
-| 6 | Attendance | ✅ Completed (pending review) |
-| 7 | Skill assessment and progress | ⬜ Not started |
+| 6 | Attendance | ✅ Completed (commit b8a580b) |
+| 7 | Skill assessment and progress | ✅ Completed |
 | 8 | Frontend foundation and auth shell | ⬜ Not started |
 | 9 | Feature screens | ⬜ Not started |
 | 10 | Quality, CI, deployment readiness | ⬜ Not started |
@@ -111,6 +111,11 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Attendance integrity:** service validation plus PostgreSQL foreign keys and uniqueness prevent non-enrolled or duplicate records; session-row locking serializes batch recording and finalization
 - **Attendance corrections:** ADMIN can correct an existing record even after finalization; the required reason and old/new values are written to the audit log in the same transaction
 - **Student attendance:** authenticated students can view only their own paginated history and per-class summary; Present and Late count as attended while Excused is excluded from the informational percentage denominator
+- **Practical assessments:** assigned teachers create and replace drafts containing competency ratings/comments, submit only after every required criterion is rated, then lock immutable results; assessment numbers retain history over time
+- **Assessment integrity:** student enrollment, teacher assignment/ownership, optional session class/course, and every competency's course are validated transactionally and backed by composite PostgreSQL constraints
+- **Student assessment history:** authenticated students see only their own submitted/locked assessments through `/api/v1/student/assessments`
+- **Progress dashboard:** `/api/v1/student/progress` combines completed sessions, the configured attendance threshold, latest required-competency ratings, and scheduled assessment-session completion into deterministic per-class progress and Pending/Eligible status
+- **Configurable completion rules:** course `total_sessions` and `minimum_attendance_pct`, criterion `is_required`, and non-cancelled class sessions of type `assessment` define the requirements without a Phase 7 schema migration
 - **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
 
 ## Technology Stack
@@ -216,7 +221,7 @@ PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 | Build binary | `make api-build` | `cd apps/api; go build -o bin/api.exe ./cmd/api` |
 | Build Docker image | — | `docker build -f apps/api/Dockerfile -t nsa-api .` |
 
-Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*` — administration `/api/v1/admin/*` — role schedules `/api/v1/{teacher,student}/schedule` — attendance `/api/v1/{teacher,student}/*attendance*`.
+Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*` — administration `/api/v1/admin/*` — Teacher attendance/assessments under `/api/v1/teacher/*` — Student schedule/attendance/assessments/progress under `/api/v1/student/*`.
 
 Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"NsaDemo@123"}` (after `make db-seed`) → use the returned `access_token` as `Authorization: Bearer <token>` for `GET /api/v1/auth/me`.
 
@@ -231,8 +236,9 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 ## Current Limitations
 
-- Assessment and learning-progress endpoints are deferred to Phase 7; attendance percentages in Phase 6 are informational and do not approve course completion.
 - Attendance roster/locking follows the current `enrolled` relationship. A later enrollment-history policy may be needed if transfers or withdrawals must retroactively affect old session rosters.
+- Progress exposes deterministic Pending/Eligible status; formal ADMIN approval/rejection of `course_completions` is not exposed in Phase 7.
+- The latest submitted or locked rating for each required competency supersedes its earlier rating when progress is calculated.
 - Rate limiting is in-memory per instance (fine for the single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
 - Web app starts in Phase 8; CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.

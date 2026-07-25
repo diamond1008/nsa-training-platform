@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "0.4.0"
+  version: "0.5.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -18,10 +18,11 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 6 — system probes, authentication/RBAC,
+    **Implementation status:** Phase 7 — system probes, authentication/RBAC,
     academic-core administration, training locations, class-session scheduling,
     role-scoped schedules, batch attendance, corrections, locking, and Student
-    attendance history/summary are live. Assessment and progress arrive in Phase 7.
+    attendance history/summary are live. Practical assessment history and
+    deterministic Student progress dashboards are also live.
 
     **Authentication:** `POST /api/v1/auth/login` returns a short-lived JWT
     access token (use as `Authorization: Bearer <token>`) and sets an
@@ -1046,6 +1047,130 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /api/v1/teacher/classes/{classID}/students/{studentID}/assessments:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [teacher]
+      summary: List a student's assessment history in an assigned class
+      description: Drafts are visible to assigned teachers; results are ordered by assessment number descending.
+      operationId: listTeacherStudentAssessments
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+      responses:
+        "200":
+          description: Paginated assessment history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+    post:
+      tags: [teacher]
+      summary: Create a draft practical skill assessment
+      description: |
+        The authenticated teacher must be assigned to the class and the
+        student must be actively enrolled. Assessment numbers are allocated
+        transactionally per class/student. Every criterion must belong to the
+        class course.
+      operationId: createTeacherStudentAssessment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssessmentWriteRequest" }
+      responses:
+        "201":
+          description: Draft assessment created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+
+  /api/v1/teacher/assessments/{assessmentID}:
+    parameters:
+      - { $ref: "#/components/parameters/AssessmentID" }
+    get:
+      tags: [teacher]
+      summary: Get an assessment in an assigned class
+      operationId: getTeacherAssessment
+      responses:
+        "200":
+          description: Assessment with competency items
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [teacher]
+      summary: Replace a draft assessment
+      description: Only the teacher who created the assessment may replace it, and only while it is draft.
+      operationId: updateTeacherAssessment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssessmentWriteRequest" }
+      responses:
+        "200":
+          description: Draft assessment updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/teacher/assessments/{assessmentID}/submit:
+    parameters:
+      - { $ref: "#/components/parameters/AssessmentID" }
+    post:
+      tags: [teacher]
+      summary: Submit a draft assessment
+      description: Every required course competency must have a rating other than Not Assessed.
+      operationId: submitTeacherAssessment
+      responses:
+        "200":
+          description: Assessment submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/teacher/assessments/{assessmentID}/lock:
+    parameters:
+      - { $ref: "#/components/parameters/AssessmentID" }
+    post:
+      tags: [teacher]
+      summary: Lock a submitted assessment
+      description: Locked assessments are immutable and retained as history.
+      operationId: lockTeacherAssessment
+      responses:
+        "200":
+          description: Assessment locked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /api/v1/student/schedule:
     get:
       tags: [student]
@@ -1106,6 +1231,69 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StudentAttendanceSummaryResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/assessments:
+    get:
+      tags: [student]
+      summary: Get the authenticated student's submitted assessment history
+      operationId: listStudentAssessments
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - name: class_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Paginated submitted/locked assessments for the authenticated student only
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/assessments/{assessmentID}:
+    parameters:
+      - { $ref: "#/components/parameters/AssessmentID" }
+    get:
+      tags: [student]
+      summary: Get one of the authenticated student's assessments
+      operationId: getStudentAssessment
+      responses:
+        "200":
+          description: Submitted or locked assessment owned by the authenticated student
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssessmentResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/student/progress:
+    get:
+      tags: [student]
+      summary: Get the authenticated student's learning progress dashboard
+      description: |
+        Progress is calculated deterministically from completed/locked sessions,
+        attendance against the course threshold, latest submitted/locked rating
+        for each required competency, and submitted/locked assessments linked
+        to non-cancelled assessment sessions. `completion_status` is Eligible
+        only when every configured rule is met.
+      operationId: getStudentProgress
+      parameters:
+        - name: class_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Progress dashboard for the authenticated student only
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProgressDashboardResponse" }
         "400": { $ref: "#/components/responses/ValidationError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -1183,6 +1371,11 @@ components:
       schema: { type: string, format: uuid }
     AttendanceID:
       name: attendanceID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AssessmentID:
+      name: assessmentID
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -2004,6 +2197,170 @@ components:
             items:
               type: array
               items: { $ref: "#/components/schemas/StudentAttendanceSummary" }
+        message: { type: string }
+
+    AssessmentStatus:
+      type: string
+      enum: [draft, submitted, locked]
+    CompetencyRating:
+      type: string
+      enum: [not_assessed, needs_improvement, competent, good, excellent]
+    CompletionStatus:
+      type: string
+      enum: [pending, eligible]
+    AssessmentWriteItem:
+      type: object
+      additionalProperties: false
+      required: [competency_criterion_id, rating]
+      properties:
+        competency_criterion_id: { type: string, format: uuid }
+        rating: { $ref: "#/components/schemas/CompetencyRating" }
+        comment: { type: [string, "null"], maxLength: 1000 }
+    AssessmentWriteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        session_id: { type: [string, "null"], format: uuid }
+        overall_comment: { type: [string, "null"], maxLength: 2000 }
+        items:
+          type: array
+          maxItems: 200
+          items: { $ref: "#/components/schemas/AssessmentWriteItem" }
+    AssessmentItem:
+      type: object
+      required: [id, competency_criterion_id, criterion_code, criterion_name, is_required, sequence_no, rating, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        competency_criterion_id: { type: string, format: uuid }
+        criterion_code: { type: string }
+        criterion_name: { type: string }
+        is_required: { type: boolean }
+        sequence_no: { type: integer, minimum: 1 }
+        rating: { $ref: "#/components/schemas/CompetencyRating" }
+        comment: { type: [string, "null"] }
+        assessed_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    StudentAssessment:
+      type: object
+      required: [id, class_id, class_code, class_name, course_id, course_code, course_name, student_id, student_code, student_name, assessed_by, teacher_code, teacher_name, assessment_no, status, items, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        student_id: { type: string, format: uuid }
+        student_code: { type: string }
+        student_name: { type: string }
+        assessed_by: { type: string, format: uuid }
+        teacher_code: { type: string }
+        teacher_name: { type: string }
+        session_id: { type: [string, "null"], format: uuid }
+        session_title: { type: [string, "null"] }
+        assessment_no: { type: integer, minimum: 1 }
+        status: { $ref: "#/components/schemas/AssessmentStatus" }
+        overall_comment: { type: [string, "null"] }
+        submitted_at: { type: [string, "null"], format: date-time }
+        locked_at: { type: [string, "null"], format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AssessmentItem" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AssessmentResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/StudentAssessment" }
+        message: { type: string }
+    AssessmentListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/StudentAssessment" }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+    SessionProgressComponent:
+      type: object
+      required: [completed, required, percent]
+      properties:
+        completed: { type: integer, minimum: 0 }
+        required: { type: integer, minimum: 1 }
+        percent: { type: number, minimum: 0, maximum: 100 }
+    AttendanceProgressComponent:
+      type: object
+      required: [records, counted_records, attended, excused, percent, minimum_required_pct, requirement_met]
+      properties:
+        records: { type: integer, minimum: 0 }
+        counted_records: { type: integer, minimum: 0 }
+        attended: { type: integer, minimum: 0 }
+        excused: { type: integer, minimum: 0 }
+        percent: { type: number, minimum: 0, maximum: 100 }
+        minimum_required_pct: { type: number, minimum: 0, maximum: 100 }
+        requirement_met: { type: boolean }
+    CompetencyProgressComponent:
+      type: object
+      required: [met, required, percent, requirement_met]
+      properties:
+        met: { type: integer, minimum: 0 }
+        required: { type: integer, minimum: 0 }
+        percent: { type: number, minimum: 0, maximum: 100 }
+        requirement_met: { type: boolean }
+    AssessmentProgressComponent:
+      type: object
+      required: [completed, required, percent, requirement_met]
+      properties:
+        completed: { type: integer, minimum: 0 }
+        required: { type: integer, minimum: 0 }
+        percent: { type: number, minimum: 0, maximum: 100 }
+        requirement_met: { type: boolean }
+    StudentProgress:
+      type: object
+      required: [class_id, class_code, class_name, class_status, enrollment_status, course_id, course_code, course_name, sessions, attendance, competencies, assessments, overall_progress_pct, completion_status]
+      properties:
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        class_status: { $ref: "#/components/schemas/ClassStatus" }
+        enrollment_status: { $ref: "#/components/schemas/EnrollmentStatus" }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        sessions: { $ref: "#/components/schemas/SessionProgressComponent" }
+        attendance: { $ref: "#/components/schemas/AttendanceProgressComponent" }
+        competencies: { $ref: "#/components/schemas/CompetencyProgressComponent" }
+        assessments: { $ref: "#/components/schemas/AssessmentProgressComponent" }
+        overall_progress_pct: { type: number, minimum: 0, maximum: 100 }
+        completion_status: { $ref: "#/components/schemas/CompletionStatus" }
+    ProgressDashboardSummary:
+      type: object
+      required: [classes, eligible_classes, average_progress_pct]
+      properties:
+        classes: { type: integer, minimum: 0 }
+        eligible_classes: { type: integer, minimum: 0 }
+        average_progress_pct: { type: number, minimum: 0, maximum: 100 }
+    ProgressDashboard:
+      type: object
+      required: [items, summary]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/StudentProgress" }
+        summary: { $ref: "#/components/schemas/ProgressDashboardSummary" }
+    ProgressDashboardResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/ProgressDashboard" }
         message: { type: string }
 
     ErrorResponse:
