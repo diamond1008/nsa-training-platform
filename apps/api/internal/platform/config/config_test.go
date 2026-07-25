@@ -11,9 +11,17 @@ func clearEnv(t *testing.T) {
 	for _, k := range []string{
 		"APP_ENV", "API_PORT", "DATABASE_URL", "LOG_LEVEL",
 		"CORS_ALLOWED_ORIGINS", "SHUTDOWN_TIMEOUT_SECONDS", "OPENAPI_PATH",
+		"JWT_ACCESS_SECRET", "ACCESS_TOKEN_TTL_MINUTES", "REFRESH_TOKEN_TTL_DAYS", "BCRYPT_COST",
 	} {
 		t.Setenv(k, "")
 	}
+}
+
+// setRequiredEnv sets the minimum variables for a successful Load().
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://x:x@localhost:5432/x")
+	t.Setenv("JWT_ACCESS_SECRET", "test-secret-that-is-long-enough-32+")
 }
 
 func TestLoad_RequiresDatabaseURL(t *testing.T) {
@@ -24,9 +32,30 @@ func TestLoad_RequiresDatabaseURL(t *testing.T) {
 	}
 }
 
-func TestLoad_Defaults(t *testing.T) {
+func TestLoad_RequiresJWTSecret(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("DATABASE_URL", "postgres://x:x@localhost:5432/x")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "JWT_ACCESS_SECRET") {
+		t.Fatalf("expected JWT_ACCESS_SECRET error, got %v", err)
+	}
+}
+
+func TestLoad_RejectsShortJWTSecret(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("DATABASE_URL", "postgres://x:x@localhost:5432/x")
+	t.Setenv("JWT_ACCESS_SECRET", "too-short")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "JWT_ACCESS_SECRET") {
+		t.Fatalf("expected JWT_ACCESS_SECRET length error, got %v", err)
+	}
+}
+
+func TestLoad_Defaults(t *testing.T) {
+	clearEnv(t)
+	setRequiredEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -47,11 +76,20 @@ func TestLoad_Defaults(t *testing.T) {
 	if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "http://localhost:5173" {
 		t.Errorf("CORSAllowedOrigins = %v", cfg.CORSAllowedOrigins)
 	}
+	if cfg.AccessTokenTTL.Minutes() != 15 {
+		t.Errorf("AccessTokenTTL = %v, want 15m", cfg.AccessTokenTTL)
+	}
+	if cfg.RefreshTokenTTLDays != 30 {
+		t.Errorf("RefreshTokenTTLDays = %d, want 30", cfg.RefreshTokenTTLDays)
+	}
+	if cfg.BcryptCost != 10 {
+		t.Errorf("BcryptCost = %d, want 10", cfg.BcryptCost)
+	}
 }
 
 func TestLoad_RejectsInvalidEnv(t *testing.T) {
 	clearEnv(t)
-	t.Setenv("DATABASE_URL", "postgres://x:x@localhost:5432/x")
+	setRequiredEnv(t)
 	t.Setenv("APP_ENV", "mars")
 
 	_, err := Load()
@@ -62,10 +100,12 @@ func TestLoad_RejectsInvalidEnv(t *testing.T) {
 
 func TestLoad_ParsesOverrides(t *testing.T) {
 	clearEnv(t)
-	t.Setenv("DATABASE_URL", "postgres://x:x@localhost:5432/x")
+	setRequiredEnv(t)
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("API_PORT", "9090")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://a.example, https://b.example")
+	t.Setenv("ACCESS_TOKEN_TTL_MINUTES", "30")
+	t.Setenv("BCRYPT_COST", "12")
 
 	cfg, err := Load()
 	if err != nil {
@@ -76,5 +116,11 @@ func TestLoad_ParsesOverrides(t *testing.T) {
 	}
 	if len(cfg.CORSAllowedOrigins) != 2 {
 		t.Errorf("CORSAllowedOrigins = %v", cfg.CORSAllowedOrigins)
+	}
+	if cfg.AccessTokenTTL.Minutes() != 30 {
+		t.Errorf("AccessTokenTTL = %v, want 30m", cfg.AccessTokenTTL)
+	}
+	if cfg.BcryptCost != 12 {
+		t.Errorf("BcryptCost = %d, want 12", cfg.BcryptCost)
 	}
 }

@@ -18,9 +18,15 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 2 — `/health`, `/ready`, `/docs` and
-    `/openapi.yaml` are live (unversioned operational endpoints).
-    Business endpoints mount under `/api/v1` from Phase 3 onwards.
+    **Implementation status:** Phase 3 — `/health`, `/ready`, `/docs`,
+    `/openapi.yaml` and the `/api/v1/auth/*` group are live.
+    Admin/teacher/student groups arrive in Phases 4–7.
+
+    **Authentication:** `POST /api/v1/auth/login` returns a short-lived JWT
+    access token (use as `Authorization: Bearer <token>`) and sets an
+    HttpOnly `nsa_refresh` cookie (path `/api/v1/auth`) used by
+    `/auth/refresh` and `/auth/logout`. Refresh tokens rotate on every use;
+    reuse of a revoked token revokes the entire session family.
 
 servers:
   - url: http://localhost:8080
@@ -86,6 +92,140 @@ paths:
                   message: Database is not reachable
                   details: []
 
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with email and password
+      description: Rate-limited (10 req/min per IP). Invalid credentials always return the same generic 401 (no user enumeration).
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful. Refresh token is set as an HttpOnly cookie.
+          headers:
+            Set-Cookie:
+              description: "nsa_refresh=<opaque>; Path=/api/v1/auth; HttpOnly; SameSite=Lax (Secure outside development)"
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenBundleResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Invalid credentials (generic)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                error: { code: INVALID_CREDENTIALS, message: "Invalid email or password" }
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate the refresh token and get a new access token
+      description: Reads the `nsa_refresh` HttpOnly cookie. Rotates the token on every call; presenting a revoked token revokes the whole session family.
+      operationId: refresh
+      security: []
+      responses:
+        "200":
+          description: New token bundle issued
+          headers:
+            Set-Cookie:
+              description: Rotated nsa_refresh cookie
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenBundleResponse"
+        "401":
+          description: Refresh token missing/invalid/expired/revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                error: { code: INVALID_REFRESH_TOKEN, message: "Refresh token is invalid or expired" }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Log out (revoke the refresh token)
+      operationId: logout
+      security: []
+      responses:
+        "200":
+          description: Logged out (idempotent); refresh cookie cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /api/v1/auth/change-password:
+    post:
+      tags: [auth]
+      summary: Change the current user's password
+      description: Requires a valid access token. On success all refresh tokens are revoked (re-login required). New password must be at least 8 characters.
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed; all sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: WRONG_CURRENT_PASSWORD or WEAK_PASSWORD
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Get the authenticated user's profile
+      operationId: getMe
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, message]
+                properties:
+                  data: { $ref: "#/components/schemas/UserInfo" }
+                  message: { type: string, example: Success }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -95,6 +235,64 @@ components:
       description: Short-lived access token (Phase 3). Refresh token is an HttpOnly cookie.
 
   schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: admin@nsa.local }
+        password: { type: string, format: password, example: NsaDemo@123 }
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string, format: password }
+        new_password: { type: string, format: password, minLength: 8 }
+
+    ProfileRef:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: STU-DEMO-001 }
+        full_name: { type: string, example: Demo Student }
+
+    UserInfo:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, example: admin@nsa.local }
+        roles:
+          type: array
+          items: { type: string, enum: [ADMIN, TEACHER, STUDENT] }
+          example: [ADMIN]
+        must_change_password: { type: boolean, example: false }
+        student_profile: { $ref: "#/components/schemas/ProfileRef" }
+        teacher_profile: { $ref: "#/components/schemas/ProfileRef" }
+
+    TokenBundleResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          properties:
+            access_token: { type: string }
+            token_type: { type: string, example: Bearer }
+            access_expires_at: { type: string, format: date-time }
+            must_change_password: { type: boolean }
+            user: { $ref: "#/components/schemas/UserInfo" }
+        message: { type: string, example: Success }
+
+    MessageResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          properties:
+            message: { type: string, example: "Logged out" }
+        message: { type: string, example: Success }
+
     HealthResponse:
       type: object
       required: [data, message]

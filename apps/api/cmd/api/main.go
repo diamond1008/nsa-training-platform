@@ -15,13 +15,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/go-chi/httprate"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/config"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/database"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/docs"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/health"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/logging"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/middleware"
+	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
 func main() {
@@ -56,6 +59,17 @@ func run() error {
 	healthHandler := health.NewHandler(pool)
 	docsHandler := docs.NewHandler(cfg.OpenAPIPath)
 
+	// Authentication (Phase 3).
+	tokenService, err := auth.NewTokenService(cfg.JWTAccessSecret, cfg.AccessTokenTTL)
+	if err != nil {
+		return fmt.Errorf("token service: %w", err)
+	}
+	authService, err := auth.NewService(db.New(pool), tokenService, cfg.RefreshTokenTTLDays, cfg.BcryptCost, log)
+	if err != nil {
+		return fmt.Errorf("auth service: %w", err)
+	}
+	authHandler := auth.NewHandler(authService, log, cfg.Env != "development")
+
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -78,7 +92,22 @@ func run() error {
 	r.Get("/docs", docsHandler.SwaggerUI)
 	r.Get("/openapi.yaml", docsHandler.OpenAPISpec)
 
-	// Business API mounts here from Phase 3+: r.Route("/api/v1", ...)
+	// Business API (versioned).
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Route("/auth", func(r chi.Router) {
+			// Brute-force protection on credential endpoints (in-memory, per IP).
+			r.With(httprate.LimitByIP(10, time.Minute)).Post("/login", authHandler.Login)
+			r.With(httprate.LimitByIP(20, time.Minute)).Post("/refresh", authHandler.Refresh)
+			r.Post("/logout", authHandler.Logout)
+
+			// Requires a valid access token.
+			r.Group(func(r chi.Router) {
+				r.Use(auth.Authenticate(tokenService))
+				r.Post("/change-password", authHandler.ChangePassword)
+				r.Get("/me", authHandler.Me)
+			})
+		})
+	})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

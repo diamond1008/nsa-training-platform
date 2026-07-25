@@ -6,7 +6,11 @@
 
 # ---------- Build stage ----------
 FROM golang:1.26-alpine AS build
-WORKDIR /src
+WORKDIR /src/apps/api
+
+# sqlc-generated module lives outside apps/api (go.mod replace directive).
+# Copy it first so `go mod download` can resolve the local replace.
+COPY database/generated/ /src/database/generated/
 
 # Download dependencies first for better layer caching.
 COPY apps/api/go.mod apps/api/go.sum ./

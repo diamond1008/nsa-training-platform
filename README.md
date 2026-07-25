@@ -6,14 +6,14 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 2 — Go API foundation (completed, pending review)**
+**Current phase: Phase 3 — Authentication and RBAC (completed, pending review)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
 | 0 | Repository audit and bootstrap | ✅ Completed (commit 28f4d25) |
 | 1 | Local infrastructure and database | ✅ Completed (commit e7f8505) |
-| 2 | Go API foundation | ✅ Completed (pending review) |
-| 3 | Authentication and RBAC | ⬜ Not started |
+| 2 | Go API foundation | ✅ Completed (commit bc20225) |
+| 3 | Authentication and RBAC | ✅ Completed (pending review) |
 | 4 | Academic core management | ⬜ Not started |
 | 5 | Scheduling | ⬜ Not started |
 | 6 | Attendance | ⬜ Not started |
@@ -23,6 +23,69 @@ Training management platform for an automotive vocational training center. It ma
 | 10 | Quality, CI, deployment readiness | ⬜ Not started |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
+
+## Quick Start (Run Locally)
+
+**Every time you start working** (in the repo root):
+
+```powershell
+make db-up        # 1. Start PostgreSQL 16 (Docker container)
+make migrate-up   # 2. Apply the schema (needed on first run / after new migrations)
+make db-seed      # 3. Load demo accounts (dev only, safe to re-run)
+make api-run      # 4. Start the API at http://localhost:8080
+```
+
+Stop: `Ctrl+C` in the API terminal, then `make db-down` to stop the database.
+
+**First-time on a new machine:** `make setup` (creates `.env` from `.env.example`).
+
+## Open Swagger UI (API Documentation)
+
+- **Option A — built into the API:** run `make api-run`, then open **http://localhost:8080/docs**
+- **Option B — standalone container:** run `make swagger`, then open **http://localhost:8081**
+
+## Demo Accounts (DEV ONLY)
+
+| Email | Password | Role |
+| ----- | -------- | ---- |
+| `admin@nsa.local` | `NsaDemo@123` | ADMIN |
+| `teacher@nsa.local` | `NsaDemo@123` | TEACHER |
+| `student@nsa.local` | `NsaDemo@123` | STUDENT |
+
+**Log in via Swagger UI:**
+
+1. Open http://localhost:8080/docs
+2. Expand `POST /api/v1/auth/login` → click **Try it out**
+3. Body: `{"email": "admin@nsa.local", "password": "NsaDemo@123"}` → **Execute**
+4. Copy the `access_token` value from the response body
+5. Click **Authorize** (top of page) → paste the token → **Authorize** → Close
+6. Call `GET /api/v1/auth/me` → it returns your profile and roles
+
+**Log in via curl (PowerShell):**
+
+```powershell
+curl.exe -s -X POST http://localhost:8080/api/v1/auth/login -H "Content-Type: application/json" -d '{\"email\":\"admin@nsa.local\",\"password\":\"NsaDemo@123\"}'
+```
+
+The response contains `data.access_token` — send it as `Authorization: Bearer <token>` on protected endpoints. The refresh token arrives automatically as an HttpOnly cookie (`nsa_refresh`).
+
+## View the Database with pgAdmin 4
+
+pgAdmin 4 is installed on this machine (via winget). Connect it to the local Docker database:
+
+1. Start the database first: `make db-up`
+2. Open **pgAdmin 4** (Start Menu). On first launch it asks for a **master password** — this protects pgAdmin itself; pick anything memorable (it is NOT the database password).
+3. Right-click **Servers** → **Create** → **Server…**
+4. **General** tab: Name = `NSA Local`
+5. **Connection** tab:
+   - Host name/address: `localhost`
+   - Port: `5432`
+   - Maintenance database: `nsa_training`
+   - Username: `nsa`
+   - Password: `change-me-local-only` (value of `POSTGRES_PASSWORD` in `.env`)
+   - Enable **Save password** (dev convenience)
+6. **Save**, then browse: `Servers → NSA Local → Databases → nsa_training → Schemas → public → Tables`
+7. To see rows: right-click a table (e.g. `users`, `roles`, `student_profiles`) → **View/Edit Data → All Rows**
 
 ## Implemented Features
 
@@ -34,7 +97,10 @@ See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 - **Go API foundation (`apps/api`):** Chi router, env config (godotenv), pgxpool (pool tuning + ping), slog structured logging, middleware (RequestID, RealIP, request logging, recovery, timeout, CORS), standard success/error envelopes
 - **Operational endpoints:** `GET /health` (liveness), `GET /ready` (readiness incl. DB), graceful shutdown on SIGINT/SIGTERM (verified in container)
 - **API Docker image:** multi-stage `apps/api/Dockerfile` → `nsa-api` (build from repo root)
-- Business endpoints (auth, admin, teacher, student): not started (Phase 3+)
+- **Authentication (`POST /api/v1/auth/*`):** login, refresh (rotation + reuse detection), logout, change-password (revokes all sessions), me — JWT access tokens (HS256) + opaque refresh tokens (SHA-256 hashed in DB, HttpOnly cookie)
+- **Security:** bcrypt passwords, generic 401 on bad credentials (no user enumeration), per-IP rate limiting on login/refresh, request body limits, RBAC middleware (`Authenticate`, `RequireRole`), ownership/assignment helpers
+- **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
+- Admin/teacher/student business endpoints: not started (Phase 4+)
 
 ## Technology Stack
 
@@ -104,7 +170,7 @@ See `.env.example` for the full annotated list. Key groups:
 - `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` — local database container
 - `DATABASE_URL` — full connection string used by the API and Goose
 - `API_PORT`, `APP_ENV`, `LOG_LEVEL`, `CORS_ALLOWED_ORIGINS` — API runtime
-- `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, token TTLs, `BCRYPT_COST` — authentication (Phase 3)
+- `JWT_ACCESS_SECRET`, token TTLs, `BCRYPT_COST` — authentication (refresh tokens are opaque; no refresh secret needed)
 - `VITE_API_BASE_URL` — web app → API base URL (Phase 8)
 
 **Never commit `.env` or any real secrets.**
@@ -139,19 +205,22 @@ PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 | Build binary | `make api-build` | `cd apps/api; go build -o bin/api.exe ./cmd/api` |
 | Build Docker image | — | `docker build -f apps/api/Dockerfile -t nsa-api .` |
 
-Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready`.
+Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*`.
+
+Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"NsaDemo@123"}` (after `make db-seed`) → use the returned `access_token` as `Authorization: Bearer <token>` for `GET /api/v1/auth/me`.
 
 ## Testing Commands
 
 | Scope | Make | Plain CLI |
 | ----- | ---- | --------- |
-| API tests | `make api-test` | `cd apps/api; go test ./...` |
+| API unit tests | `make api-test` | `cd apps/api; go test ./...` |
+| API + DB integration tests | `make api-test-integration` | needs `make db-test-migrate` first |
 | Web tests (Phase 8+) | `make web-test` | `cd apps/web; npm run test` |
 | All checks for current phase | `make check` | — |
 
 ## Current Limitations
 
-- No business endpoints yet (authentication/RBAC arrives in Phase 3).
+- No admin/teacher/student business endpoints yet (Phase 4+); rate limiting is in-memory per instance (fine for single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
 - Web app starts in Phase 8; CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.

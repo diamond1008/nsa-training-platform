@@ -1,74 +1,76 @@
 # AI Context
 
 ## Current Phase
-- Phase 2 — Go API foundation
+- Phase 3 — Authentication and RBAC
 - Status: completed (pending user review)
 
 ## Completed
-- Phase 0 (28f4d25, pushed): repo structure, root configs, docs
-- Phase 1 (e7f8505, pushed): PostgreSQL 16 compose, Goose baseline migration 00001 (v1.2, reversible), dev seeds, swagger-ui container, schema.dbml, openapi.yaml skeleton
-- Phase 2: Go module `github.com/diamond1008/nsa-training-platform/apps/api`
-  - platform/config (env + godotenv; DATABASE_URL required; APP_ENV validated)
-  - platform/logging (slog: text dev / JSON prod)
-  - platform/response (success/error envelopes; InternalError never leaks internals)
-  - platform/database (pgxpool: MaxConns 10, lifetimes, health checks, bounded ping)
-  - platform/middleware (slog RequestLog; chi RequestID/RealIP/Recoverer/Timeout; go-chi/cors)
-  - platform/health (GET /health liveness; GET /ready readiness with Pinger interface for stub tests)
-  - platform/docs (GET /docs Swagger UI via CDN; GET /openapi.yaml serves docs/openapi.yaml from OPENAPI_PATH)
-  - cmd/api/main.go (wiring, timeouts, graceful shutdown on SIGINT/SIGTERM)
-  - Unit tests: config (4), response (3), health (3) — all pass; go vet clean; go build OK
-  - apps/api/Dockerfile (multi-stage golang:1.26-alpine → alpine:3.21, non-root user, HEALTHCHECK) + root .dockerignore
-  - Validated in container: /health 200, /ready 200 (DB via docker network), /docs 200, /openapi.yaml 200, graceful shutdown logged ("server stopped gracefully")
-- Dependencies added: go-chi/chi/v5 v5.3.1, go-chi/cors v1.2.2, jackc/pgx/v5 v5.10.0, joho/godotenv v1.5.1
+- Phase 0 (28f4d25, pushed): repo structure, configs, docs
+- Phase 1 (e7f8505, pushed): PostgreSQL 16 compose, Goose baseline 00001, dev seeds, swagger-ui, schema.dbml
+- Phase 2 (bc20225, pushed): Go API foundation (Chi, config, pgxpool, slog, middleware, health/ready, docs, Dockerfile)
+- Phase 3 — Authentication & RBAC:
+  - sqlc v1.31.1: sqlc.yaml (schema=database/migrations works with goose files), queries in database/queries/{auth,authorization}.sql, output database/generated (own go.mod; apps/api links via `replace`)
+  - auth module (apps/api/internal/auth): password.go (bcrypt), tokens.go (JWT HS256 access tokens, secret min 32B), refresh.go (opaque 256-bit tokens, SHA-256 hash storage), service.go (Login/Refresh/Logout/ChangePassword/Me use cases + sentinel domain errors), middleware.go (Authenticate, RequireRole, ClaimsFrom/UserIDFrom), handler.go (thin handlers, 1MB body limit, HttpOnly nsa_refresh cookie path=/api/v1/auth, Secure outside dev, SameSite=Lax), authorize.go (RoleAdmin/Teacher/Student, IsSelf, OwnsStudentProfile, IsAssignedTeacher)
+  - Refresh token ROTATION on every use; reuse of a revoked token revokes the whole family (theft detection)
+  - Rate limiting: httprate in-memory per-IP — 10/min login, 20/min refresh
+  - Config: JWT_ACCESS_SECRET (required, ≥32 chars), ACCESS_TOKEN_TTL_MINUTES (15), REFRESH_TOKEN_TTL_DAYS (30), BCRYPT_COST (10)
+  - Routes: POST /api/v1/auth/{login,refresh,logout} public; POST change-password + GET me behind Authenticate
+  - Tests: unit (password/tokens/refresh/middleware — 15 tests) + integration (6 tests vs real nsa_training_test DB: login, generic 401 no-enumeration, rotation+reuse family revoke, logout revoke, change-password flow, me); ALL PASS
+  - Makefile: db-test-create/db-test-migrate (idempotent via psql \gexec stdin), api-test-integration (target-specific env export)
+  - Dockerfile updated for the replace layout (copies database/generated); docker build verified
+  - Manual verification with demo accounts: login admin@nsa.local OK (roles=ADMIN), /me OK, wrong password → 401 INVALID_CREDENTIALS, cookie flags HttpOnly+SameSite=Lax OK
+- Dependencies added: golang-jwt/jwt/v5 v5.3.1, go-chi/httprate v0.16.0, golang.org/x/crypto v0.54.0, sqlc-dev/sqlc v1.31.1 (CLI tool)
 
 ## In Progress
-- Nothing — waiting for user approval to start Phase 3.
+- Nothing — waiting for user approval to start Phase 4.
 
 ## Next
-- Phase 3 — Authentication and RBAC: user repository + sqlc (create sqlc.yaml + first queries in database/queries), bcrypt password hashing, login/refresh/logout/change-password/me endpoints under /api/v1/auth, access+refresh tokens (refresh in HttpOnly cookie, hashed in DB, rotated), RBAC middleware, ownership/assignment helpers, tests, OpenAPI update.
+- Phase 4 — Academic core management (Admin): students, teachers, courses, course modules, competency criteria, classes, student enrollment (capacity-safe), teacher assignment; command/query use cases with pagination; audit logs; integration tests; OpenAPI update.
 
 ## Architecture Decisions
-- Modular monolith; vertical slices per business module under apps/api/internal/<module>; shared infra only under internal/platform. No root-level controllers/services/repositories/models folders.
-- Operational endpoints are UNVERSIONED (/health, /ready, /docs, /openapi.yaml); business API mounts under /api/v1 (Phase 3+).
-- sqlc generated Go code IS committed to database/generated; sqlc.yaml arrives with first real queries (Phase 3).
-- Schema source of truth = versioned Goose migrations; database/schema.dbml updated on schema change.
-- docs/openapi.yaml is the API contract source of truth; API serves it at /openapi.yaml (OPENAPI_PATH env; container copies to /app/docs/openapi.yaml). Swagger UI page uses CDN assets; containerized swagger-ui (port 8081) is the offline alternative.
-- godotenv added for DX (plain `go run` reads .env); make api-run also exports .env. Real env vars always win.
-- Demo seed data lives OUTSIDE migrations (database/seeds/dev.sql); roles seed ships inside baseline migration.
-- All repo docs in English; chat bilingual VI/EN. UTC in DB; Asia/Saigon at presentation layer.
+- Modular monolith; vertical slices under apps/api/internal/<module>; shared infra in internal/platform.
+- Operational endpoints UNVERSIONED (/health,/ready,/docs,/openapi.yaml); business API under /api/v1.
+- sqlc generated code committed in database/generated as its OWN Go module; apps/api uses `replace ../../database/generated` (Dockerfile copies both paths).
+- Refresh tokens are OPAQUE (not JWT): only SHA-256 hash stored; rotation per use; reuse revokes family. Access tokens are JWT HS256 with roles claim.
+- Generic 401 INVALID_CREDENTIALS for all login failures (no user enumeration).
+- Integration tests use a dedicated DB (nsa_training_test) in the same postgres container, gated by NSA_TEST_DATABASE_URL (skipped when unset). Testcontainers deferred to Phase 10 (documented decision: current approach is sufficient and simpler).
+- Rate limiting in-memory per instance (no Redis, per MVP scope).
+- Schema source of truth = Goose migrations; DBML updated on schema change. No schema change in Phase 3.
+- UTC in DB; Asia/Saigon at presentation layer. Repo docs in English; chat bilingual VI/EN.
 
 ## Important Commands
-- Local startup: `make setup` (once), `make db-up`, `make migrate-up`, `make db-seed` (optional), `make api-run`
+- Local startup: `make setup` (once), `make db-up`, `make migrate-up`, `make db-seed`, `make api-run`
+- Code generation: `sqlc generate` (repo root) after editing database/queries/*.sql
+- Tests: `make api-test` (unit), `make db-test-migrate` then `make api-test-integration` (all incl. DB)
 - Docs: API Swagger UI http://localhost:8080/docs (or `make swagger` → :8081)
-- Migration: `make migrate-up|down|status|create name=<snake_case>`; DB shell: `make db-psql`; reset: `make db-reset`
-- Tests/checks: `make api-test`, `make api-vet`, `make check`
-- Build: `make api-build`; image: `docker build -f apps/api/Dockerfile -t nsa-api .` (from repo root)
+- Migration: `make migrate-up|down|status|create name=<snake_case>`; `make db-psql`; `make db-reset`
+- Build: `make api-build`; image: `docker build -f apps/api/Dockerfile -t nsa-api .`
 
 ## Key Files
-- apps/api/cmd/api/main.go — entrypoint, middleware chain, graceful shutdown
-- apps/api/internal/platform/{config,logging,response,database,middleware,health,docs}/ — foundation packages
-- apps/api/Dockerfile — multi-stage API image (build context = repo root)
-- compose.yaml — postgres + swagger-ui; database/migrations/00001_baseline_schema.sql — baseline v1.2
-- database/seeds/dev.sql — DEV-ONLY demo accounts; database/schema.dbml — ERD; docs/openapi.yaml — API contract
-- Makefile — canonical commands; .env (untracked) holds real local secrets
+- apps/api/internal/auth/{password,tokens,refresh,service,middleware,handler,authorize}.go — auth module
+- apps/api/internal/auth/*_test.go — unit + integration tests
+- database/queries/{auth,authorization}.sql — sqlc queries; database/generated/ — committed generated code (+go.mod)
+- sqlc.yaml — sqlc config; apps/api/cmd/api/main.go — wiring (auth routes, rate limits)
+- apps/api/internal/platform/config/config.go — JWT/bcrypt config; Makefile — db-test-* + api-test-integration
+- docs/openapi.yaml — contract (auth group documented)
 
 ## Known Issues / Deferred Work
-- Swagger UI page needs internet (CDN assets); offline → `make swagger` container instead.
-- sqlc.yaml not created (Phase 3); no auth/business endpoints yet; web app Phase 8; CI/Caddy/Playwright Phase 10.
-- api-run via make requires .env present (documented in README).
+- Rate limiting in-memory (single-instance only; distributed limiter would need Redis — out of MVP scope).
+- Testcontainers deferred to Phase 10 (dedicated test DB approach used instead).
+- Web app Phase 8; CI/Caddy/Playwright Phase 10. Audit log table exists but no audit writes yet (Phase 4).
 
 ## Database State
-- Latest migration: 00001_baseline_schema.sql (applied, reversible)
+- Latest migration: 00001_baseline_schema.sql (unchanged this phase)
 - Seed/demo: roles via migration; demo admin/teacher/student@nsa.local (pw NsaDemo@123) via `make db-seed` (loaded locally)
-- Local DB: nsa_training @ localhost:5432 (container nsa-postgres, healthy, volume nsa_pgdata)
+- Test DB: nsa_training_test (migrated, used by api-test-integration)
+- Local DB: nsa_training @ localhost:5432 (container nsa-postgres, healthy)
 
 ## API State
-- Implemented: GET /health (200), GET /ready (200/503), GET /docs (Swagger UI), GET /openapi.yaml
-- Business endpoint groups: none (Phase 3: /api/v1/auth)
-- OpenAPI status: skeleton current for Phase 2 contract; update required per phase
+- Implemented: /health, /ready, /docs, /openapi.yaml; POST /api/v1/auth/{login,refresh,logout}, POST /api/v1/auth/change-password, GET /api/v1/auth/me
+- OpenAPI status: current for Phase 3 (auth group + schemas documented)
 
 ## Git State
-- Current branch: main (origin/main up to date at e7f8505)
-- Uncommitted changes: Phase 2 files — apps/api/** (go.mod, go.sum, cmd, internal, Dockerfile), .dockerignore, docs/openapi.yaml (edited), README.md, docs/AI_CONTEXT.md; deleted several .gitkeep under apps/api
-- Last commit: e7f8505 "chore(infra): configure local PostgreSQL environment" (PUSHED)
+- Current branch: main (origin/main at bc20225)
+- Uncommitted changes: Phase 3 files — apps/api/internal/auth/**, database/queries/**, database/generated/** (+go.mod), sqlc.yaml, Makefile, .env.example, apps/api/Dockerfile, apps/api/cmd/api/main.go, config (+test), docs/openapi.yaml, README.md, docs/AI_CONTEXT.md
+- Last commit: bc20225 "feat(api): add production-oriented service foundation" (PUSHED)
 - Explicit statement: "Do not commit without user permission"

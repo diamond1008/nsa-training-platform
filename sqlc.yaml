@@ -1,0 +1,15 @@
+# sqlc configuration — generates type-safe Go from database/queries/*.sql.
+# Regenerate:  sqlc generate   (from repository root)
+# Schema source: Goose migrations (the database source of truth).
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "database/migrations"
+    queries: "database/queries"
+    gen:
+      go:
+        package: "db"
+        out: "database/generated"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_empty_slices: true

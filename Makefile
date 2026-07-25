@@ -30,7 +30,8 @@ WEB_DIR        := apps/web
 
 .PHONY: help setup db-up db-down db-logs db-psql db-reset db-seed \
 	migrate-up migrate-down migrate-status migrate-create \
-	api-run api-test api-build api-vet \
+	db-test-create db-test-migrate \
+	api-run api-test api-test-integration api-build api-vet \
 	web-install web-dev web-test web-build swagger check
 
 # ---------- Help ----------
@@ -47,6 +48,8 @@ help: ## Show this help
 	@echo   migrate-down     Roll back the last migration
 	@echo   migrate-status   Show migration status
 	@echo   migrate-create   Create a new migration: make migrate-create name=add_x
+	@echo   db-test-migrate  Create + migrate the integration test database
+	@echo   api-test-integration  Run API tests incl. DB integration tests
 	@echo   api-run          Run the Go API locally
 	@echo   api-test         Run API tests
 	@echo   api-build        Build the API binary
@@ -100,11 +103,22 @@ migrate-status: ## Show migration status
 migrate-create: ## Create migration: make migrate-create name=add_users
 	$(GOOSE) -dir $(MIGRATIONS_DIR) create $(name) sql
 
+# ---------- Test database (integration tests) ----------
+db-test-create: ## Create nsa_training_test if it does not exist
+	echo SELECT 'CREATE DATABASE nsa_training_test' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='nsa_training_test')\gexec | docker compose exec -T postgres psql -U $(POSTGRES_USER) -d postgres
+
+db-test-migrate: db-test-create ## Migrate the test database to latest
+	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/nsa_training_test?sslmode=disable" up
+
 # ---------- API (Phase 2) ----------
 api-run:
 	cd $(API_DIR) && go run ./cmd/api
 
 api-test:
+	cd $(API_DIR) && go test ./...
+
+api-test-integration: export NSA_TEST_DATABASE_URL=postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/nsa_training_test?sslmode=disable
+api-test-integration: ## Run API tests including DB integration tests (needs db-test-migrate first)
 	cd $(API_DIR) && go test ./...
 
 api-build:
