@@ -70,7 +70,7 @@
 - OpenAPI status: current for Phase 3 (auth group + schemas documented)
 
 ## Git State
-- Current branch: main (origin/main at bc20225)
-- Uncommitted changes: Phase 3 files — apps/api/internal/auth/**, database/queries/**, database/generated/** (+go.mod), sqlc.yaml, Makefile, .env.example, apps/api/Dockerfile, apps/api/cmd/api/main.go, config (+test), docs/openapi.yaml, README.md, docs/AI_CONTEXT.md
-- Last commit: bc20225 "feat(api): add production-oriented service foundation" (PUSHED)
+- Current branch: main (ahead of origin/main by 1 — NOT pushed per user instruction)
+- Uncommitted changes: this file's Git State sync (fold into any next commit)
+- Last commit: c5b553a "feat(api): implement authentication and RBAC" (LOCAL ONLY — not pushed)
 - Explicit statement: "Do not commit without user permission"
