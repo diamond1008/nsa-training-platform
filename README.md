@@ -6,15 +6,15 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 3 — Authentication and RBAC (completed, pending review)**
+**Current phase: Phase 4 — Academic Core Management (completed, pending review)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
 | 0 | Repository audit and bootstrap | ✅ Completed (commit 28f4d25) |
 | 1 | Local infrastructure and database | ✅ Completed (commit e7f8505) |
 | 2 | Go API foundation | ✅ Completed (commit bc20225) |
-| 3 | Authentication and RBAC | ✅ Completed (pending review) |
-| 4 | Academic core management | ⬜ Not started |
+| 3 | Authentication and RBAC | ✅ Completed (commit c5b553a) |
+| 4 | Academic core management | ✅ Completed (pending review) |
 | 5 | Scheduling | ⬜ Not started |
 | 6 | Attendance | ⬜ Not started |
 | 7 | Skill assessment and progress | ⬜ Not started |
@@ -99,8 +99,11 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **API Docker image:** multi-stage `apps/api/Dockerfile` → `nsa-api` (build from repo root)
 - **Authentication (`POST /api/v1/auth/*`):** login, refresh (rotation + reuse detection), logout, change-password (revokes all sessions), me — JWT access tokens (HS256) + opaque refresh tokens (SHA-256 hashed in DB, HttpOnly cookie)
 - **Security:** bcrypt passwords, generic 401 on bad credentials (no user enumeration), per-IP rate limiting on login/refresh, request body limits, RBAC middleware (`Authenticate`, `RequireRole`), ownership/assignment helpers
+- **Academic core administration (`/api/v1/admin/*`):** create/list/detail/update students and teachers (account + role + profile transaction), courses, ordered modules, competency criteria, and classes
+- **Class relationships:** capacity-safe student enrollment with lifecycle status, active-account checks and duplicate prevention; teacher assignment with role update/removal and relationship validation
+- **Administration safeguards:** every Phase 4 route requires `ADMIN`; list endpoints use search/status filters and bounded pagination; important writes create audit logs in the same transaction
 - **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
-- Admin/teacher/student business endpoints: not started (Phase 4+)
+- Teacher and student self-service business endpoints: not started (Phase 5+)
 
 ## Technology Stack
 
@@ -205,7 +208,7 @@ PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 | Build binary | `make api-build` | `cd apps/api; go build -o bin/api.exe ./cmd/api` |
 | Build Docker image | — | `docker build -f apps/api/Dockerfile -t nsa-api .` |
 
-Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*`.
+Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*` — academic administration `/api/v1/admin/*`.
 
 Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"NsaDemo@123"}` (after `make db-seed`) → use the returned `access_token` as `Authorization: Bearer <token>` for `GET /api/v1/auth/me`.
 
@@ -220,7 +223,7 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 ## Current Limitations
 
-- No admin/teacher/student business endpoints yet (Phase 4+); rate limiting is in-memory per instance (fine for single-instance MVP).
+- No schedule, attendance, assessment, progress, or teacher/student self-service endpoints yet (Phases 5–7); rate limiting is in-memory per instance (fine for single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
 - Web app starts in Phase 8; CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.

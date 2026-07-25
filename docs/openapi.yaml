@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "0.1.0"
+  version: "0.2.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -18,9 +18,9 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 3 — `/health`, `/ready`, `/docs`,
-    `/openapi.yaml` and the `/api/v1/auth/*` group are live.
-    Admin/teacher/student groups arrive in Phases 4–7.
+    **Implementation status:** Phase 4 — system probes, authentication/RBAC,
+    and the `/api/v1/admin/*` academic-core management group are live.
+    Teacher/student business groups arrive in Phases 5–7.
 
     **Authentication:** `POST /api/v1/auth/login` returns a short-lived JWT
     access token (use as `Authorization: Bearer <token>`) and sets an
@@ -226,6 +226,534 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
+  /api/v1/admin/students:
+    get:
+      tags: [admin]
+      summary: List students
+      operationId: listAdminStudents
+      parameters:
+        - { $ref: "#/components/parameters/Search" }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/StudentStatus" }
+      responses:
+        "200":
+          description: Paginated students
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a student account and profile
+      operationId: createAdminStudent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateStudentRequest" }
+      responses:
+        "201":
+          description: Student created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/students/{studentID}:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: Get a student
+      operationId: getAdminStudent
+      responses:
+        "200":
+          description: Student
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [admin]
+      summary: Replace student account and profile fields
+      operationId: updateAdminStudent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateStudentRequest" }
+      responses:
+        "200":
+          description: Student updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/teachers:
+    get:
+      tags: [admin]
+      summary: List teachers
+      operationId: listAdminTeachers
+      parameters:
+        - { $ref: "#/components/parameters/Search" }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/TeacherStatus" }
+      responses:
+        "200":
+          description: Paginated teachers
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a teacher account and profile
+      operationId: createAdminTeacher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTeacherRequest" }
+      responses:
+        "201":
+          description: Teacher created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/teachers/{teacherID}:
+    parameters:
+      - { $ref: "#/components/parameters/TeacherID" }
+    get:
+      tags: [admin]
+      summary: Get a teacher
+      operationId: getAdminTeacher
+      responses:
+        "200":
+          description: Teacher
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [admin]
+      summary: Replace teacher account and profile fields
+      operationId: updateAdminTeacher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTeacherRequest" }
+      responses:
+        "200":
+          description: Teacher updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses:
+    get:
+      tags: [admin]
+      summary: List courses
+      operationId: listAdminCourses
+      parameters:
+        - { $ref: "#/components/parameters/Search" }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/CourseStatus" }
+      responses:
+        "200":
+          description: Paginated courses
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a course
+      operationId: createAdminCourse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourseWriteRequest" }
+      responses:
+        "201":
+          description: Course created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses/{courseID}:
+    parameters:
+      - { $ref: "#/components/parameters/CourseID" }
+    get:
+      tags: [admin]
+      summary: Get a course
+      operationId: getAdminCourse
+      responses:
+        "200":
+          description: Course
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [admin]
+      summary: Replace course fields
+      operationId: updateAdminCourse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourseWriteRequest" }
+      responses:
+        "200":
+          description: Course updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses/{courseID}/modules:
+    parameters:
+      - { $ref: "#/components/parameters/CourseID" }
+    get:
+      tags: [admin]
+      summary: List course modules
+      operationId: listAdminCourseModules
+      responses:
+        "200":
+          description: Ordered modules
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModuleListResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      summary: Create a course module
+      operationId: createAdminCourseModule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModuleWriteRequest" }
+      responses:
+        "201":
+          description: Module created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModuleResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses/{courseID}/modules/{moduleID}:
+    parameters:
+      - { $ref: "#/components/parameters/CourseID" }
+      - { $ref: "#/components/parameters/ModuleID" }
+    put:
+      tags: [admin]
+      summary: Replace course module fields
+      operationId: updateAdminCourseModule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModuleWriteRequest" }
+      responses:
+        "200":
+          description: Module updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModuleResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses/{courseID}/competencies:
+    parameters:
+      - { $ref: "#/components/parameters/CourseID" }
+    get:
+      tags: [admin]
+      summary: List competency criteria
+      operationId: listAdminCompetencies
+      responses:
+        "200":
+          description: Ordered competency criteria
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompetencyListResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      summary: Create a competency criterion
+      operationId: createAdminCompetency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompetencyWriteRequest" }
+      responses:
+        "201":
+          description: Competency created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompetencyResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses/{courseID}/competencies/{criterionID}:
+    parameters:
+      - { $ref: "#/components/parameters/CourseID" }
+      - { $ref: "#/components/parameters/CriterionID" }
+    put:
+      tags: [admin]
+      summary: Replace competency criterion fields
+      operationId: updateAdminCompetency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompetencyWriteRequest" }
+      responses:
+        "200":
+          description: Competency updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompetencyResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/classes:
+    get:
+      tags: [admin]
+      summary: List classes
+      operationId: listAdminClasses
+      parameters:
+        - { $ref: "#/components/parameters/Search" }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/ClassStatus" }
+        - name: course_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Paginated classes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClassListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a class
+      operationId: createAdminClass
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClassWriteRequest" }
+      responses:
+        "201":
+          description: Class created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClassResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/classes/{classID}:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+    get:
+      tags: [admin]
+      summary: Get a class
+      operationId: getAdminClass
+      responses:
+        "200":
+          description: Class
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClassResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [admin]
+      summary: Replace class fields
+      operationId: updateAdminClass
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClassWriteRequest" }
+      responses:
+        "200":
+          description: Class updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClassResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/classes/{classID}/enrollments:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+    get:
+      tags: [admin]
+      summary: List class enrollments
+      operationId: listAdminClassEnrollments
+      responses:
+        "200":
+          description: Class enrollments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnrollmentListResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      summary: Enroll a student
+      operationId: createAdminClassEnrollment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnrollmentCreateRequest" }
+      responses:
+        "201":
+          description: Student enrolled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnrollmentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/classes/{classID}/enrollments/{enrollmentID}:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+      - { $ref: "#/components/parameters/EnrollmentID" }
+    put:
+      tags: [admin]
+      summary: Change enrollment status
+      operationId: updateAdminClassEnrollment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnrollmentUpdateRequest" }
+      responses:
+        "200":
+          description: Enrollment updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnrollmentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/classes/{classID}/teacher-assignments:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+    get:
+      tags: [admin]
+      summary: List teacher assignments
+      operationId: listAdminTeacherAssignments
+      responses:
+        "200":
+          description: Teacher assignments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssignmentListResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [admin]
+      summary: Assign a teacher to a class
+      operationId: createAdminTeacherAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssignmentCreateRequest" }
+      responses:
+        "201":
+          description: Teacher assigned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssignmentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/classes/{classID}/teacher-assignments/{assignmentID}:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+      - { $ref: "#/components/parameters/AssignmentID" }
+    put:
+      tags: [admin]
+      summary: Change a teacher assignment role
+      operationId: updateAdminTeacherAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssignmentUpdateRequest" }
+      responses:
+        "200":
+          description: Assignment updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssignmentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [admin]
+      summary: Remove a teacher assignment
+      operationId: deleteAdminTeacherAssignment
+      responses:
+        "200":
+          description: Assignment removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -233,6 +761,87 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Short-lived access token (Phase 3). Refresh token is an HttpOnly cookie.
+
+  parameters:
+    Search:
+      name: search
+      in: query
+      schema: { type: string, maxLength: 200 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    StudentID:
+      name: studentID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TeacherID:
+      name: teacherID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CourseID:
+      name: courseID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ModuleID:
+      name: moduleID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CriterionID:
+      name: criterionID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ClassID:
+      name: classID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EnrollmentID:
+      name: enrollmentID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AssignmentID:
+      name: assignmentID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Unauthorized:
+      description: Missing or invalid access token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Forbidden:
+      description: ADMIN role required
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    NotFound:
+      description: Referenced resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Conflict:
+      description: Unique, capacity, state, or relationship conflict
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
 
   schemas:
     LoginRequest:
@@ -303,6 +912,382 @@ components:
         message:
           type: string
           example: Success
+
+    UserStatus:
+      type: string
+      enum: [pending, active, suspended, inactive]
+    StudentStatus:
+      type: string
+      enum: [pending, active, suspended, completed, withdrawn]
+    TeacherStatus:
+      type: string
+      enum: [active, inactive]
+    CourseStatus:
+      type: string
+      enum: [draft, active, inactive, archived]
+    ClassStatus:
+      type: string
+      enum: [planning, open, in_progress, completed, cancelled, archived]
+    EnrollmentStatus:
+      type: string
+      enum: [enrolled, transferred, completed, withdrawn]
+
+    PaginationMeta:
+      type: object
+      required: [page, per_page, total, total_pages]
+      properties:
+        page: { type: integer, minimum: 1 }
+        per_page: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, format: int64, minimum: 0 }
+        total_pages: { type: integer, minimum: 0 }
+
+    CreateStudentRequest:
+      type: object
+      required: [email, temporary_password, account_status, student_code, full_name, status]
+      properties:
+        email: { type: string, format: email }
+        temporary_password: { type: string, format: password, minLength: 8 }
+        account_status: { $ref: "#/components/schemas/UserStatus" }
+        student_code: { type: string, maxLength: 30 }
+        full_name: { type: string, maxLength: 160 }
+        phone: { type: [string, "null"], maxLength: 30 }
+        date_of_birth: { type: [string, "null"], format: date }
+        status: { $ref: "#/components/schemas/StudentStatus" }
+        enrolled_at: { type: [string, "null"], format: date }
+    UpdateStudentRequest:
+      type: object
+      required: [email, account_status, student_code, full_name, status]
+      properties:
+        email: { type: string, format: email }
+        account_status: { $ref: "#/components/schemas/UserStatus" }
+        student_code: { type: string, maxLength: 30 }
+        full_name: { type: string, maxLength: 160 }
+        phone: { type: [string, "null"], maxLength: 30 }
+        date_of_birth: { type: [string, "null"], format: date }
+        status: { $ref: "#/components/schemas/StudentStatus" }
+        enrolled_at: { type: [string, "null"], format: date }
+    Student:
+      type: object
+      required: [id, user_id, email, account_status, student_code, full_name, status, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        account_status: { $ref: "#/components/schemas/UserStatus" }
+        student_code: { type: string }
+        full_name: { type: string }
+        phone: { type: [string, "null"] }
+        date_of_birth: { type: [string, "null"], format: date }
+        status: { $ref: "#/components/schemas/StudentStatus" }
+        enrolled_at: { type: [string, "null"], format: date }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    StudentResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/Student" }
+        message: { type: string }
+    StudentListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/Student" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    CreateTeacherRequest:
+      type: object
+      required: [email, temporary_password, account_status, teacher_code, full_name, status]
+      properties:
+        email: { type: string, format: email }
+        temporary_password: { type: string, format: password, minLength: 8 }
+        account_status: { $ref: "#/components/schemas/UserStatus" }
+        teacher_code: { type: string, maxLength: 30 }
+        full_name: { type: string, maxLength: 160 }
+        phone: { type: [string, "null"], maxLength: 30 }
+        specialization: { type: [string, "null"], maxLength: 200 }
+        status: { $ref: "#/components/schemas/TeacherStatus" }
+    UpdateTeacherRequest:
+      type: object
+      required: [email, account_status, teacher_code, full_name, status]
+      properties:
+        email: { type: string, format: email }
+        account_status: { $ref: "#/components/schemas/UserStatus" }
+        teacher_code: { type: string, maxLength: 30 }
+        full_name: { type: string, maxLength: 160 }
+        phone: { type: [string, "null"], maxLength: 30 }
+        specialization: { type: [string, "null"], maxLength: 200 }
+        status: { $ref: "#/components/schemas/TeacherStatus" }
+    Teacher:
+      type: object
+      required: [id, user_id, email, account_status, teacher_code, full_name, status, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        account_status: { $ref: "#/components/schemas/UserStatus" }
+        teacher_code: { type: string }
+        full_name: { type: string }
+        phone: { type: [string, "null"] }
+        specialization: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/TeacherStatus" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    TeacherResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/Teacher" }
+        message: { type: string }
+    TeacherListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/Teacher" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    CourseWriteRequest:
+      type: object
+      required: [code, name, total_sessions, minimum_attendance_pct, status]
+      properties:
+        code: { type: string, maxLength: 30 }
+        name: { type: string, maxLength: 200 }
+        description: { type: [string, "null"] }
+        total_sessions: { type: integer, minimum: 1 }
+        minimum_attendance_pct: { type: number, minimum: 0, maximum: 100 }
+        status: { $ref: "#/components/schemas/CourseStatus" }
+    Course:
+      type: object
+      required: [id, code, name, total_sessions, minimum_attendance_pct, status, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        total_sessions: { type: integer }
+        minimum_attendance_pct: { type: number }
+        status: { $ref: "#/components/schemas/CourseStatus" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CourseResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/Course" }
+        message: { type: string }
+    CourseListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/Course" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    ModuleWriteRequest:
+      type: object
+      required: [code, name, sequence_no, planned_sessions]
+      properties:
+        code: { type: string, maxLength: 30 }
+        name: { type: string, maxLength: 200 }
+        sequence_no: { type: integer, minimum: 1 }
+        planned_sessions: { type: integer, minimum: 1 }
+        description: { type: [string, "null"] }
+    CourseModule:
+      type: object
+      required: [id, course_id, code, name, sequence_no, planned_sessions, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        course_id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        sequence_no: { type: integer }
+        planned_sessions: { type: integer }
+        description: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ModuleResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/CourseModule" }
+        message: { type: string }
+    ModuleListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/CourseModule" } }
+        message: { type: string }
+
+    CompetencyWriteRequest:
+      type: object
+      required: [code, name, sequence_no]
+      properties:
+        module_id: { type: [string, "null"], format: uuid }
+        code: { type: string, maxLength: 40 }
+        name: { type: string, maxLength: 200 }
+        description: { type: [string, "null"] }
+        is_required: { type: boolean, default: true }
+        sequence_no: { type: integer, minimum: 1 }
+    CompetencyCriterion:
+      type: object
+      required: [id, course_id, code, name, is_required, sequence_no, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        course_id: { type: string, format: uuid }
+        module_id: { type: [string, "null"], format: uuid }
+        code: { type: string }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        is_required: { type: boolean }
+        sequence_no: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CompetencyResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/CompetencyCriterion" }
+        message: { type: string }
+    CompetencyListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/CompetencyCriterion" } }
+        message: { type: string }
+
+    ClassWriteRequest:
+      type: object
+      required: [course_id, class_code, name, start_date, end_date, maximum_students, status]
+      properties:
+        course_id: { type: string, format: uuid }
+        class_code: { type: string, maxLength: 40 }
+        name: { type: string, maxLength: 200 }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        maximum_students: { type: integer, minimum: 1 }
+        status: { $ref: "#/components/schemas/ClassStatus" }
+    Class:
+      type: object
+      required: [id, course_id, course_code, course_name, class_code, name, start_date, end_date, maximum_students, enrolled_students, status, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        class_code: { type: string }
+        name: { type: string }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        maximum_students: { type: integer }
+        enrolled_students: { type: integer }
+        status: { $ref: "#/components/schemas/ClassStatus" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ClassResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/Class" }
+        message: { type: string }
+    ClassListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/Class" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    EnrollmentCreateRequest:
+      type: object
+      required: [student_id]
+      properties:
+        student_id: { type: string, format: uuid }
+    EnrollmentUpdateRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: "#/components/schemas/EnrollmentStatus" }
+    Enrollment:
+      type: object
+      required: [id, class_id, student_id, student_code, full_name, status, enrolled_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        student_id: { type: string, format: uuid }
+        student_code: { type: string }
+        full_name: { type: string }
+        status: { $ref: "#/components/schemas/EnrollmentStatus" }
+        enrolled_at: { type: string, format: date-time }
+        ended_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    EnrollmentResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/Enrollment" }
+        message: { type: string }
+    EnrollmentListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Enrollment" } }
+        message: { type: string }
+
+    AssignmentCreateRequest:
+      type: object
+      required: [teacher_id, assignment_role]
+      properties:
+        teacher_id: { type: string, format: uuid }
+        assignment_role: { type: string, maxLength: 80 }
+    AssignmentUpdateRequest:
+      type: object
+      required: [assignment_role]
+      properties:
+        assignment_role: { type: string, maxLength: 80 }
+    TeacherAssignment:
+      type: object
+      required: [id, class_id, teacher_id, teacher_code, full_name, assignment_role, assigned_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        teacher_id: { type: string, format: uuid }
+        teacher_code: { type: string }
+        full_name: { type: string }
+        assignment_role: { type: string }
+        assigned_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AssignmentResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/TeacherAssignment" }
+        message: { type: string }
+    AssignmentListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/TeacherAssignment" } }
+        message: { type: string }
 
     ErrorResponse:
       type: object

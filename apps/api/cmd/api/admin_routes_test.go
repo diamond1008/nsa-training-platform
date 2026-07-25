@@ -1,0 +1,100 @@
+package main
+
+import (
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
+)
+
+func TestAllPhase4RoutesRequireAdmin(t *testing.T) {
+	tokens, err := auth.NewTokenService("phase-4-test-secret-at-least-32-bytes", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	router := chi.NewRouter()
+	router.Route("/api/v1", func(r chi.Router) {
+		mountAdminRoutes(
+			r, tokens,
+			students.NewHandler(nil, log),
+			teachers.NewHandler(nil, log),
+			courses.NewHandler(nil, log),
+			classes.NewHandler(nil, log),
+		)
+	})
+	teacherToken, _, err := tokens.Issue(
+		"22222222-2222-2222-2222-222222222222",
+		"teacher@test.local",
+		[]string{auth.RoleTeacher},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const id = "11111111-1111-1111-1111-111111111111"
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/admin/students"},
+		{http.MethodPost, "/api/v1/admin/students"},
+		{http.MethodGet, "/api/v1/admin/students/" + id},
+		{http.MethodPut, "/api/v1/admin/students/" + id},
+		{http.MethodGet, "/api/v1/admin/teachers"},
+		{http.MethodPost, "/api/v1/admin/teachers"},
+		{http.MethodGet, "/api/v1/admin/teachers/" + id},
+		{http.MethodPut, "/api/v1/admin/teachers/" + id},
+		{http.MethodGet, "/api/v1/admin/courses"},
+		{http.MethodPost, "/api/v1/admin/courses"},
+		{http.MethodGet, "/api/v1/admin/courses/" + id},
+		{http.MethodPut, "/api/v1/admin/courses/" + id},
+		{http.MethodGet, "/api/v1/admin/courses/" + id + "/modules"},
+		{http.MethodPost, "/api/v1/admin/courses/" + id + "/modules"},
+		{http.MethodPut, "/api/v1/admin/courses/" + id + "/modules/" + id},
+		{http.MethodGet, "/api/v1/admin/courses/" + id + "/competencies"},
+		{http.MethodPost, "/api/v1/admin/courses/" + id + "/competencies"},
+		{http.MethodPut, "/api/v1/admin/courses/" + id + "/competencies/" + id},
+		{http.MethodGet, "/api/v1/admin/classes"},
+		{http.MethodPost, "/api/v1/admin/classes"},
+		{http.MethodGet, "/api/v1/admin/classes/" + id},
+		{http.MethodPut, "/api/v1/admin/classes/" + id},
+		{http.MethodGet, "/api/v1/admin/classes/" + id + "/enrollments"},
+		{http.MethodPost, "/api/v1/admin/classes/" + id + "/enrollments"},
+		{http.MethodPut, "/api/v1/admin/classes/" + id + "/enrollments/" + id},
+		{http.MethodGet, "/api/v1/admin/classes/" + id + "/teacher-assignments"},
+		{http.MethodPost, "/api/v1/admin/classes/" + id + "/teacher-assignments"},
+		{http.MethodPut, "/api/v1/admin/classes/" + id + "/teacher-assignments/" + id},
+		{http.MethodDelete, "/api/v1/admin/classes/" + id + "/teacher-assignments/" + id},
+	}
+
+	for _, route := range routes {
+		t.Run(route.method+" "+route.path, func(t *testing.T) {
+			noAuth := httptest.NewRequest(route.method, route.path, strings.NewReader("{}"))
+			noAuthRec := httptest.NewRecorder()
+			router.ServeHTTP(noAuthRec, noAuth)
+			if noAuthRec.Code != http.StatusUnauthorized {
+				t.Errorf("without token status=%d, want 401", noAuthRec.Code)
+			}
+
+			teacherReq := httptest.NewRequest(route.method, route.path, strings.NewReader("{}"))
+			teacherReq.Header.Set("Authorization", "Bearer "+teacherToken)
+			teacherRec := httptest.NewRecorder()
+			router.ServeHTTP(teacherRec, teacherReq)
+			if teacherRec.Code != http.StatusForbidden {
+				t.Errorf("teacher token status=%d, want 403", teacherRec.Code)
+			}
+		})
+	}
+}

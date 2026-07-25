@@ -18,12 +18,16 @@ import (
 	"github.com/go-chi/httprate"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/config"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/database"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/docs"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/health"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/logging"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/middleware"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
@@ -70,6 +74,12 @@ func run() error {
 	}
 	authHandler := auth.NewHandler(authService, log, cfg.Env != "development")
 
+	// Academic core administration (Phase 4).
+	studentHandler := students.NewHandler(students.NewService(pool, cfg.BcryptCost), log)
+	teacherHandler := teachers.NewHandler(teachers.NewService(pool, cfg.BcryptCost), log)
+	courseHandler := courses.NewHandler(courses.NewService(pool), log)
+	classHandler := classes.NewHandler(classes.NewService(pool), log)
+
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -107,6 +117,8 @@ func run() error {
 				r.Get("/me", authHandler.Me)
 			})
 		})
+
+		mountAdminRoutes(r, tokenService, studentHandler, teacherHandler, courseHandler, classHandler)
 	})
 
 	srv := &http.Server{
@@ -144,4 +156,65 @@ func run() error {
 	}
 	log.Info("server stopped gracefully")
 	return nil
+}
+
+// mountAdminRoutes keeps every Phase 4 endpoint behind the same
+// authentication and ADMIN-role boundary.
+func mountAdminRoutes(
+	r chi.Router,
+	tokenService *auth.TokenService,
+	studentHandler *students.Handler,
+	teacherHandler *teachers.Handler,
+	courseHandler *courses.Handler,
+	classHandler *classes.Handler,
+) {
+	r.Route("/admin", func(r chi.Router) {
+		r.Use(auth.Authenticate(tokenService))
+		r.Use(auth.RequireRole(auth.RoleAdmin))
+
+		r.Route("/students", func(r chi.Router) {
+			r.Get("/", studentHandler.List)
+			r.Post("/", studentHandler.Create)
+			r.Get("/{studentID}", studentHandler.Get)
+			r.Put("/{studentID}", studentHandler.Update)
+		})
+
+		r.Route("/teachers", func(r chi.Router) {
+			r.Get("/", teacherHandler.List)
+			r.Post("/", teacherHandler.Create)
+			r.Get("/{teacherID}", teacherHandler.Get)
+			r.Put("/{teacherID}", teacherHandler.Update)
+		})
+
+		r.Route("/courses", func(r chi.Router) {
+			r.Get("/", courseHandler.List)
+			r.Post("/", courseHandler.Create)
+			r.Get("/{courseID}", courseHandler.Get)
+			r.Put("/{courseID}", courseHandler.Update)
+
+			r.Get("/{courseID}/modules", courseHandler.ListModules)
+			r.Post("/{courseID}/modules", courseHandler.CreateModule)
+			r.Put("/{courseID}/modules/{moduleID}", courseHandler.UpdateModule)
+
+			r.Get("/{courseID}/competencies", courseHandler.ListCriteria)
+			r.Post("/{courseID}/competencies", courseHandler.CreateCriterion)
+			r.Put("/{courseID}/competencies/{criterionID}", courseHandler.UpdateCriterion)
+		})
+
+		r.Route("/classes", func(r chi.Router) {
+			r.Get("/", classHandler.List)
+			r.Post("/", classHandler.Create)
+			r.Get("/{classID}", classHandler.Get)
+			r.Put("/{classID}", classHandler.Update)
+
+			r.Get("/{classID}/enrollments", classHandler.ListEnrollments)
+			r.Post("/{classID}/enrollments", classHandler.Enroll)
+			r.Put("/{classID}/enrollments/{enrollmentID}", classHandler.UpdateEnrollment)
+
+			r.Get("/{classID}/teacher-assignments", classHandler.ListAssignments)
+			r.Post("/{classID}/teacher-assignments", classHandler.AssignTeacher)
+			r.Put("/{classID}/teacher-assignments/{assignmentID}", classHandler.UpdateAssignment)
+			r.Delete("/{classID}/teacher-assignments/{assignmentID}", classHandler.DeleteAssignment)
+		})
+	})
 }
