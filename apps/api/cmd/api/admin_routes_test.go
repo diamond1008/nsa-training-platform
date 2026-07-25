@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
@@ -19,7 +20,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
 )
 
-func TestAllPhase4RoutesRequireAdmin(t *testing.T) {
+func TestAllAdminRoutesRequireAdmin(t *testing.T) {
 	tokens, err := auth.NewTokenService("phase-4-test-secret-at-least-32-bytes", time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +35,7 @@ func TestAllPhase4RoutesRequireAdmin(t *testing.T) {
 			courses.NewHandler(nil, log),
 			classes.NewHandler(nil, log),
 			schedules.NewHandler(nil, log),
+			attendance.NewHandler(nil, log),
 		)
 	})
 	teacherToken, _, err := tokens.Issue(
@@ -87,6 +89,8 @@ func TestAllPhase4RoutesRequireAdmin(t *testing.T) {
 		{http.MethodPost, "/api/v1/admin/sessions"},
 		{http.MethodGet, "/api/v1/admin/sessions/" + id},
 		{http.MethodPut, "/api/v1/admin/sessions/" + id},
+		{http.MethodGet, "/api/v1/admin/sessions/" + id + "/attendance"},
+		{http.MethodPut, "/api/v1/admin/attendance/" + id},
 	}
 
 	for _, route := range routes {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 )
@@ -22,7 +23,9 @@ func TestScheduleViewerRoutesEnforceOwnRole(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := chi.NewRouter()
 	router.Route("/api/v1", func(r chi.Router) {
-		mountScheduleViewerRoutes(r, tokens, schedules.NewHandler(nil, log))
+		mountRoleRoutes(
+			r, tokens, schedules.NewHandler(nil, log), attendance.NewHandler(nil, log),
+		)
 	})
 	teacherToken, _, _ := tokens.Issue(
 		"22222222-2222-2222-2222-222222222222",
@@ -36,18 +39,24 @@ func TestScheduleViewerRoutesEnforceOwnRole(t *testing.T) {
 	)
 
 	cases := []struct {
-		name  string
-		path  string
-		token string
-		want  int
+		name   string
+		method string
+		path   string
+		token  string
+		want   int
 	}{
-		{"teacher schedule without auth", "/api/v1/teacher/schedule", "", http.StatusUnauthorized},
-		{"student blocked from teacher schedule", "/api/v1/teacher/schedule", studentToken, http.StatusForbidden},
-		{"teacher blocked from student schedule", "/api/v1/student/schedule", teacherToken, http.StatusForbidden},
+		{"teacher schedule without auth", http.MethodGet, "/api/v1/teacher/schedule", "", http.StatusUnauthorized},
+		{"student blocked from teacher schedule", http.MethodGet, "/api/v1/teacher/schedule", studentToken, http.StatusForbidden},
+		{"teacher blocked from student schedule", http.MethodGet, "/api/v1/student/schedule", teacherToken, http.StatusForbidden},
+		{"student blocked from teacher attendance view", http.MethodGet, "/api/v1/teacher/sessions/11111111-1111-1111-1111-111111111111/attendance", studentToken, http.StatusForbidden},
+		{"student blocked from attendance recording", http.MethodPost, "/api/v1/teacher/sessions/11111111-1111-1111-1111-111111111111/attendance", studentToken, http.StatusForbidden},
+		{"student blocked from attendance lock", http.MethodPost, "/api/v1/teacher/sessions/11111111-1111-1111-1111-111111111111/attendance/lock", studentToken, http.StatusForbidden},
+		{"teacher blocked from student attendance", http.MethodGet, "/api/v1/student/attendance", teacherToken, http.StatusForbidden},
+		{"teacher blocked from student attendance summary", http.MethodGet, "/api/v1/student/attendance/summary", teacherToken, http.StatusForbidden},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, test.path, nil)
+			req := httptest.NewRequest(test.method, test.path, nil)
 			if test.token != "" {
 				req.Header.Set("Authorization", "Bearer "+test.token)
 			}

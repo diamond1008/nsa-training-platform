@@ -1,4 +1,4 @@
-// Package audit records important administrative changes.
+// Package audit records important business changes.
 package audit
 
 import (
@@ -23,6 +23,21 @@ func Write(
 	oldValue any,
 	newValue any,
 ) error {
+	return WriteWithReason(ctx, q, actorID, action, entityType, entityID, oldValue, newValue, "")
+}
+
+// WriteWithReason inserts an audit log and preserves the operator's reason.
+func WriteWithReason(
+	ctx context.Context,
+	q *db.Queries,
+	actorID string,
+	action string,
+	entityType string,
+	entityID pgtype.UUID,
+	oldValue any,
+	newValue any,
+	reason string,
+) error {
 	actor, err := data.UUID(actorID)
 	if err != nil {
 		return fmt.Errorf("audit actor: %w", err)
@@ -42,10 +57,18 @@ func Write(
 		EntityID:    entityID,
 		OldValues:   oldJSON,
 		NewValues:   newJSON,
+		Reason:      nullableReason(reason),
 	}); err != nil {
 		return fmt.Errorf("insert audit log: %w", err)
 	}
 	return nil
+}
+
+func nullableReason(reason string) pgtype.Text {
+	if reason == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: reason, Valid: true}
 }
 
 func marshalNullable(value any) ([]byte, error) {

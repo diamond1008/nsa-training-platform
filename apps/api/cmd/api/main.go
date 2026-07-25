@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
@@ -75,12 +76,13 @@ func run() error {
 	}
 	authHandler := auth.NewHandler(authService, log, cfg.Env != "development")
 
-	// Academic core administration (Phase 4).
+	// Business modules (Phases 4-6).
 	studentHandler := students.NewHandler(students.NewService(pool, cfg.BcryptCost), log)
 	teacherHandler := teachers.NewHandler(teachers.NewService(pool, cfg.BcryptCost), log)
 	courseHandler := courses.NewHandler(courses.NewService(pool), log)
 	classHandler := classes.NewHandler(classes.NewService(pool), log)
 	scheduleHandler := schedules.NewHandler(schedules.NewService(pool), log)
+	attendanceHandler := attendance.NewHandler(attendance.NewService(pool), log)
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -120,8 +122,11 @@ func run() error {
 			})
 		})
 
-		mountAdminRoutes(r, tokenService, studentHandler, teacherHandler, courseHandler, classHandler, scheduleHandler)
-		mountScheduleViewerRoutes(r, tokenService, scheduleHandler)
+		mountAdminRoutes(
+			r, tokenService, studentHandler, teacherHandler, courseHandler,
+			classHandler, scheduleHandler, attendanceHandler,
+		)
+		mountRoleRoutes(r, tokenService, scheduleHandler, attendanceHandler)
 	})
 
 	srv := &http.Server{
@@ -161,7 +166,7 @@ func run() error {
 	return nil
 }
 
-// mountAdminRoutes keeps every Phase 4 endpoint behind the same
+// mountAdminRoutes keeps every administrative endpoint behind the same
 // authentication and ADMIN-role boundary.
 func mountAdminRoutes(
 	r chi.Router,
@@ -171,6 +176,7 @@ func mountAdminRoutes(
 	courseHandler *courses.Handler,
 	classHandler *classes.Handler,
 	scheduleHandler *schedules.Handler,
+	attendanceHandler *attendance.Handler,
 ) {
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -233,20 +239,33 @@ func mountAdminRoutes(
 			r.Post("/", scheduleHandler.CreateSession)
 			r.Get("/{sessionID}", scheduleHandler.GetSession)
 			r.Put("/{sessionID}", scheduleHandler.UpdateSession)
+			r.Get("/{sessionID}/attendance", attendanceHandler.AdminSession)
 		})
+
+		r.Put("/attendance/{attendanceID}", attendanceHandler.Correct)
 	})
 }
 
-// mountScheduleViewerRoutes exposes only the authenticated user's schedule.
-func mountScheduleViewerRoutes(r chi.Router, tokenService *auth.TokenService, handler *schedules.Handler) {
+// mountRoleRoutes exposes only the authenticated teacher's or student's data.
+func mountRoleRoutes(
+	r chi.Router,
+	tokenService *auth.TokenService,
+	scheduleHandler *schedules.Handler,
+	attendanceHandler *attendance.Handler,
+) {
 	r.Route("/teacher", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
 		r.Use(auth.RequireRole(auth.RoleTeacher))
-		r.Get("/schedule", handler.TeacherSchedule)
+		r.Get("/schedule", scheduleHandler.TeacherSchedule)
+		r.Get("/sessions/{sessionID}/attendance", attendanceHandler.TeacherSession)
+		r.Post("/sessions/{sessionID}/attendance", attendanceHandler.RecordBatch)
+		r.Post("/sessions/{sessionID}/attendance/lock", attendanceHandler.Lock)
 	})
 	r.Route("/student", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
 		r.Use(auth.RequireRole(auth.RoleStudent))
-		r.Get("/schedule", handler.StudentSchedule)
+		r.Get("/schedule", scheduleHandler.StudentSchedule)
+		r.Get("/attendance", attendanceHandler.StudentHistory)
+		r.Get("/attendance/summary", attendanceHandler.StudentSummary)
 	})
 }

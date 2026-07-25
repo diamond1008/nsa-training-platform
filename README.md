@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 5 — Scheduling (completed, pending review)**
+**Current phase: Phase 6 — Attendance (completed, pending review)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -15,8 +15,8 @@ Training management platform for an automotive vocational training center. It ma
 | 2 | Go API foundation | ✅ Completed (commit bc20225) |
 | 3 | Authentication and RBAC | ✅ Completed (commit c5b553a) |
 | 4 | Academic core management | ✅ Completed (commit d164a05) |
-| 5 | Scheduling | ✅ Completed (pending review) |
-| 6 | Attendance | ⬜ Not started |
+| 5 | Scheduling | ✅ Completed (commit 346ea36) |
+| 6 | Attendance | ✅ Completed (pending review) |
 | 7 | Skill assessment and progress | ⬜ Not started |
 | 8 | Frontend foundation and auth shell | ⬜ Not started |
 | 9 | Feature screens | ⬜ Not started |
@@ -107,8 +107,11 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Training locations (`/api/v1/admin/locations`):** create/list/detail/update workshops and rooms, including capacity and active state
 - **Role schedules:** `GET /api/v1/teacher/schedule` returns the authenticated teacher's assigned sessions; `GET /api/v1/student/schedule` returns only active-enrollment sessions
 - **Timezone contract:** API accepts RFC3339 offsets, stores/returns UTC, and evaluates class date boundaries in `Asia/Ho_Chi_Minh`
+- **Teacher attendance:** assigned teachers can view active class rosters, record transactional batches using Present/Absent/Late/Excused, and lock a session only after every active student has a record
+- **Attendance integrity:** service validation plus PostgreSQL foreign keys and uniqueness prevent non-enrolled or duplicate records; session-row locking serializes batch recording and finalization
+- **Attendance corrections:** ADMIN can correct an existing record even after finalization; the required reason and old/new values are written to the audit log in the same transaction
+- **Student attendance:** authenticated students can view only their own paginated history and per-class summary; Present and Late count as attended while Excused is excluded from the informational percentage denominator
 - **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
-- Teacher and student self-service business endpoints: not started (Phase 5+)
 
 ## Technology Stack
 
@@ -213,7 +216,7 @@ PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 | Build binary | `make api-build` | `cd apps/api; go build -o bin/api.exe ./cmd/api` |
 | Build Docker image | — | `docker build -f apps/api/Dockerfile -t nsa-api .` |
 
-Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*` — administration `/api/v1/admin/*` — role schedules `/api/v1/{teacher,student}/schedule`.
+Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*` — administration `/api/v1/admin/*` — role schedules `/api/v1/{teacher,student}/schedule` — attendance `/api/v1/{teacher,student}/*attendance*`.
 
 Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"NsaDemo@123"}` (after `make db-seed`) → use the returned `access_token` as `Authorization: Bearer <token>` for `GET /api/v1/auth/me`.
 
@@ -228,7 +231,9 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 ## Current Limitations
 
-- No attendance, assessment, progress, or non-schedule teacher/student self-service endpoints yet (Phases 6–7); rate limiting is in-memory per instance (fine for single-instance MVP).
+- Assessment and learning-progress endpoints are deferred to Phase 7; attendance percentages in Phase 6 are informational and do not approve course completion.
+- Attendance roster/locking follows the current `enrolled` relationship. A later enrollment-history policy may be needed if transfers or withdrawals must retroactively affect old session rosters.
+- Rate limiting is in-memory per instance (fine for the single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
 - Web app starts in Phase 8; CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.

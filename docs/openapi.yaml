@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "0.3.0"
+  version: "0.4.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -18,10 +18,10 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 5 — system probes, authentication/RBAC,
+    **Implementation status:** Phase 6 — system probes, authentication/RBAC,
     academic-core administration, training locations, class-session scheduling,
-    and role-scoped Teacher/Student schedule queries are live.
-    Attendance, assessment, and progress arrive in Phases 6–7.
+    role-scoped schedules, batch attendance, corrections, locking, and Student
+    attendance history/summary are live. Assessment and progress arrive in Phase 7.
 
     **Authentication:** `POST /api/v1/auth/login` returns a short-lived JWT
     access token (use as `Authorization: Bearer <token>`) and sets an
@@ -916,6 +916,51 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /api/v1/admin/sessions/{sessionID}/attendance:
+    parameters:
+      - { $ref: "#/components/parameters/SessionID" }
+    get:
+      tags: [admin]
+      summary: View a session attendance roster
+      description: Includes every actively enrolled student and any recorded status.
+      operationId: getAdminSessionAttendance
+      responses:
+        "200":
+          description: Session attendance roster and counts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionAttendanceResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/attendance/{attendanceID}:
+    parameters:
+      - { $ref: "#/components/parameters/AttendanceID" }
+    put:
+      tags: [admin]
+      summary: Correct an attendance record
+      description: |
+        Administrative correction is allowed after attendance is locked.
+        A non-empty reason is required and is preserved with old/new values
+        in the audit log.
+      operationId: correctAdminAttendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttendanceCorrectionRequest" }
+      responses:
+        "200":
+          description: Corrected attendance record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttendanceRecordResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/teacher/schedule:
     get:
       tags: [teacher]
@@ -936,6 +981,71 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/v1/teacher/sessions/{sessionID}/attendance:
+    parameters:
+      - { $ref: "#/components/parameters/SessionID" }
+    get:
+      tags: [teacher]
+      summary: View attendance for an assigned class session
+      operationId: getTeacherSessionAttendance
+      responses:
+        "200":
+          description: Session attendance roster and counts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionAttendanceResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [teacher]
+      summary: Record a batch of attendance
+      description: |
+        The authenticated teacher must be assigned to the session's class.
+        The entire batch is transactional. Every student must have an active
+        enrollment, student IDs must be unique inside the request, and an
+        existing session/student record produces a conflict.
+      operationId: recordTeacherSessionAttendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttendanceBatchRequest" }
+      responses:
+        "201":
+          description: Attendance batch recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttendanceBatchResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+
+  /api/v1/teacher/sessions/{sessionID}/attendance/lock:
+    parameters:
+      - { $ref: "#/components/parameters/SessionID" }
+    post:
+      tags: [teacher]
+      summary: Finalize and lock session attendance
+      description: |
+        Available after the session starts and only when every actively
+        enrolled student has exactly one attendance record. Teacher writes
+        are rejected after locking; administrators may still correct records.
+      operationId: lockTeacherSessionAttendance
+      responses:
+        "200":
+          description: Attendance locked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttendanceLockResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /api/v1/student/schedule:
     get:
       tags: [student]
@@ -952,6 +1062,50 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SessionListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/attendance:
+    get:
+      tags: [student]
+      summary: Get the authenticated student's attendance history
+      operationId: getStudentAttendanceHistory
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - name: class_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Paginated attendance history for the authenticated student only
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentAttendanceHistoryResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/attendance/summary:
+    get:
+      tags: [student]
+      summary: Get the authenticated student's per-class attendance summary
+      description: |
+        `attendance_pct` counts Present and Late as attended and excludes
+        Excused records from the denominator. This is informational; Phase 7
+        defines completion calculations.
+      operationId: getStudentAttendanceSummary
+      parameters:
+        - name: class_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Per-class attendance summaries for the authenticated student only
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentAttendanceSummaryResponse" }
         "400": { $ref: "#/components/responses/ValidationError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -1027,6 +1181,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    AttendanceID:
+      name: attendanceID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     FromTime:
       name: from
       in: query
@@ -1050,7 +1209,7 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
     Forbidden:
-      description: ADMIN role required
+      description: Required role, assignment, or ownership check failed
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -1061,6 +1220,11 @@ components:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
     Conflict:
       description: Unique, capacity, state, or relationship conflict
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    UnprocessableEntity:
+      description: Referenced student is not actively enrolled in the session class
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -1638,6 +1802,208 @@ components:
           properties:
             items: { type: array, items: { $ref: "#/components/schemas/ClassSession" } }
             meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    AttendanceStatus:
+      type: string
+      enum: [present, absent, late, excused]
+    AttendanceBatchItem:
+      type: object
+      additionalProperties: false
+      required: [student_id, status]
+      properties:
+        student_id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/AttendanceStatus" }
+        note: { type: [string, "null"], maxLength: 1000 }
+    AttendanceBatchRequest:
+      type: object
+      additionalProperties: false
+      required: [records]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: "#/components/schemas/AttendanceBatchItem" }
+    AttendanceCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      properties:
+        status: { $ref: "#/components/schemas/AttendanceStatus" }
+        note: { type: [string, "null"], maxLength: 1000 }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    AttendanceSession:
+      type: object
+      required: [id, class_id, class_code, class_name, course_id, course_code, course_name, title, starts_at, ends_at, status]
+      properties:
+        id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        title: { type: string }
+        starts_at: { type: string, format: date-time, description: UTC }
+        ends_at: { type: string, format: date-time, description: UTC }
+        status: { $ref: "#/components/schemas/SessionStatus" }
+        attendance_locked_at: { type: [string, "null"], format: date-time }
+    AttendanceRosterItem:
+      type: object
+      required: [student_id, student_code, full_name, enrollment_status]
+      properties:
+        student_id: { type: string, format: uuid }
+        student_code: { type: string }
+        full_name: { type: string }
+        enrollment_status: { $ref: "#/components/schemas/EnrollmentStatus" }
+        attendance_id: { type: [string, "null"], format: uuid }
+        attendance_status:
+          anyOf:
+            - { $ref: "#/components/schemas/AttendanceStatus" }
+            - { type: "null" }
+        note: { type: [string, "null"] }
+        recorded_by: { type: [string, "null"], format: uuid }
+        recorded_by_email: { type: [string, "null"], format: email }
+        recorded_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+    SessionAttendanceSummary:
+      type: object
+      required: [total, recorded, unrecorded, present, absent, late, excused]
+      properties:
+        total: { type: integer, minimum: 0 }
+        recorded: { type: integer, minimum: 0 }
+        unrecorded: { type: integer, minimum: 0 }
+        present: { type: integer, minimum: 0 }
+        absent: { type: integer, minimum: 0 }
+        late: { type: integer, minimum: 0 }
+        excused: { type: integer, minimum: 0 }
+    SessionAttendance:
+      type: object
+      required: [session, items, summary]
+      properties:
+        session: { $ref: "#/components/schemas/AttendanceSession" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AttendanceRosterItem" }
+        summary: { $ref: "#/components/schemas/SessionAttendanceSummary" }
+    SessionAttendanceResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/SessionAttendance" }
+        message: { type: string }
+    AttendanceRecord:
+      type: object
+      required: [id, class_session_id, class_id, student_id, status, recorded_by, recorded_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        class_session_id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        student_id: { type: string, format: uuid }
+        student_code: { type: string }
+        full_name: { type: string }
+        status: { $ref: "#/components/schemas/AttendanceStatus" }
+        note: { type: [string, "null"] }
+        recorded_by: { type: string, format: uuid }
+        recorded_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AttendanceRecordResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/AttendanceRecord" }
+        message: { type: string }
+    AttendanceBatchResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, count]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/AttendanceRecord" }
+            count: { type: integer, minimum: 1, maximum: 200 }
+        message: { type: string }
+    AttendanceLock:
+      type: object
+      required: [session_id, status, attendance_locked_at, attendance_record_count]
+      properties:
+        session_id: { type: string, format: uuid }
+        status: { type: string, const: locked }
+        attendance_locked_at: { type: string, format: date-time }
+        attendance_record_count: { type: integer, minimum: 0 }
+    AttendanceLockResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/AttendanceLock" }
+        message: { type: string }
+    StudentAttendanceHistoryItem:
+      type: object
+      required: [id, class_session_id, class_id, class_code, class_name, course_id, course_code, course_name, session_title, starts_at, ends_at, status, recorded_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        class_session_id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        session_title: { type: string }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/AttendanceStatus" }
+        note: { type: [string, "null"] }
+        recorded_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    StudentAttendanceHistoryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/StudentAttendanceHistoryItem" }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+    StudentAttendanceSummary:
+      type: object
+      required: [class_id, class_code, class_name, course_id, course_code, course_name, recorded_sessions, present_sessions, absent_sessions, late_sessions, excused_sessions, attendance_pct]
+      properties:
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        recorded_sessions: { type: integer, minimum: 0 }
+        present_sessions: { type: integer, minimum: 0 }
+        absent_sessions: { type: integer, minimum: 0 }
+        late_sessions: { type: integer, minimum: 0 }
+        excused_sessions: { type: integer, minimum: 0 }
+        attendance_pct:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+    StudentAttendanceSummaryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/StudentAttendanceSummary" }
         message: { type: string }
 
     ErrorResponse:
