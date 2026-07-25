@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "0.2.0"
+  version: "0.3.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -18,9 +18,10 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 4 — system probes, authentication/RBAC,
-    and the `/api/v1/admin/*` academic-core management group are live.
-    Teacher/student business groups arrive in Phases 5–7.
+    **Implementation status:** Phase 5 — system probes, authentication/RBAC,
+    academic-core administration, training locations, class-session scheduling,
+    and role-scoped Teacher/Student schedule queries are live.
+    Attendance, assessment, and progress arrive in Phases 6–7.
 
     **Authentication:** `POST /api/v1/auth/login` returns a short-lived JWT
     access token (use as `Authorization: Bearer <token>`) and sets an
@@ -40,9 +41,9 @@ tags:
   - name: admin
     description: Administrator management endpoints (Phase 4+)
   - name: teacher
-    description: Teacher endpoints (Phase 5+)
+    description: Teacher schedule and assigned-class endpoints (Phase 5+)
   - name: student
-    description: Student self-service endpoints (Phase 6+)
+    description: Student schedule and self-service endpoints (Phase 5+)
 
 paths:
   /health:
@@ -754,6 +755,207 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /api/v1/admin/locations:
+    get:
+      tags: [admin]
+      summary: List training locations
+      operationId: listAdminTrainingLocations
+      parameters:
+        - { $ref: "#/components/parameters/Search" }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - name: is_active
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Paginated training locations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainingLocationListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a training location
+      operationId: createAdminTrainingLocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTrainingLocationRequest" }
+      responses:
+        "201":
+          description: Training location created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainingLocationResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/locations/{locationID}:
+    parameters:
+      - { $ref: "#/components/parameters/LocationID" }
+    get:
+      tags: [admin]
+      summary: Get a training location
+      operationId: getAdminTrainingLocation
+      responses:
+        "200":
+          description: Training location
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainingLocationResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [admin]
+      summary: Replace training location fields
+      operationId: updateAdminTrainingLocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTrainingLocationRequest" }
+      responses:
+        "200":
+          description: Training location updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainingLocationResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/sessions:
+    get:
+      tags: [admin]
+      summary: List class sessions
+      description: Time filters select sessions overlapping the half-open window `[from,to)`.
+      operationId: listAdminClassSessions
+      parameters:
+        - { $ref: "#/components/parameters/Search" }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - { $ref: "#/components/parameters/FromTime" }
+        - { $ref: "#/components/parameters/ToTime" }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/SessionStatus" }
+        - name: class_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: teacher_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: location_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Paginated class sessions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [admin]
+      summary: Create a class session
+      description: |
+        `starts_at` and `ends_at` accept RFC3339 offsets and are stored/returned
+        in UTC. The class date range is evaluated in Asia/Ho_Chi_Minh.
+      operationId: createAdminClassSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionWriteRequest" }
+      responses:
+        "201":
+          description: Class session created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/sessions/{sessionID}:
+    parameters:
+      - { $ref: "#/components/parameters/SessionID" }
+    get:
+      tags: [admin]
+      summary: Get a class session
+      operationId: getAdminClassSession
+      responses:
+        "200":
+          description: Class session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [admin]
+      summary: Replace class session fields
+      description: Locked sessions cannot be changed.
+      operationId: updateAdminClassSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionWriteRequest" }
+      responses:
+        "200":
+          description: Class session updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/teacher/schedule:
+    get:
+      tags: [teacher]
+      summary: Get the authenticated teacher's assigned schedule
+      operationId: getTeacherSchedule
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - { $ref: "#/components/parameters/FromTime" }
+        - { $ref: "#/components/parameters/ToTime" }
+      responses:
+        "200":
+          description: Sessions assigned to the authenticated teacher
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/schedule:
+    get:
+      tags: [student]
+      summary: Get the authenticated student's enrolled-class schedule
+      operationId: getStudentSchedule
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - { $ref: "#/components/parameters/FromTime" }
+        - { $ref: "#/components/parameters/ToTime" }
+      responses:
+        "200":
+          description: Sessions for the authenticated student's active enrollment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionListResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -815,6 +1017,26 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    LocationID:
+      name: locationID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionID:
+      name: sessionID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    FromTime:
+      name: from
+      in: query
+      description: Inclusive RFC3339 window start; omitted means unbounded.
+      schema: { type: string, format: date-time }
+    ToTime:
+      name: to
+      in: query
+      description: Exclusive RFC3339 window end; omitted means unbounded.
+      schema: { type: string, format: date-time }
 
   responses:
     ValidationError:
@@ -1287,6 +1509,135 @@ components:
       required: [data, message]
       properties:
         data: { type: array, items: { $ref: "#/components/schemas/TeacherAssignment" } }
+        message: { type: string }
+
+    CreateTrainingLocationRequest:
+      type: object
+      required: [code, name, location_type]
+      properties:
+        code: { type: string, maxLength: 30 }
+        name: { type: string, maxLength: 160 }
+        location_type: { type: string, maxLength: 40, example: workshop }
+        capacity: { type: [integer, "null"], minimum: 1 }
+        is_active: { type: boolean, default: true }
+    UpdateTrainingLocationRequest:
+      type: object
+      required: [code, name, location_type, is_active]
+      properties:
+        code: { type: string, maxLength: 30 }
+        name: { type: string, maxLength: 160 }
+        location_type: { type: string, maxLength: 40 }
+        capacity: { type: [integer, "null"], minimum: 1 }
+        is_active: { type: boolean }
+    TrainingLocation:
+      type: object
+      required: [id, code, name, location_type, is_active, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        location_type: { type: string }
+        capacity: { type: [integer, "null"] }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    TrainingLocationResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/TrainingLocation" }
+        message: { type: string }
+    TrainingLocationListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/TrainingLocation" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    SessionType:
+      type: string
+      enum: [theory, workshop, assessment, other]
+    WritableSessionStatus:
+      type: string
+      enum: [scheduled, completed, cancelled]
+    SessionStatus:
+      type: string
+      enum: [scheduled, completed, cancelled, locked]
+    SessionWriteRequest:
+      type: object
+      required: [class_id, title, session_type, starts_at, ends_at, status]
+      properties:
+        class_id: { type: string, format: uuid }
+        module_id: { type: [string, "null"], format: uuid }
+        teacher_id: { type: [string, "null"], format: uuid }
+        location_id: { type: [string, "null"], format: uuid }
+        title: { type: string, maxLength: 200 }
+        session_type: { $ref: "#/components/schemas/SessionType" }
+        starts_at:
+          type: string
+          format: date-time
+          example: "2026-09-01T08:00:00+07:00"
+        ends_at:
+          type: string
+          format: date-time
+          example: "2026-09-01T10:00:00+07:00"
+        status: { $ref: "#/components/schemas/WritableSessionStatus" }
+    ClassSession:
+      type: object
+      required: [id, class_id, class_code, class_name, course_id, course_code, course_name, title, session_type, starts_at, ends_at, status, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        module_id: { type: [string, "null"], format: uuid }
+        module_code: { type: [string, "null"] }
+        module_name: { type: [string, "null"] }
+        teacher_id: { type: [string, "null"], format: uuid }
+        teacher_code: { type: [string, "null"] }
+        teacher_name: { type: [string, "null"] }
+        location_id: { type: [string, "null"], format: uuid }
+        location_code: { type: [string, "null"] }
+        location_name: { type: [string, "null"] }
+        location_type: { type: [string, "null"] }
+        title: { type: string }
+        session_type: { $ref: "#/components/schemas/SessionType" }
+        starts_at:
+          type: string
+          format: date-time
+          description: UTC
+        ends_at:
+          type: string
+          format: date-time
+          description: UTC
+        status: { $ref: "#/components/schemas/SessionStatus" }
+        attendance_locked_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SessionResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/ClassSession" }
+        message: { type: string }
+    SessionListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/ClassSession" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
         message: { type: string }
 
     ErrorResponse:

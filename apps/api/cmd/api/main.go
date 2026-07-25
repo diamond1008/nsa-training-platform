@@ -26,6 +26,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/health"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/logging"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/middleware"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
@@ -79,6 +80,7 @@ func run() error {
 	teacherHandler := teachers.NewHandler(teachers.NewService(pool, cfg.BcryptCost), log)
 	courseHandler := courses.NewHandler(courses.NewService(pool), log)
 	classHandler := classes.NewHandler(classes.NewService(pool), log)
+	scheduleHandler := schedules.NewHandler(schedules.NewService(pool), log)
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -118,7 +120,8 @@ func run() error {
 			})
 		})
 
-		mountAdminRoutes(r, tokenService, studentHandler, teacherHandler, courseHandler, classHandler)
+		mountAdminRoutes(r, tokenService, studentHandler, teacherHandler, courseHandler, classHandler, scheduleHandler)
+		mountScheduleViewerRoutes(r, tokenService, scheduleHandler)
 	})
 
 	srv := &http.Server{
@@ -167,6 +170,7 @@ func mountAdminRoutes(
 	teacherHandler *teachers.Handler,
 	courseHandler *courses.Handler,
 	classHandler *classes.Handler,
+	scheduleHandler *schedules.Handler,
 ) {
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -216,5 +220,33 @@ func mountAdminRoutes(
 			r.Put("/{classID}/teacher-assignments/{assignmentID}", classHandler.UpdateAssignment)
 			r.Delete("/{classID}/teacher-assignments/{assignmentID}", classHandler.DeleteAssignment)
 		})
+
+		r.Route("/locations", func(r chi.Router) {
+			r.Get("/", scheduleHandler.ListLocations)
+			r.Post("/", scheduleHandler.CreateLocation)
+			r.Get("/{locationID}", scheduleHandler.GetLocation)
+			r.Put("/{locationID}", scheduleHandler.UpdateLocation)
+		})
+
+		r.Route("/sessions", func(r chi.Router) {
+			r.Get("/", scheduleHandler.ListAdminSessions)
+			r.Post("/", scheduleHandler.CreateSession)
+			r.Get("/{sessionID}", scheduleHandler.GetSession)
+			r.Put("/{sessionID}", scheduleHandler.UpdateSession)
+		})
+	})
+}
+
+// mountScheduleViewerRoutes exposes only the authenticated user's schedule.
+func mountScheduleViewerRoutes(r chi.Router, tokenService *auth.TokenService, handler *schedules.Handler) {
+	r.Route("/teacher", func(r chi.Router) {
+		r.Use(auth.Authenticate(tokenService))
+		r.Use(auth.RequireRole(auth.RoleTeacher))
+		r.Get("/schedule", handler.TeacherSchedule)
+	})
+	r.Route("/student", func(r chi.Router) {
+		r.Use(auth.Authenticate(tokenService))
+		r.Use(auth.RequireRole(auth.RoleStudent))
+		r.Get("/schedule", handler.StudentSchedule)
 	})
 }

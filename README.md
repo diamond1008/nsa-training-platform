@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 4 — Academic Core Management (completed, pending review)**
+**Current phase: Phase 5 — Scheduling (completed, pending review)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -14,8 +14,8 @@ Training management platform for an automotive vocational training center. It ma
 | 1 | Local infrastructure and database | ✅ Completed (commit e7f8505) |
 | 2 | Go API foundation | ✅ Completed (commit bc20225) |
 | 3 | Authentication and RBAC | ✅ Completed (commit c5b553a) |
-| 4 | Academic core management | ✅ Completed (pending review) |
-| 5 | Scheduling | ⬜ Not started |
+| 4 | Academic core management | ✅ Completed (commit d164a05) |
+| 5 | Scheduling | ✅ Completed (pending review) |
 | 6 | Attendance | ⬜ Not started |
 | 7 | Skill assessment and progress | ⬜ Not started |
 | 8 | Frontend foundation and auth shell | ⬜ Not started |
@@ -102,6 +102,11 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Academic core administration (`/api/v1/admin/*`):** create/list/detail/update students and teachers (account + role + profile transaction), courses, ordered modules, competency criteria, and classes
 - **Class relationships:** capacity-safe student enrollment with lifecycle status, active-account checks and duplicate prevention; teacher assignment with role update/removal and relationship validation
 - **Administration safeguards:** every Phase 4 route requires `ADMIN`; list endpoints use search/status filters and bounded pagination; important writes create audit logs in the same transaction
+- **Scheduling (`/api/v1/admin/sessions`):** create/list/detail/update class sessions with optional module, assigned teacher, and training location; locked sessions are immutable
+- **Conflict protection:** PostgreSQL exclusion constraints prevent overlapping non-cancelled sessions for a class, teacher, or location; API returns distinct conflict codes
+- **Training locations (`/api/v1/admin/locations`):** create/list/detail/update workshops and rooms, including capacity and active state
+- **Role schedules:** `GET /api/v1/teacher/schedule` returns the authenticated teacher's assigned sessions; `GET /api/v1/student/schedule` returns only active-enrollment sessions
+- **Timezone contract:** API accepts RFC3339 offsets, stores/returns UTC, and evaluates class date boundaries in `Asia/Ho_Chi_Minh`
 - **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
 - Teacher and student self-service business endpoints: not started (Phase 5+)
 
@@ -208,7 +213,7 @@ PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 | Build binary | `make api-build` | `cd apps/api; go build -o bin/api.exe ./cmd/api` |
 | Build Docker image | — | `docker build -f apps/api/Dockerfile -t nsa-api .` |
 
-Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*` — academic administration `/api/v1/admin/*`.
+Local URLs when running: API `http://localhost:8080` — Swagger UI `http://localhost:8080/docs` — probes `/health`, `/ready` — auth `/api/v1/auth/*` — administration `/api/v1/admin/*` — role schedules `/api/v1/{teacher,student}/schedule`.
 
 Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"NsaDemo@123"}` (after `make db-seed`) → use the returned `access_token` as `Authorization: Bearer <token>` for `GET /api/v1/auth/me`.
 
@@ -223,7 +228,7 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 ## Current Limitations
 
-- No schedule, attendance, assessment, progress, or teacher/student self-service endpoints yet (Phases 5–7); rate limiting is in-memory per instance (fine for single-instance MVP).
+- No attendance, assessment, progress, or non-schedule teacher/student self-service endpoints yet (Phases 6–7); rate limiting is in-memory per instance (fine for single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
 - Web app starts in Phase 8; CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.

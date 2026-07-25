@@ -1,38 +1,40 @@
 # AI Context
 
 ## Current Phase
-- Phase 4 — Academic Core Management
+- Phase 5 — Scheduling
 - Status: completed (pending user review; uncommitted)
 
 ## Completed
 - Phase 0 (28f4d25): repository bootstrap, configs, and continuity docs.
 - Phase 1 (e7f8505): PostgreSQL 16, Goose baseline, dev seeds, Swagger UI, and DBML.
 - Phase 2 (bc20225): Go API foundation, pgxpool, middleware, probes, logging, and Dockerfile.
-- Phase 3 (c5b553a): JWT/opaque refresh authentication, RBAC, password/session flows, sqlc, and tests.
-- Phase 4:
-  - ADMIN-only student and teacher management; account, role, and profile writes are transactional.
-  - Course, course module, competency criterion, and class management.
-  - Capacity-safe enrollments and teacher assignments with status/relationship checks.
-  - Search/status filters and bounded pagination on main list endpoints.
-  - Audit logs written in the same transaction as important administrative changes.
-  - OpenAPI 0.2.0 documents all Phase 4 endpoints and schemas.
-  - PostgreSQL integration coverage includes lifecycle, duplicate relations, module/course mismatch, audit writes, capacity reduction, and concurrent enrollment.
+- Phase 3 (c5b553a): authentication, refresh rotation, RBAC, ownership helpers, sqlc, and tests.
+- Phase 4 (d164a05, pushed): academic core administration, capacity-safe enrollment, teacher assignments, audit logs, and OpenAPI 0.2.0.
+- Phase 5:
+  - ADMIN management for training locations and class sessions.
+  - Optional course module, assigned teacher, and active training location per session.
+  - Class date validation in Asia/Ho_Chi_Minh; RFC3339 input normalized to UTC.
+  - PostgreSQL-enforced non-overlap for class, teacher, and location with distinct API errors.
+  - Teacher schedule derived from the authenticated teacher profile; Student schedule derived from active enrollment.
+  - Bounded pagination and optional `[from,to)` overlap filters for all schedule lists.
+  - Important location/session writes audited transactionally.
+  - OpenAPI 0.3.0 documents the Phase 5 contracts.
+  - Integration tests cover conflict types, cancellation behavior, role-scoped visibility, UTC conversion, locked sessions, class dates, assignments, and inactive locations.
 
 ## In Progress
-- Nothing — waiting for user review and explicit approval for the next phase.
+- Nothing — waiting for user review and approval for Phase 6.
 
 ## Next
-- Phase 5 — Scheduling: class-session administration, teacher/location conflict handling, and Admin/Teacher/Student schedule queries.
+- Phase 6 — Attendance: authorized batch recording, enrollment validation, correction/audit flow, and Student attendance history/summary.
 
 ## Architecture Decisions
-- Modular monolith with business slices in `internal/students`, `teachers`, `courses`, and `classes`.
-- All Phase 4 routes are grouped under `/api/v1/admin` behind `Authenticate` + `RequireRole(ADMIN)`.
-- Student/teacher creation atomically creates the user, role, profile, and audit log; temporary passwords are bcrypt-hashed and force password change.
-- PUT replaces mutable resource fields; account password changes remain in the authenticated password flow.
-- Enrollment capacity remains enforced by the PostgreSQL locking trigger; the use case adds friendly state, duplicate, and active-account checks.
-- Schema source of truth remains Goose migrations; Phase 4 changes queries only, so migration and DBML are unchanged.
-- sqlc output remains a committed standalone module at `database/generated`, linked from `apps/api`.
-- UTC in the database; Asia/Saigon is a presentation concern. Documentation is English; chat may be Vietnamese.
+- Scheduling is the `internal/schedules` vertical slice; no new migration was required because the reviewed baseline already contains locations, sessions, constraints, and indexes.
+- Admin scheduling remains under `/api/v1/admin`; Teacher and Student use separate role-protected `/schedule` routes with identity taken only from JWT claims.
+- Teacher schedule contains sessions explicitly assigned to that teacher. Student schedule contains sessions for current `enrolled` relations.
+- Exclusion constraints are the concurrency-safe final boundary for class/teacher/location conflicts; Go maps constraint names to stable API error codes.
+- Session timestamps are stored and returned in UTC. Class date membership is checked using Asia/Ho_Chi_Minh.
+- Cancelled sessions do not reserve class, teacher, or location time. Locked/attendance-locked sessions cannot be edited.
+- sqlc generated output remains a committed standalone module under `database/generated`.
 
 ## Important Commands
 - Startup: `make db-up`, `make migrate-up`, `make db-seed`, `make api-run`
@@ -40,33 +42,34 @@
 - Unit/check: `make check`
 - Integration: `make db-test-migrate`, then `make api-test-integration`
 - Build: `make api-build`; Docker: `docker build -f apps/api/Dockerfile -t nsa-api .`
-- Docs: `make swagger` or API `/docs`; validate with `npx --yes @redocly/cli@latest lint docs/openapi.yaml`
+- Docs: `make swagger`; validate with `npx --yes @redocly/cli@latest lint docs/openapi.yaml`
 
 ## Key Files
-- `apps/api/internal/{students,teachers,courses,classes}` — Phase 4 handlers and use cases.
-- `database/queries/{admin_users,students,teachers,courses,classes}.sql` — Phase 4 sqlc queries.
-- `apps/api/cmd/api/main.go` — ADMIN route boundary and service wiring.
-- `apps/api/internal/classes/phase4_integration_test.go` — Phase 4 database integration scenarios.
-- `docs/openapi.yaml` — external API contract, version 0.2.0.
+- `apps/api/internal/schedules/{service,handler}.go` — Phase 5 scheduling use cases and HTTP transport.
+- `database/queries/schedules.sql` — locations, sessions, Admin lists, and role-scoped schedule queries.
+- `apps/api/internal/schedules/schedules_integration_test.go` — PostgreSQL scheduling behavior.
+- `apps/api/cmd/api/main.go` — Admin, Teacher, and Student scheduling route boundaries.
+- `docs/openapi.yaml` — external API contract, version 0.3.0.
 
 ## Known Issues / Deferred Work
-- No scheduling, attendance, assessment, progress, or teacher/student self-service endpoints yet.
-- Rate limiting is in-memory and suitable only for the single-instance MVP.
-- Testcontainers remains deferred; integration tests use dedicated `nsa_training_test`.
+- Attendance recording and session attendance locking are Phase 6.
+- Student schedule currently follows active `enrolled` relations; historical withdrawn/transferred schedule policy is deferred.
+- Rate limiting is in-memory; Testcontainers remains deferred in favor of `nsa_training_test`.
 - React web app starts in Phase 8; CI/Caddy/Playwright are Phase 10.
 
 ## Database State
-- Latest migration: `00001_baseline_schema.sql` (unchanged in Phase 4).
+- Latest migration: `00001_baseline_schema.sql` (unchanged in Phase 5).
+- Session exclusion constraints: class, teacher, and location overlap.
 - Local demo: admin/teacher/student accounts from `database/seeds/dev.sql`.
-- Test DB: `nsa_training_test`; migrations and Phase 3/4 integration tests pass.
-- Audit logging is active for Phase 4 administrative writes.
+- Test DB: `nsa_training_test`; Phase 3–5 integration suites pass.
 
 ## API State
-- Implemented: `/health`, `/ready`, `/docs`, `/openapi.yaml`, `/api/v1/auth/*`.
-- Implemented ADMIN groups: students, teachers, courses/modules/competencies, classes/enrollments/teacher-assignments.
-- OpenAPI: version 0.2.0, valid with Redocly (pre-existing recommended-rule warnings only).
+- Implemented: system probes/docs, `/api/v1/auth/*`, and Phase 4 Admin academic core.
+- Implemented Phase 5: `/api/v1/admin/{locations,sessions}`, `/api/v1/teacher/schedule`, `/api/v1/student/schedule`.
+- OpenAPI: version 0.3.0, valid with Redocly (five pre-existing recommended-rule warnings).
 
 ## Git State
-- Current branch: `main`; synchronized with `origin/main` before Phase 4 work began.
-- Phase 4 changes are uncommitted.
+- Current branch: `main`, synchronized with `origin/main` at Phase 5 start.
+- Last commit: d164a05 `feat(api): implement academic core management` (pushed).
+- Phase 5 changes are uncommitted.
 - Do not commit or push without explicit user permission.

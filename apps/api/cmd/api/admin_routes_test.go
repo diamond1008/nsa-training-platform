@@ -14,6 +14,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
 )
@@ -32,6 +33,7 @@ func TestAllPhase4RoutesRequireAdmin(t *testing.T) {
 			teachers.NewHandler(nil, log),
 			courses.NewHandler(nil, log),
 			classes.NewHandler(nil, log),
+			schedules.NewHandler(nil, log),
 		)
 	})
 	teacherToken, _, err := tokens.Issue(
@@ -77,6 +79,14 @@ func TestAllPhase4RoutesRequireAdmin(t *testing.T) {
 		{http.MethodPost, "/api/v1/admin/classes/" + id + "/teacher-assignments"},
 		{http.MethodPut, "/api/v1/admin/classes/" + id + "/teacher-assignments/" + id},
 		{http.MethodDelete, "/api/v1/admin/classes/" + id + "/teacher-assignments/" + id},
+		{http.MethodGet, "/api/v1/admin/locations"},
+		{http.MethodPost, "/api/v1/admin/locations"},
+		{http.MethodGet, "/api/v1/admin/locations/" + id},
+		{http.MethodPut, "/api/v1/admin/locations/" + id},
+		{http.MethodGet, "/api/v1/admin/sessions"},
+		{http.MethodPost, "/api/v1/admin/sessions"},
+		{http.MethodGet, "/api/v1/admin/sessions/" + id},
+		{http.MethodPut, "/api/v1/admin/sessions/" + id},
 	}
 
 	for _, route := range routes {
