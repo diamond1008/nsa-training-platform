@@ -1,0 +1,20 @@
+# NSA Training Platform — SPA static hosting.
+# Serves the Vite build output with client-side routing fallback.
+
+:80
+
+root * /srv
+encode gzip
+
+# Security headers (match the API's defensive posture).
+header {
+	X-Content-Type-Options nosniff
+	X-Frame-Options DENY
+	Referrer-Policy strict-origin-when-cross-origin
+	-Server
+}
+
+# Client-side routing: unknown paths fall back to index.html.
+try_files {path} /index.html
+
+file_server

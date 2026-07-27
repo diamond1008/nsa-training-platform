@@ -1,8 +1,8 @@
 # AI Context
 
 ## Current Phase
-- Phase 7 — Skill Assessment and Progress
-- Status: completed; user explicitly authorized commit and push
+- Phase 8 — Frontend Foundation and Authenticated Shell
+- Status: completed and validated; awaiting explicit commit permission
 
 ## Completed
 - Phase 0 (28f4d25): repository bootstrap, configs, and continuity docs.
@@ -22,12 +22,20 @@
   - Deterministic Student progress from sessions, attendance, required competencies, and assessment sessions.
   - OpenAPI 0.5.0 documents the Phase 7 contracts.
   - Integration tests cover authorization, rollback, lifecycle, history, ownership, course consistency, latest-rating behavior, and deterministic progress.
+- Phase 8:
+  - React 18 + TypeScript + Vite SPA with Tailwind design tokens and shared UI primitives.
+  - React Router route groups and responsive authenticated shells for Admin, Teacher, and Student.
+  - Typed API client with standard envelope parsing, in-memory access token, HttpOnly refresh cookie, deduplicated refresh, and one-time 401 retry.
+  - Login, silent session restoration, logout, forced/voluntary password change, role guards, 403/404 pages, and loading/error/empty patterns.
+  - Phase 9 feature routes are present as role-protected placeholders.
+  - Vitest/Testing Library coverage for login validation/errors and API refresh behavior.
+  - Multi-stage web Dockerfile and Caddy SPA hosting with route fallback, security headers, and health check.
 
 ## In Progress
-- Nothing — Phase 7 is complete.
+- Nothing — Phase 8 implementation and validation are complete.
 
 ## Next
-- Phase 8 — Frontend Foundation and Authenticated Shell.
+- Phase 9 — Feature Screens, starting with the Admin management screens or one complete role workflow at a time.
 
 ## Architecture Decisions
 - Assessments and progress are separate vertical slices under `internal/assessments` and `internal/progress`.
@@ -42,13 +50,18 @@
 - Overall progress averages the session component, attendance-threshold component, and only applicable competency/assessment components. Values are capped and rounded to two decimals.
 - Completion status is derived as Pending or Eligible. Formal ADMIN approval/rejection remains deferred.
 - sqlc generated output remains a committed standalone module under `database/generated`.
+- Browser access tokens remain memory-only; the secure HttpOnly refresh cookie restores sessions after reload.
+- Concurrent 401 responses share one refresh request and retry their original request once.
+- Frontend route guards improve UX only; backend RBAC and ownership checks remain authoritative.
+- Phase 8 dashboards intentionally contain placeholders rather than duplicating Phase 9 feature work.
 
 ## Important Commands
 - Startup: `make db-up`, `make migrate-up`, `make db-seed`, `make api-run`
 - Generate SQL: `sqlc generate`
 - Unit/check: `make check`
 - Integration: `make db-test-migrate`, then `make api-test-integration`
-- Build: `make api-build`; Docker: `docker build -f apps/api/Dockerfile -t nsa-api .`
+- Web: `make web-dev`, `make web-test`, `make web-build`
+- Build: `make api-build`; Docker API: `docker build -f apps/api/Dockerfile -t nsa-api .`; Docker web: `docker build -f apps/web/Dockerfile -t nsa-web .`
 - Docs: validate with `npx --yes @redocly/cli@latest lint docs/openapi.yaml`
 
 ## Key Files
@@ -58,12 +71,19 @@
 - `apps/api/internal/assessments/assessments_integration_test.go` — Phase 7 PostgreSQL behavior.
 - `apps/api/cmd/api/main.go` — Teacher/Student Phase 7 routes.
 - `docs/openapi.yaml` — external API contract, version 0.5.0.
+- `apps/web/src/lib/apiClient.ts` — typed API envelopes, access token, refresh deduplication, and 401 retry.
+- `apps/web/src/features/auth/AuthContext.tsx` — centralized session lifecycle and role home selection.
+- `apps/web/src/routes/router.tsx` — authenticated and role-protected route tree.
+- `apps/web/src/app/AppLayout.tsx` — responsive role-aware application shell.
+- `apps/web/src/features/auth/{LoginPage,ChangePasswordPage}.tsx` — Phase 8 authentication screens.
+- `apps/web/{Dockerfile,Caddyfile}` — production SPA image and static routing.
 
 ## Known Issues / Deferred Work
 - Formal ADMIN course-completion approval/rejection is not exposed in Phase 7; progress reports computed Pending/Eligible status.
 - Attendance roster/finalization follows the current `enrolled` relationship; historical transfer/withdrawal policy is deferred.
 - Rate limiting is in-memory; Testcontainers remains deferred in favor of `nsa_training_test`.
-- React web app starts in Phase 8; CI/Caddy/Playwright are Phase 10.
+- Admin, Teacher, and Student feature pages are placeholders until Phase 9.
+- Playwright end-to-end coverage and CI remain Phase 10 work.
 
 ## Database State
 - Latest migration: `00001_baseline_schema.sql` (unchanged in Phase 7).
@@ -79,7 +99,13 @@
 - Student progress: `GET /api/v1/student/progress`.
 - OpenAPI: version 0.5.0.
 
+## Web State
+- Routes: `/login`, `/doi-mat-khau`, `/admin/*`, `/teacher/*`, `/student/*`, `/403`, and fallback 404.
+- Auth shell is connected to `/api/v1/auth/*`; Phase 9 feature routes are guarded placeholders.
+- Validation: 9/9 web unit tests pass; TypeScript/Vite production build passes.
+- Docker: `nsa-web:phase8` builds successfully; Caddy returns 200 for `/`, `/login`, and deep SPA routes.
+
 ## Git State
 - Current branch: `main`.
-- Phase 6 commit: b8a580b `feat(api): implement attendance management` (pushed).
-- User explicitly authorized committing and pushing Phase 7 after all checks pass.
+- Last commit: fb4813f `feat(api): add skill assessments and progress` (pushed).
+- Phase 8 files and documentation are uncommitted. Do not commit without user permission.

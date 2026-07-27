@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 7 — Skill Assessment and Progress (completed)**
+**Current phase: Phase 8 — Frontend Foundation and Authenticated Shell (completed, awaiting commit)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -17,8 +17,8 @@ Training management platform for an automotive vocational training center. It ma
 | 4 | Academic core management | ✅ Completed (commit d164a05) |
 | 5 | Scheduling | ✅ Completed (commit 346ea36) |
 | 6 | Attendance | ✅ Completed (commit b8a580b) |
-| 7 | Skill assessment and progress | ✅ Completed |
-| 8 | Frontend foundation and auth shell | ⬜ Not started |
+| 7 | Skill assessment and progress | ✅ Completed (commit fb4813f) |
+| 8 | Frontend foundation and auth shell | ✅ Completed (awaiting commit) |
 | 9 | Feature screens | ⬜ Not started |
 | 10 | Quality, CI, deployment readiness | ⬜ Not started |
 
@@ -33,6 +33,7 @@ make db-up        # 1. Start PostgreSQL 16 (Docker container)
 make migrate-up   # 2. Apply the schema (needed on first run / after new migrations)
 make db-seed      # 3. Load demo accounts (dev only, safe to re-run)
 make api-run      # 4. Start the API at http://localhost:8080
+make web-dev      # 5. In another terminal, start the SPA at http://localhost:5173
 ```
 
 Stop: `Ctrl+C` in the API terminal, then `make db-down` to stop the database.
@@ -117,6 +118,10 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Progress dashboard:** `/api/v1/student/progress` combines completed sessions, the configured attendance threshold, latest required-competency ratings, and scheduled assessment-session completion into deterministic per-class progress and Pending/Eligible status
 - **Configurable completion rules:** course `total_sessions` and `minimum_attendance_pct`, criterion `is_required`, and non-cancelled class sessions of type `assessment` define the requirements without a Phase 7 schema migration
 - **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
+- **React SPA foundation (`apps/web`):** React 18, TypeScript, Vite, React Router, TanStack Query, React Hook Form, Zod, Tailwind CSS, and shared NSA design tokens/components
+- **Frontend authentication:** login, silent cookie-based refresh, in-memory access tokens, deduplicated 401 refresh/retry, logout, forced password change, and role-aware home redirects
+- **Authenticated shells:** responsive Admin, Teacher, and Student navigation with route guards, 403/404 handling, loading/error/empty patterns, and Phase 9 route placeholders
+- **Web delivery:** multi-stage Node/Caddy Docker image, SPA route fallback, security headers, health check, and root `.dockerignore` rules that exclude nested frontend artifacts
 
 ## Technology Stack
 
@@ -231,7 +236,8 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 | ----- | ---- | --------- |
 | API unit tests | `make api-test` | `cd apps/api; go test ./...` |
 | API + DB integration tests | `make api-test-integration` | needs `make db-test-migrate` first |
-| Web tests (Phase 8+) | `make web-test` | `cd apps/web; npm run test` |
+| Web tests | `make web-test` | `cd apps/web; npm run test` |
+| Web production build | `make web-build` | `cd apps/web; npm run build` |
 | All checks for current phase | `make check` | — |
 
 ## Current Limitations
@@ -241,7 +247,8 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 - The latest submitted or locked rating for each required competency supersedes its earlier rating when progress is calculated.
 - Rate limiting is in-memory per instance (fine for the single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
-- Web app starts in Phase 8; CI/CD, Caddy deployment config, and E2E tests arrive in Phase 10.
+- Phase 8 provides the authenticated shell and placeholder dashboards; real Admin, Teacher, and Student workflows arrive in Phase 9.
+- CI/CD and Playwright end-to-end tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.
 
 ## Documentation

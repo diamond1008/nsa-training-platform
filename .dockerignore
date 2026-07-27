@@ -9,9 +9,9 @@
 !.env.example
 
 # Node / frontend artifacts
-node_modules/
-apps/web/dist/
-apps/web/coverage/
+**/node_modules/
+**/dist/
+**/coverage/
 
 # Go build artifacts
 apps/api/bin/

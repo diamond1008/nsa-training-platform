@@ -1,0 +1,124 @@
+/** Forced/voluntary password change — Figma frame "Đổi mật khẩu bắt buộc". */
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useNavigate } from "react-router-dom";
+
+import { Button, Card, ErrorBanner, Input } from "../../components/ui";
+import { ApiRequestError } from "../../lib/apiClient";
+import * as authApi from "./authApi";
+import { useAuth } from "./AuthContext";
+
+const schema = z
+  .object({
+    currentPassword: z.string().min(1, "Vui lòng nhập mật khẩu hiện tại"),
+    newPassword: z.string().min(8, "Mật khẩu mới phải có ít nhất 8 ký tự"),
+    confirmPassword: z.string().min(1, "Vui lòng xác nhận mật khẩu mới"),
+  })
+  .refine((v) => v.newPassword === v.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Mật khẩu xác nhận không khớp",
+  });
+
+type FormValues = z.infer<typeof schema>;
+
+export default function ChangePasswordPage() {
+  const { user, logout, homePath } = useAuth();
+  const navigate = useNavigate();
+  const [serverError, setServerError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<FormValues>({ resolver: zodResolver(schema) });
+
+  const onSubmit = handleSubmit(async (values) => {
+    setServerError("");
+    try {
+      await authApi.changePassword(values.currentPassword, values.newPassword);
+      setDone(true);
+      // The API revokes every session on password change — re-login is required.
+      setTimeout(() => {
+        void logout().then(() => navigate("/login", { replace: true }));
+      }, 1800);
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === "WRONG_CURRENT_PASSWORD") {
+        setServerError("Mật khẩu hiện tại không đúng.");
+      } else if (err instanceof ApiRequestError && err.code === "WEAK_PASSWORD") {
+        setServerError("Mật khẩu mới chưa đủ mạnh (tối thiểu 8 ký tự).");
+      } else {
+        setServerError("Không đổi được mật khẩu. Vui lòng thử lại.");
+      }
+    }
+  });
+
+  const forced = user?.must_change_password ?? false;
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gbg px-4">
+      <div className="w-full max-w-[480px]">
+        <Card className="p-8">
+          <div className="mb-8 text-center">
+            <h1 className="text-[28px] font-bold text-navy-dark">
+              {forced ? "Đổi mật khẩu bắt buộc" : "Đổi mật khẩu"}
+            </h1>
+            <p className="mt-2 text-sm text-gtext">
+              {forced
+                ? "Tài khoản của bạn cần đổi mật khẩu trước khi tiếp tục sử dụng hệ thống."
+                : "Cập nhật mật khẩu để bảo vệ tài khoản của bạn."}
+            </p>
+          </div>
+
+          {done ? (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-center text-sm text-green-800">
+              Đổi mật khẩu thành công! Đang chuyển về trang đăng nhập…
+            </div>
+          ) : (
+            <form onSubmit={onSubmit} noValidate className="space-y-4">
+              {serverError && <ErrorBanner message={serverError} />}
+
+              <Input
+                label="Mật khẩu hiện tại"
+                type="password"
+                autoComplete="current-password"
+                error={errors.currentPassword?.message}
+                {...register("currentPassword")}
+              />
+              <Input
+                label="Mật khẩu mới"
+                type="password"
+                autoComplete="new-password"
+                error={errors.newPassword?.message}
+                {...register("newPassword")}
+              />
+              <Input
+                label="Xác nhận mật khẩu mới"
+                type="password"
+                autoComplete="new-password"
+                error={errors.confirmPassword?.message}
+                {...register("confirmPassword")}
+              />
+
+              <Button type="submit" className="w-full" loading={isSubmitting}>
+                Cập nhật mật khẩu
+              </Button>
+            </form>
+          )}
+
+          {!forced && !done && (
+            <button
+              type="button"
+              className="mt-4 w-full text-center text-sm text-gtext hover:text-navy hover:underline"
+              onClick={() => navigate(homePath(user))}
+            >
+              ← Quay lại trang tổng quan
+            </button>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
