@@ -27,7 +27,7 @@
   - OpenAPI 0.6.0 and integration/RBAC/unit coverage for the new endpoints and UI helpers.
 - Phase 10 + UI/UX polish (`27f8630`): CI/deployment hardening, attendance governance refinements, role dashboards, responsive application shell, mobile table cards, and week/month/agenda calendars.
 - Phase 11 implementation:
-  - Migration `00002_student_profiles_lifecycle.sql` adds a PostgreSQL sequence-backed immutable `HV*****` code, expanded contact fields, and immutable status history.
+  - Migrations `00002_student_profiles_lifecycle.sql` and `00003_expand_student_code_format.sql` add a PostgreSQL sequence-backed immutable `HV********` code, expanded contact fields, and immutable status history.
   - Public create/update contracts no longer accept a manually editable student code; existing internal test-fixture codes remain supported by the service boundary.
   - Student status transitions require a reason and record old/new state, actor, and timestamp in the same transaction as the profile/audit update.
   - ADMIN can view lifecycle history and import/export UTF-8 CSV with strict validation and per-row outcomes.
@@ -95,7 +95,7 @@
 
 ## Database and API State
 
-- Latest migration: `00002_student_profiles_lifecycle.sql`; clean up/down/up and integration-database application validated.
+- Latest migration: `00003_expand_student_code_format.sql`; clean up/down/up and integration-database application validated.
 - Teacher class reads are assignment scoped by authenticated Teacher user ID.
 - Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`.
 - Student self-service APIs remain `/api/v1/student/{schedule,attendance,assessments,progress}`.

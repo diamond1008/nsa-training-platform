@@ -69,7 +69,7 @@ func TestCSVSafePreventsSpreadsheetFormulaInjection(t *testing.T) {
 			t.Fatalf("csvSafe(%q) = %q", value, got)
 		}
 	}
-	if got := csvSafe("HV00001"); got != "HV00001" {
+	if got := csvSafe("HV00000001"); got != "HV00000001" {
 		t.Fatalf("safe value changed to %q", got)
 	}
 }

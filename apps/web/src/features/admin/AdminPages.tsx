@@ -534,7 +534,7 @@ function PersonForm({
         {isStudent ? (
           <Input
             label="Mã học viên"
-            value={initial ? form.code : "Tự động tạo dạng HV00001"}
+            value={initial ? form.code : "Tự động tạo dạng HV00000001"}
             disabled
           />
         ) : (

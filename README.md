@@ -41,7 +41,7 @@ Create student → Assign class → Schedule training → Record attendance
 
 ### Phase 11 — Student profiles and lifecycle
 
-- Generate concurrency-safe, human-readable student codes (`HV00001`, `HV00002`, ...) from PostgreSQL while retaining UUIDs as internal identifiers.
+- Generate concurrency-safe, human-readable student codes (`HV00000001`, `HV00000002`, ...) from PostgreSQL while retaining UUIDs as internal identifiers.
 - Maintain contact, date of birth, gender, address, emergency-contact, enrollment-date, and lifecycle information.
 - Support the lifecycle states Pending, Active, Suspended, Completed, and Withdrawn with an auditable status history.
 - Search and filter the student directory and support controlled CSV import/export for operational handover.
@@ -166,7 +166,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Authentication (`POST /api/v1/auth/*`):** login, refresh (rotation + reuse detection), logout, change-password (revokes all sessions), me — JWT access tokens (HS256) + opaque refresh tokens (SHA-256 hashed in DB, HttpOnly cookie)
 - **Security:** bcrypt passwords, generic 401 on bad credentials (no user enumeration), per-IP rate limiting on login/refresh, request body limits, RBAC middleware (`Authenticate`, `RequireRole`), ownership/assignment helpers
 - **Academic core administration (`/api/v1/admin/*`):** create/list/detail/update students and teachers (account + role + profile transaction), courses, ordered modules, competency criteria, and classes
-- **Generated student codes:** PostgreSQL sequence-backed `HV00001`, `HV00002`, ... codes are assigned atomically, remain immutable through profile updates, are never reused after rollback/deletion, and coexist with UUID internal identifiers
+- **Generated student codes:** PostgreSQL sequence-backed `HV00000001`, `HV00000002`, ... codes are assigned atomically, remain immutable through profile updates, are never reused after rollback/deletion, and coexist with UUID internal identifiers
 - **Student lifecycle profiles:** gender, address, emergency contact, enrollment date, and Pending/Active/Suspended/Completed/Withdrawn states are managed from the Admin workspace
 - **Lifecycle history:** every initial state and subsequent status transition is stored immutably with actor, timestamp, and a required reason; Admin can inspect the timeline from the student form
 - **Student CSV exchange:** filtered UTF-8/Excel-safe export plus size-limited import with generated codes, strict headers/validation, and per-row success/error reporting
