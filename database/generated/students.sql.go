@@ -42,35 +42,67 @@ func (q *Queries) CountAdminStudents(ctx context.Context, arg CountAdminStudents
 const createStudentProfile = `-- name: CreateStudentProfile :one
 
 INSERT INTO student_profiles (
-  user_id, student_code, full_name, phone, date_of_birth, status, enrolled_at
+  user_id, student_code, full_name, phone, date_of_birth, gender, address,
+  emergency_contact_name, emergency_contact_phone, status, enrolled_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, student_code, full_name, phone, date_of_birth,
-  status, enrolled_at, created_at, updated_at
+VALUES (
+  $1,
+  COALESCE(NULLIF($2::text, ''), 'HV' || lpad(nextval('student_code_seq')::text, 5, '0')),
+  $3, $4, $5, $6,
+  $7, $8, $9,
+  $10, $11
+)
+RETURNING id, user_id, student_code, full_name, phone, date_of_birth, gender, address,
+  emergency_contact_name, emergency_contact_phone, status, enrolled_at, created_at, updated_at
 `
 
 type CreateStudentProfileParams struct {
-	UserID      pgtype.UUID   `json:"user_id"`
-	StudentCode string        `json:"student_code"`
-	FullName    string        `json:"full_name"`
-	Phone       pgtype.Text   `json:"phone"`
-	DateOfBirth pgtype.Date   `json:"date_of_birth"`
-	Status      StudentStatus `json:"status"`
-	EnrolledAt  pgtype.Date   `json:"enrolled_at"`
+	UserID                pgtype.UUID   `json:"user_id"`
+	StudentCode           string        `json:"student_code"`
+	FullName              string        `json:"full_name"`
+	Phone                 pgtype.Text   `json:"phone"`
+	DateOfBirth           pgtype.Date   `json:"date_of_birth"`
+	Gender                pgtype.Text   `json:"gender"`
+	Address               pgtype.Text   `json:"address"`
+	EmergencyContactName  pgtype.Text   `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text   `json:"emergency_contact_phone"`
+	Status                StudentStatus `json:"status"`
+	EnrolledAt            pgtype.Date   `json:"enrolled_at"`
+}
+
+type CreateStudentProfileRow struct {
+	ID                    pgtype.UUID        `json:"id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	StudentCode           string             `json:"student_code"`
+	FullName              string             `json:"full_name"`
+	Phone                 pgtype.Text        `json:"phone"`
+	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
+	Gender                pgtype.Text        `json:"gender"`
+	Address               pgtype.Text        `json:"address"`
+	EmergencyContactName  pgtype.Text        `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text        `json:"emergency_contact_phone"`
+	Status                StudentStatus      `json:"status"`
+	EnrolledAt            pgtype.Date        `json:"enrolled_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }
 
 // Student administration queries.
-func (q *Queries) CreateStudentProfile(ctx context.Context, arg CreateStudentProfileParams) (StudentProfile, error) {
+func (q *Queries) CreateStudentProfile(ctx context.Context, arg CreateStudentProfileParams) (CreateStudentProfileRow, error) {
 	row := q.db.QueryRow(ctx, createStudentProfile,
 		arg.UserID,
 		arg.StudentCode,
 		arg.FullName,
 		arg.Phone,
 		arg.DateOfBirth,
+		arg.Gender,
+		arg.Address,
+		arg.EmergencyContactName,
+		arg.EmergencyContactPhone,
 		arg.Status,
 		arg.EnrolledAt,
 	)
-	var i StudentProfile
+	var i CreateStudentProfileRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -78,6 +110,10 @@ func (q *Queries) CreateStudentProfile(ctx context.Context, arg CreateStudentPro
 		&i.FullName,
 		&i.Phone,
 		&i.DateOfBirth,
+		&i.Gender,
+		&i.Address,
+		&i.EmergencyContactName,
+		&i.EmergencyContactPhone,
 		&i.Status,
 		&i.EnrolledAt,
 		&i.CreatedAt,
@@ -86,10 +122,133 @@ func (q *Queries) CreateStudentProfile(ctx context.Context, arg CreateStudentPro
 	return i, err
 }
 
+const createStudentStatusHistory = `-- name: CreateStudentStatusHistory :one
+INSERT INTO student_status_history (
+  student_id, from_status, to_status, reason, changed_by
+)
+VALUES (
+  $1, $2, $3,
+  $4, $5
+)
+RETURNING id, student_id, from_status, to_status, reason, changed_by, changed_at
+`
+
+type CreateStudentStatusHistoryParams struct {
+	StudentID  pgtype.UUID       `json:"student_id"`
+	FromStatus NullStudentStatus `json:"from_status"`
+	ToStatus   StudentStatus     `json:"to_status"`
+	Reason     string            `json:"reason"`
+	ChangedBy  pgtype.UUID       `json:"changed_by"`
+}
+
+func (q *Queries) CreateStudentStatusHistory(ctx context.Context, arg CreateStudentStatusHistoryParams) (StudentStatusHistory, error) {
+	row := q.db.QueryRow(ctx, createStudentStatusHistory,
+		arg.StudentID,
+		arg.FromStatus,
+		arg.ToStatus,
+		arg.Reason,
+		arg.ChangedBy,
+	)
+	var i StudentStatusHistory
+	err := row.Scan(
+		&i.ID,
+		&i.StudentID,
+		&i.FromStatus,
+		&i.ToStatus,
+		&i.Reason,
+		&i.ChangedBy,
+		&i.ChangedAt,
+	)
+	return i, err
+}
+
+const exportAdminStudents = `-- name: ExportAdminStudents :many
+SELECT
+  sp.id, sp.user_id, u.email, u.status AS user_status,
+  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth, sp.gender, sp.address,
+  sp.emergency_contact_name, sp.emergency_contact_phone,
+  sp.status AS student_status, sp.enrolled_at, sp.created_at, sp.updated_at
+FROM student_profiles sp
+JOIN users u ON u.id = sp.user_id
+WHERE (
+  $1::text = ''
+  OR sp.student_code ILIKE '%' || $1 || '%'
+  OR sp.full_name ILIKE '%' || $1 || '%'
+  OR u.email ILIKE '%' || $1 || '%'
+)
+AND (
+  $2::text = ''
+  OR sp.status::text = $2::text
+)
+ORDER BY sp.student_code, sp.id
+`
+
+type ExportAdminStudentsParams struct {
+	Search string `json:"search"`
+	Status string `json:"status"`
+}
+
+type ExportAdminStudentsRow struct {
+	ID                    pgtype.UUID        `json:"id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	Email                 string             `json:"email"`
+	UserStatus            UserStatus         `json:"user_status"`
+	StudentCode           string             `json:"student_code"`
+	FullName              string             `json:"full_name"`
+	Phone                 pgtype.Text        `json:"phone"`
+	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
+	Gender                pgtype.Text        `json:"gender"`
+	Address               pgtype.Text        `json:"address"`
+	EmergencyContactName  pgtype.Text        `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text        `json:"emergency_contact_phone"`
+	StudentStatus         StudentStatus      `json:"student_status"`
+	EnrolledAt            pgtype.Date        `json:"enrolled_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ExportAdminStudents(ctx context.Context, arg ExportAdminStudentsParams) ([]ExportAdminStudentsRow, error) {
+	rows, err := q.db.Query(ctx, exportAdminStudents, arg.Search, arg.Status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ExportAdminStudentsRow{}
+	for rows.Next() {
+		var i ExportAdminStudentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Email,
+			&i.UserStatus,
+			&i.StudentCode,
+			&i.FullName,
+			&i.Phone,
+			&i.DateOfBirth,
+			&i.Gender,
+			&i.Address,
+			&i.EmergencyContactName,
+			&i.EmergencyContactPhone,
+			&i.StudentStatus,
+			&i.EnrolledAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAdminStudent = `-- name: GetAdminStudent :one
 SELECT
   sp.id, sp.user_id, u.email, u.status AS user_status,
-  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth,
+  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth, sp.gender, sp.address,
+  sp.emergency_contact_name, sp.emergency_contact_phone,
   sp.status AS student_status, sp.enrolled_at, sp.created_at, sp.updated_at
 FROM student_profiles sp
 JOIN users u ON u.id = sp.user_id
@@ -97,18 +256,22 @@ WHERE sp.id = $1
 `
 
 type GetAdminStudentRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	UserID        pgtype.UUID        `json:"user_id"`
-	Email         string             `json:"email"`
-	UserStatus    UserStatus         `json:"user_status"`
-	StudentCode   string             `json:"student_code"`
-	FullName      string             `json:"full_name"`
-	Phone         pgtype.Text        `json:"phone"`
-	DateOfBirth   pgtype.Date        `json:"date_of_birth"`
-	StudentStatus StudentStatus      `json:"student_status"`
-	EnrolledAt    pgtype.Date        `json:"enrolled_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID                    pgtype.UUID        `json:"id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	Email                 string             `json:"email"`
+	UserStatus            UserStatus         `json:"user_status"`
+	StudentCode           string             `json:"student_code"`
+	FullName              string             `json:"full_name"`
+	Phone                 pgtype.Text        `json:"phone"`
+	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
+	Gender                pgtype.Text        `json:"gender"`
+	Address               pgtype.Text        `json:"address"`
+	EmergencyContactName  pgtype.Text        `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text        `json:"emergency_contact_phone"`
+	StudentStatus         StudentStatus      `json:"student_status"`
+	EnrolledAt            pgtype.Date        `json:"enrolled_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) GetAdminStudent(ctx context.Context, id pgtype.UUID) (GetAdminStudentRow, error) {
@@ -123,6 +286,10 @@ func (q *Queries) GetAdminStudent(ctx context.Context, id pgtype.UUID) (GetAdmin
 		&i.FullName,
 		&i.Phone,
 		&i.DateOfBirth,
+		&i.Gender,
+		&i.Address,
+		&i.EmergencyContactName,
+		&i.EmergencyContactPhone,
 		&i.StudentStatus,
 		&i.EnrolledAt,
 		&i.CreatedAt,
@@ -134,7 +301,8 @@ func (q *Queries) GetAdminStudent(ctx context.Context, id pgtype.UUID) (GetAdmin
 const listAdminStudents = `-- name: ListAdminStudents :many
 SELECT
   sp.id, sp.user_id, u.email, u.status AS user_status,
-  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth,
+  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth, sp.gender, sp.address,
+  sp.emergency_contact_name, sp.emergency_contact_phone,
   sp.status AS student_status, sp.enrolled_at, sp.created_at, sp.updated_at
 FROM student_profiles sp
 JOIN users u ON u.id = sp.user_id
@@ -160,18 +328,22 @@ type ListAdminStudentsParams struct {
 }
 
 type ListAdminStudentsRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	UserID        pgtype.UUID        `json:"user_id"`
-	Email         string             `json:"email"`
-	UserStatus    UserStatus         `json:"user_status"`
-	StudentCode   string             `json:"student_code"`
-	FullName      string             `json:"full_name"`
-	Phone         pgtype.Text        `json:"phone"`
-	DateOfBirth   pgtype.Date        `json:"date_of_birth"`
-	StudentStatus StudentStatus      `json:"student_status"`
-	EnrolledAt    pgtype.Date        `json:"enrolled_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID                    pgtype.UUID        `json:"id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	Email                 string             `json:"email"`
+	UserStatus            UserStatus         `json:"user_status"`
+	StudentCode           string             `json:"student_code"`
+	FullName              string             `json:"full_name"`
+	Phone                 pgtype.Text        `json:"phone"`
+	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
+	Gender                pgtype.Text        `json:"gender"`
+	Address               pgtype.Text        `json:"address"`
+	EmergencyContactName  pgtype.Text        `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text        `json:"emergency_contact_phone"`
+	StudentStatus         StudentStatus      `json:"student_status"`
+	EnrolledAt            pgtype.Date        `json:"enrolled_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) ListAdminStudents(ctx context.Context, arg ListAdminStudentsParams) ([]ListAdminStudentsRow, error) {
@@ -197,6 +369,10 @@ func (q *Queries) ListAdminStudents(ctx context.Context, arg ListAdminStudentsPa
 			&i.FullName,
 			&i.Phone,
 			&i.DateOfBirth,
+			&i.Gender,
+			&i.Address,
+			&i.EmergencyContactName,
+			&i.EmergencyContactPhone,
 			&i.StudentStatus,
 			&i.EnrolledAt,
 			&i.CreatedAt,
@@ -212,41 +388,117 @@ func (q *Queries) ListAdminStudents(ctx context.Context, arg ListAdminStudentsPa
 	return items, nil
 }
 
+const listStudentStatusHistory = `-- name: ListStudentStatusHistory :many
+SELECT
+  ssh.id, ssh.student_id, ssh.from_status, ssh.to_status, ssh.reason,
+  ssh.changed_by, u.email AS changed_by_email, ssh.changed_at
+FROM student_status_history ssh
+LEFT JOIN users u ON u.id = ssh.changed_by
+WHERE ssh.student_id = $1
+ORDER BY ssh.changed_at DESC, ssh.id DESC
+`
+
+type ListStudentStatusHistoryRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	StudentID      pgtype.UUID        `json:"student_id"`
+	FromStatus     NullStudentStatus  `json:"from_status"`
+	ToStatus       StudentStatus      `json:"to_status"`
+	Reason         string             `json:"reason"`
+	ChangedBy      pgtype.UUID        `json:"changed_by"`
+	ChangedByEmail pgtype.Text        `json:"changed_by_email"`
+	ChangedAt      pgtype.Timestamptz `json:"changed_at"`
+}
+
+func (q *Queries) ListStudentStatusHistory(ctx context.Context, studentID pgtype.UUID) ([]ListStudentStatusHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listStudentStatusHistory, studentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListStudentStatusHistoryRow{}
+	for rows.Next() {
+		var i ListStudentStatusHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.StudentID,
+			&i.FromStatus,
+			&i.ToStatus,
+			&i.Reason,
+			&i.ChangedBy,
+			&i.ChangedByEmail,
+			&i.ChangedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateStudentProfile = `-- name: UpdateStudentProfile :one
 UPDATE student_profiles
 SET
-  student_code = $2,
-  full_name = $3,
-  phone = $4,
-  date_of_birth = $5,
-  status = $6,
-  enrolled_at = $7
-WHERE id = $1
-RETURNING id, user_id, student_code, full_name, phone, date_of_birth,
-  status, enrolled_at, created_at, updated_at
+  full_name = $1,
+  phone = $2,
+  date_of_birth = $3,
+  gender = $4,
+  address = $5,
+  emergency_contact_name = $6,
+  emergency_contact_phone = $7,
+  status = $8,
+  enrolled_at = $9
+WHERE id = $10
+RETURNING id, user_id, student_code, full_name, phone, date_of_birth, gender, address,
+  emergency_contact_name, emergency_contact_phone, status, enrolled_at, created_at, updated_at
 `
 
 type UpdateStudentProfileParams struct {
-	ID          pgtype.UUID   `json:"id"`
-	StudentCode string        `json:"student_code"`
-	FullName    string        `json:"full_name"`
-	Phone       pgtype.Text   `json:"phone"`
-	DateOfBirth pgtype.Date   `json:"date_of_birth"`
-	Status      StudentStatus `json:"status"`
-	EnrolledAt  pgtype.Date   `json:"enrolled_at"`
+	FullName              string        `json:"full_name"`
+	Phone                 pgtype.Text   `json:"phone"`
+	DateOfBirth           pgtype.Date   `json:"date_of_birth"`
+	Gender                pgtype.Text   `json:"gender"`
+	Address               pgtype.Text   `json:"address"`
+	EmergencyContactName  pgtype.Text   `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text   `json:"emergency_contact_phone"`
+	Status                StudentStatus `json:"status"`
+	EnrolledAt            pgtype.Date   `json:"enrolled_at"`
+	ID                    pgtype.UUID   `json:"id"`
 }
 
-func (q *Queries) UpdateStudentProfile(ctx context.Context, arg UpdateStudentProfileParams) (StudentProfile, error) {
+type UpdateStudentProfileRow struct {
+	ID                    pgtype.UUID        `json:"id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	StudentCode           string             `json:"student_code"`
+	FullName              string             `json:"full_name"`
+	Phone                 pgtype.Text        `json:"phone"`
+	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
+	Gender                pgtype.Text        `json:"gender"`
+	Address               pgtype.Text        `json:"address"`
+	EmergencyContactName  pgtype.Text        `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text        `json:"emergency_contact_phone"`
+	Status                StudentStatus      `json:"status"`
+	EnrolledAt            pgtype.Date        `json:"enrolled_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateStudentProfile(ctx context.Context, arg UpdateStudentProfileParams) (UpdateStudentProfileRow, error) {
 	row := q.db.QueryRow(ctx, updateStudentProfile,
-		arg.ID,
-		arg.StudentCode,
 		arg.FullName,
 		arg.Phone,
 		arg.DateOfBirth,
+		arg.Gender,
+		arg.Address,
+		arg.EmergencyContactName,
+		arg.EmergencyContactPhone,
 		arg.Status,
 		arg.EnrolledAt,
+		arg.ID,
 	)
-	var i StudentProfile
+	var i UpdateStudentProfileRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -254,6 +506,10 @@ func (q *Queries) UpdateStudentProfile(ctx context.Context, arg UpdateStudentPro
 		&i.FullName,
 		&i.Phone,
 		&i.DateOfBirth,
+		&i.Gender,
+		&i.Address,
+		&i.EmergencyContactName,
+		&i.EmergencyContactPhone,
 		&i.Status,
 		&i.EnrolledAt,
 		&i.CreatedAt,

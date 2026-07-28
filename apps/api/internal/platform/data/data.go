@@ -32,6 +32,15 @@ func UUIDString(value pgtype.UUID) string {
 	)
 }
 
+// UUIDPointer converts a nullable pgx UUID into a JSON-friendly pointer.
+func UUIDPointer(value pgtype.UUID) *string {
+	if !value.Valid {
+		return nil
+	}
+	formatted := UUIDString(value)
+	return &formatted
+}
+
 // Text converts a nullable input string into pgtype.Text.
 func Text(value *string) pgtype.Text {
 	if value == nil {

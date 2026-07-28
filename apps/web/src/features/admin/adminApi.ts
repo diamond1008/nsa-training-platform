@@ -1,4 +1,4 @@
-import { api } from "../../lib/apiClient";
+import { api, apiCSV, apiDownload } from "../../lib/apiClient";
 import type {
   ClassSession,
   Course,
@@ -6,6 +6,7 @@ import type {
   Paginated,
   SessionAttendance,
   Student,
+  StudentStatusHistory,
   Teacher,
   TeacherAssignment,
   TrainingClass,
@@ -20,12 +21,23 @@ export interface ListParams {
   per_page?: number;
 }
 
+export interface StudentImportResult {
+  imported: number;
+  failed: number;
+  errors: Array<{ row: number; email?: string; message: string }>;
+}
+
 export const adminApi = {
   students: (params: ListParams = {}) =>
     api<Paginated<Student>>(`/admin/students${toQuery(params)}`),
   createStudent: (body: unknown) => api<Student>("/admin/students", { method: "POST", body }),
   updateStudent: (id: string, body: unknown) =>
     api<Student>(`/admin/students/${id}`, { method: "PUT", body }),
+  studentStatusHistory: (id: string) =>
+    api<StudentStatusHistory[]>(`/admin/students/${id}/status-history`),
+  exportStudents: (params: Pick<ListParams, "search" | "status"> = {}) =>
+    apiDownload(`/admin/students/export${toQuery(params)}`),
+  importStudents: (csv: string) => apiCSV<StudentImportResult>("/admin/students/import", csv),
 
   teachers: (params: ListParams = {}) =>
     api<Paginated<Teacher>>(`/admin/teachers${toQuery(params)}`),

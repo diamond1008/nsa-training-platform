@@ -123,3 +123,43 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     throw err;
   }
 }
+
+async function authenticatedRawFetch(
+  path: string,
+  init: RequestInit,
+  allowRefresh = true,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+  if (response.status === 401 && allowRefresh) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) return authenticatedRawFetch(path, init, false);
+    authFailureHandler?.();
+  }
+  return response;
+}
+
+/** Uploads a UTF-8 CSV body while retaining the same auth/refresh behavior as api(). */
+export async function apiCSV<T>(path: string, csv: string): Promise<T> {
+  const response = await authenticatedRawFetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "text/csv; charset=utf-8" },
+    body: csv,
+  });
+  return parseEnvelope<T>(response);
+}
+
+/** Downloads an authenticated binary/text response. */
+export async function apiDownload(path: string): Promise<Blob> {
+  const response = await authenticatedRawFetch(path, {
+    method: "GET",
+    headers: { Accept: "text/csv" },
+  });
+  if (!response.ok) await parseEnvelope<never>(response);
+  return response.blob();
+}

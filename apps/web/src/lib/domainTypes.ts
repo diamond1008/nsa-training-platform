@@ -18,8 +18,23 @@ export interface Student {
   full_name: string;
   phone?: string | null;
   date_of_birth?: string | null;
+  gender?: string | null;
+  address?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
   status: string;
   enrolled_at?: string | null;
+}
+
+export interface StudentStatusHistory {
+  id: string;
+  student_id: string;
+  from_status?: string | null;
+  to_status: string;
+  reason: string;
+  changed_by?: string | null;
+  changed_by_email?: string | null;
+  changed_at: string;
 }
 
 export interface Teacher {

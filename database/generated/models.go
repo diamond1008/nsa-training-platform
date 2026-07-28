@@ -767,16 +767,30 @@ type StudentAssessment struct {
 }
 
 type StudentProfile struct {
-	ID          pgtype.UUID        `json:"id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	StudentCode string             `json:"student_code"`
-	FullName    string             `json:"full_name"`
-	Phone       pgtype.Text        `json:"phone"`
-	DateOfBirth pgtype.Date        `json:"date_of_birth"`
-	Status      StudentStatus      `json:"status"`
-	EnrolledAt  pgtype.Date        `json:"enrolled_at"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID                    pgtype.UUID        `json:"id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	StudentCode           string             `json:"student_code"`
+	FullName              string             `json:"full_name"`
+	Phone                 pgtype.Text        `json:"phone"`
+	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
+	Status                StudentStatus      `json:"status"`
+	EnrolledAt            pgtype.Date        `json:"enrolled_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	Gender                pgtype.Text        `json:"gender"`
+	Address               pgtype.Text        `json:"address"`
+	EmergencyContactName  pgtype.Text        `json:"emergency_contact_name"`
+	EmergencyContactPhone pgtype.Text        `json:"emergency_contact_phone"`
+}
+
+type StudentStatusHistory struct {
+	ID         pgtype.UUID        `json:"id"`
+	StudentID  pgtype.UUID        `json:"student_id"`
+	FromStatus NullStudentStatus  `json:"from_status"`
+	ToStatus   StudentStatus      `json:"to_status"`
+	Reason     string             `json:"reason"`
+	ChangedBy  pgtype.UUID        `json:"changed_by"`
+	ChangedAt  pgtype.Timestamptz `json:"changed_at"`
 }
 
 type TeacherAssignment struct {

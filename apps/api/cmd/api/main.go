@@ -195,8 +195,11 @@ func mountAdminRoutes(
 		r.Route("/students", func(r chi.Router) {
 			r.Get("/", studentHandler.List)
 			r.Post("/", studentHandler.Create)
+			r.Get("/export", studentHandler.ExportCSV)
+			r.Post("/import", studentHandler.ImportCSV)
 			r.Get("/{studentID}", studentHandler.Get)
 			r.Put("/{studentID}", studentHandler.Update)
+			r.Get("/{studentID}/status-history", studentHandler.StatusHistory)
 		})
 
 		r.Route("/teachers", func(r chi.Router) {

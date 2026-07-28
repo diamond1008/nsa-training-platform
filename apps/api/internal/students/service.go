@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,35 +23,57 @@ var (
 	ErrNotFound      = errors.New("student not found")
 	ErrEmailConflict = errors.New("email already exists")
 	ErrCodeConflict  = errors.New("student code already exists")
+	ErrStatusReason  = errors.New("status change reason is required")
 )
 
 // View is the public administrator representation of a student and account.
 type View struct {
-	ID            string  `json:"id"`
-	UserID        string  `json:"user_id"`
-	Email         string  `json:"email"`
-	AccountStatus string  `json:"account_status"`
-	StudentCode   string  `json:"student_code"`
-	FullName      string  `json:"full_name"`
-	Phone         *string `json:"phone"`
-	DateOfBirth   *string `json:"date_of_birth"`
-	Status        string  `json:"status"`
-	EnrolledAt    *string `json:"enrolled_at"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	ID                    string  `json:"id"`
+	UserID                string  `json:"user_id"`
+	Email                 string  `json:"email"`
+	AccountStatus         string  `json:"account_status"`
+	StudentCode           string  `json:"student_code"`
+	FullName              string  `json:"full_name"`
+	Phone                 *string `json:"phone"`
+	DateOfBirth           *string `json:"date_of_birth"`
+	Gender                *string `json:"gender"`
+	Address               *string `json:"address"`
+	EmergencyContactName  *string `json:"emergency_contact_name"`
+	EmergencyContactPhone *string `json:"emergency_contact_phone"`
+	Status                string  `json:"status"`
+	EnrolledAt            *string `json:"enrolled_at"`
+	CreatedAt             string  `json:"created_at"`
+	UpdatedAt             string  `json:"updated_at"`
 }
 
 // WriteInput contains normalized, validated fields shared by create/update.
 type WriteInput struct {
-	Email         string
-	Password      string
-	AccountStatus db.UserStatus
-	StudentCode   string
-	FullName      string
-	Phone         *string
-	DateOfBirth   *string
-	Status        db.StudentStatus
-	EnrolledAt    *string
+	Email                 string
+	Password              string
+	AccountStatus         db.UserStatus
+	StudentCode           string
+	FullName              string
+	Phone                 *string
+	DateOfBirth           *string
+	Gender                *string
+	Address               *string
+	EmergencyContactName  *string
+	EmergencyContactPhone *string
+	Status                db.StudentStatus
+	EnrolledAt            *string
+	StatusChangeReason    *string
+}
+
+// StatusHistoryView is an immutable student lifecycle transition.
+type StatusHistoryView struct {
+	ID             string  `json:"id"`
+	StudentID      string  `json:"student_id"`
+	FromStatus     *string `json:"from_status"`
+	ToStatus       string  `json:"to_status"`
+	Reason         string  `json:"reason"`
+	ChangedBy      *string `json:"changed_by"`
+	ChangedByEmail *string `json:"changed_by_email"`
+	ChangedAt      string  `json:"changed_at"`
 }
 
 // Service implements student management use cases.
@@ -104,16 +127,28 @@ func (s *Service) Create(ctx context.Context, actorID string, input WriteInput) 
 		return View{}, fmt.Errorf("assign student role: %w", err)
 	}
 	profile, err := q.CreateStudentProfile(ctx, db.CreateStudentProfileParams{
-		UserID:      user.ID,
-		StudentCode: input.StudentCode,
-		FullName:    input.FullName,
-		Phone:       data.Text(input.Phone),
-		DateOfBirth: dateOfBirth,
-		Status:      input.Status,
-		EnrolledAt:  enrolledAt,
+		UserID:                user.ID,
+		StudentCode:           input.StudentCode,
+		FullName:              input.FullName,
+		Phone:                 data.Text(input.Phone),
+		DateOfBirth:           dateOfBirth,
+		Gender:                data.Text(input.Gender),
+		Address:               data.Text(input.Address),
+		EmergencyContactName:  data.Text(input.EmergencyContactName),
+		EmergencyContactPhone: data.Text(input.EmergencyContactPhone),
+		Status:                input.Status,
+		EnrolledAt:            enrolledAt,
 	})
 	if err != nil {
 		return View{}, mapWriteError(err)
+	}
+	if _, err := q.CreateStudentStatusHistory(ctx, db.CreateStudentStatusHistoryParams{
+		StudentID: profile.ID,
+		ToStatus:  input.Status,
+		Reason:    "Khởi tạo hồ sơ",
+		ChangedBy: actor,
+	}); err != nil {
+		return View{}, fmt.Errorf("create initial student status history: %w", err)
 	}
 	created, err := q.GetAdminStudent(ctx, profile.ID)
 	if err != nil {
@@ -127,6 +162,38 @@ func (s *Service) Create(ctx context.Context, actorID string, input WriteInput) 
 		return View{}, fmt.Errorf("commit create student: %w", err)
 	}
 	return view, nil
+}
+
+// StatusHistory returns the newest-first immutable lifecycle history.
+func (s *Service) StatusHistory(ctx context.Context, id string) ([]StatusHistoryView, error) {
+	studentID, err := data.UUID(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if _, err := s.queries.GetAdminStudent(ctx, studentID); errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("get student for status history: %w", err)
+	}
+	rows, err := s.queries.ListStudentStatusHistory(ctx, studentID)
+	if err != nil {
+		return nil, fmt.Errorf("list student status history: %w", err)
+	}
+	items := make([]StatusHistoryView, 0, len(rows))
+	for _, row := range rows {
+		var fromStatus *string
+		if row.FromStatus.Valid {
+			value := string(row.FromStatus.StudentStatus)
+			fromStatus = &value
+		}
+		items = append(items, StatusHistoryView{
+			ID: data.UUIDString(row.ID), StudentID: data.UUIDString(row.StudentID),
+			FromStatus: fromStatus, ToStatus: string(row.ToStatus), Reason: row.Reason,
+			ChangedBy: data.UUIDPointer(row.ChangedBy), ChangedByEmail: data.TextPointer(row.ChangedByEmail),
+			ChangedAt: row.ChangedAt.Time.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return items, nil
 }
 
 // Get returns one student by profile ID.
@@ -168,6 +235,32 @@ func (s *Service) List(ctx context.Context, search, status string, page, perPage
 	return pagination.New(items, page, perPage, total), nil
 }
 
+// Export returns all students matching the administrator filters in a stable order.
+func (s *Service) Export(ctx context.Context, search, status string) ([]View, error) {
+	rows, err := s.queries.ExportAdminStudents(ctx, db.ExportAdminStudentsParams{
+		Search: strings.TrimSpace(search), Status: status,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("export students: %w", err)
+	}
+	items := make([]View, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, View{
+			ID: data.UUIDString(row.ID), UserID: data.UUIDString(row.UserID),
+			Email: row.Email, AccountStatus: string(row.UserStatus),
+			StudentCode: row.StudentCode, FullName: row.FullName,
+			Phone: data.TextPointer(row.Phone), DateOfBirth: data.DateString(row.DateOfBirth),
+			Gender: data.TextPointer(row.Gender), Address: data.TextPointer(row.Address),
+			EmergencyContactName:  data.TextPointer(row.EmergencyContactName),
+			EmergencyContactPhone: data.TextPointer(row.EmergencyContactPhone),
+			Status:                string(row.StudentStatus), EnrolledAt: data.DateString(row.EnrolledAt),
+			CreatedAt: row.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+			UpdatedAt: row.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return items, nil
+}
+
 // Update atomically updates the account, profile, and audit log.
 func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInput) (View, error) {
 	studentID, err := data.UUID(id)
@@ -179,6 +272,10 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInp
 		return View{}, err
 	}
 	enrolledAt, err := data.Date(input.EnrolledAt)
+	if err != nil {
+		return View{}, err
+	}
+	actor, err := data.UUID(actorID)
 	if err != nil {
 		return View{}, err
 	}
@@ -198,21 +295,43 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInp
 		return View{}, fmt.Errorf("get student for update: %w", err)
 	}
 	oldView := viewFromGet(existing)
+	statusChanged := existing.StudentStatus != input.Status
+	statusReason := ""
+	if input.StatusChangeReason != nil {
+		statusReason = strings.TrimSpace(*input.StatusChangeReason)
+	}
+	if statusChanged && statusReason == "" {
+		return View{}, ErrStatusReason
+	}
 	if _, err := q.UpdateManagedUser(ctx, db.UpdateManagedUserParams{
 		ID: existing.UserID, Email: input.Email, Status: input.AccountStatus,
 	}); err != nil {
 		return View{}, mapWriteError(err)
 	}
 	if _, err := q.UpdateStudentProfile(ctx, db.UpdateStudentProfileParams{
-		ID:          studentID,
-		StudentCode: input.StudentCode,
-		FullName:    input.FullName,
-		Phone:       data.Text(input.Phone),
-		DateOfBirth: dateOfBirth,
-		Status:      input.Status,
-		EnrolledAt:  enrolledAt,
+		ID:                    studentID,
+		FullName:              input.FullName,
+		Phone:                 data.Text(input.Phone),
+		DateOfBirth:           dateOfBirth,
+		Gender:                data.Text(input.Gender),
+		Address:               data.Text(input.Address),
+		EmergencyContactName:  data.Text(input.EmergencyContactName),
+		EmergencyContactPhone: data.Text(input.EmergencyContactPhone),
+		Status:                input.Status,
+		EnrolledAt:            enrolledAt,
 	}); err != nil {
 		return View{}, mapWriteError(err)
+	}
+	if statusChanged {
+		if _, err := q.CreateStudentStatusHistory(ctx, db.CreateStudentStatusHistoryParams{
+			StudentID:  studentID,
+			FromStatus: db.NullStudentStatus{StudentStatus: existing.StudentStatus, Valid: true},
+			ToStatus:   input.Status,
+			Reason:     statusReason,
+			ChangedBy:  actor,
+		}); err != nil {
+			return View{}, fmt.Errorf("create student status history: %w", err)
+		}
 	}
 	updated, err := q.GetAdminStudent(ctx, studentID)
 	if err != nil {
@@ -246,7 +365,10 @@ func viewFromGet(row db.GetAdminStudentRow) View {
 		Email: row.Email, AccountStatus: string(row.UserStatus),
 		StudentCode: row.StudentCode, FullName: row.FullName,
 		Phone: data.TextPointer(row.Phone), DateOfBirth: data.DateString(row.DateOfBirth),
-		Status: string(row.StudentStatus), EnrolledAt: data.DateString(row.EnrolledAt),
+		Gender: data.TextPointer(row.Gender), Address: data.TextPointer(row.Address),
+		EmergencyContactName:  data.TextPointer(row.EmergencyContactName),
+		EmergencyContactPhone: data.TextPointer(row.EmergencyContactPhone),
+		Status:                string(row.StudentStatus), EnrolledAt: data.DateString(row.EnrolledAt),
 		CreatedAt: row.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		UpdatedAt: row.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 	}
@@ -258,7 +380,10 @@ func viewFromList(row db.ListAdminStudentsRow) View {
 		Email: row.Email, AccountStatus: string(row.UserStatus),
 		StudentCode: row.StudentCode, FullName: row.FullName,
 		Phone: data.TextPointer(row.Phone), DateOfBirth: data.DateString(row.DateOfBirth),
-		Status: string(row.StudentStatus), EnrolledAt: data.DateString(row.EnrolledAt),
+		Gender: data.TextPointer(row.Gender), Address: data.TextPointer(row.Address),
+		EmergencyContactName:  data.TextPointer(row.EmergencyContactName),
+		EmergencyContactPhone: data.TextPointer(row.EmergencyContactPhone),
+		Status:                string(row.StudentStatus), EnrolledAt: data.DateString(row.EnrolledAt),
 		CreatedAt: row.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		UpdatedAt: row.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 	}

@@ -72,10 +72,14 @@ Table refresh_tokens {
 Table student_profiles {
   id uuid [pk, default: `gen_random_uuid()`]
   user_id uuid [not null, unique, ref: > users.id]
-  student_code varchar(30) [not null, unique]
+  student_code varchar(30) [not null, unique, note: 'Generated as HV + zero-padded PostgreSQL sequence; immutable business identifier.']
   full_name varchar(160) [not null]
   phone varchar(30)
   date_of_birth date
+  gender varchar(20)
+  address varchar(500)
+  emergency_contact_name varchar(160)
+  emergency_contact_phone varchar(30)
   status student_status [not null, default: 'pending']
   enrolled_at date
   created_at timestamptz [not null, default: `now()`]
@@ -341,4 +345,15 @@ Table audit_logs {
   user_agent text
   created_at timestamptz [not null, default: `now()`]
   note: 'Append-only audit trail for administrative changes.'
+}
+
+Table student_status_history {
+  id uuid [pk, default: `gen_random_uuid()`]
+  student_id uuid [not null, ref: > student_profiles.id]
+  from_status student_status
+  to_status student_status [not null]
+  reason varchar(500) [not null]
+  changed_by uuid [ref: > users.id]
+  changed_at timestamptz [not null, default: `now()`]
+  note: 'Immutable lifecycle transitions. from_status is null for the initial state.'
 }

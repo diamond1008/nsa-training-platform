@@ -39,9 +39,18 @@ SELECT id, 'TCH-DEMO-001', 'Demo Teacher', 'Automotive Electrical Systems', 'act
 FROM users WHERE email = 'teacher@nsa.local'
 ON CONFLICT (teacher_code) DO NOTHING;
 
-INSERT INTO student_profiles (user_id, student_code, full_name, status, enrolled_at)
-SELECT id, 'STU-DEMO-001', 'Demo Student', 'active', CURRENT_DATE
-FROM users WHERE email = 'student@nsa.local'
-ON CONFLICT (student_code) DO NOTHING;
+INSERT INTO student_profiles (user_id, full_name, status, enrolled_at)
+SELECT id, 'Demo Student', 'active', CURRENT_DATE
+FROM users u
+WHERE u.email = 'student@nsa.local'
+  AND NOT EXISTS (SELECT 1 FROM student_profiles sp WHERE sp.user_id = u.id);
+
+INSERT INTO student_status_history (student_id, from_status, to_status, reason)
+SELECT sp.id, NULL, sp.status, 'Khởi tạo dữ liệu demo'
+FROM student_profiles sp
+JOIN users u ON u.id = sp.user_id AND u.email = 'student@nsa.local'
+WHERE NOT EXISTS (
+  SELECT 1 FROM student_status_history ssh WHERE ssh.student_id = sp.id
+);
 
 COMMIT;

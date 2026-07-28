@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
@@ -238,6 +238,7 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
   const [status, setStatus] = useState("");
   const [editing, setEditing] = useState<Person | null>(null);
   const [open, setOpen] = useState(false);
+  const importInput = useRef<HTMLInputElement>(null);
   const query = useQuery<Paginated<Person>>({
     queryKey: ["admin", kind, page, search, status],
     queryFn: async () => {
@@ -267,6 +268,21 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
       setEditing(null);
     },
   });
+  const importMutation = useMutation({
+    mutationFn: async (file: File) => adminApi.importStudents(await file.text()),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin", "students"] }),
+  });
+  const exportMutation = useMutation({
+    mutationFn: () => adminApi.exportStudents({ search, status }),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "danh-sach-hoc-vien.csv";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    },
+  });
   const items = (query.data?.items ?? []) as Person[];
   const openCreate = () => {
     setEditing(null);
@@ -280,10 +296,37 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
         title={title}
         subtitle={`Quản lý tài khoản và hồ sơ ${title.toLowerCase()}.`}
         actions={
-          <Button onClick={openCreate}>
-            <Icon name="plus" className="h-4 w-4" />
-            Thêm {title.toLowerCase()}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {isStudent ? (
+              <>
+                <input
+                  ref={importInput}
+                  className="hidden"
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) importMutation.mutate(file);
+                    event.target.value = "";
+                  }}
+                />
+                <Button variant="soft" onClick={() => importInput.current?.click()}>
+                  Nhập CSV
+                </Button>
+                <Button
+                  variant="soft"
+                  loading={exportMutation.isPending}
+                  onClick={() => exportMutation.mutate()}
+                >
+                  Xuất CSV
+                </Button>
+              </>
+            ) : null}
+            <Button onClick={openCreate}>
+              <Icon name="plus" className="h-4 w-4" />
+              Thêm {title.toLowerCase()}
+            </Button>
+          </div>
         }
       />
       <SearchFilters
@@ -302,6 +345,7 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
             ? [
                 ["active", "Hoạt động"],
                 ["pending", "Chờ xử lý"],
+                ["suspended", "Tạm nghỉ"],
                 ["completed", "Đã hoàn thành"],
                 ["withdrawn", "Đã rút"],
               ]
@@ -311,6 +355,31 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
               ]
         }
       />
+      {isStudent && importMutation.data ? (
+        <Card className="mb-5 border-emerald-200 bg-emerald-50 p-4 text-sm">
+          Đã nhập <b>{importMutation.data.imported}</b> học viên; lỗi{" "}
+          <b>{importMutation.data.failed}</b> dòng.
+          {importMutation.data.errors.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-red-700">
+              {importMutation.data.errors.slice(0, 10).map((item) => (
+                <li key={`${item.row}-${item.email ?? ""}`}>
+                  Dòng {item.row}: {item.message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Card>
+      ) : null}
+      {isStudent && importMutation.error ? (
+        <div className="mb-5">
+          <ErrorBanner message={mutationMessage(importMutation.error)} />
+        </div>
+      ) : null}
+      {isStudent && exportMutation.error ? (
+        <div className="mb-5">
+          <ErrorBanner message={mutationMessage(exportMutation.error)} />
+        </div>
+      ) : null}
       <QueryState
         loading={query.isLoading}
         error={query.error}
@@ -329,6 +398,14 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
             },
             { header: "Họ tên", cell: (p) => p.full_name },
             { header: "Email", cell: (p) => p.email },
+            ...(isStudent
+              ? [
+                  {
+                    header: "Liên hệ",
+                    cell: (p: Person) => (p as Student).phone || "Chưa cập nhật",
+                  },
+                ]
+              : []),
             { header: "Trạng thái", cell: (p) => <StatusBadge value={p.status} /> },
             {
               header: "",
@@ -399,6 +476,19 @@ function PersonForm({
           : "",
     status: initial?.status ?? "active",
     account_status: initial?.account_status ?? "active",
+    enrolled_at: initial && isStudent ? ((initial as Student).enrolled_at ?? "") : "",
+    gender: initial && isStudent ? ((initial as Student).gender ?? "") : "",
+    address: initial && isStudent ? ((initial as Student).address ?? "") : "",
+    emergency_contact_name:
+      initial && isStudent ? ((initial as Student).emergency_contact_name ?? "") : "",
+    emergency_contact_phone:
+      initial && isStudent ? ((initial as Student).emergency_contact_phone ?? "") : "",
+    status_change_reason: "",
+  });
+  const history = useQuery({
+    queryKey: ["admin", "students", initial?.id, "status-history"],
+    queryFn: () => adminApi.studentStatusHistory(initial!.id),
+    enabled: isStudent && Boolean(initial?.id),
   });
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -412,9 +502,13 @@ function PersonForm({
     const body = isStudent
       ? {
           ...common,
-          student_code: form.code.trim(),
           date_of_birth: form.extra || null,
-          enrolled_at: null,
+          enrolled_at: form.enrolled_at || null,
+          gender: form.gender || null,
+          address: form.address.trim() || null,
+          emergency_contact_name: form.emergency_contact_name.trim() || null,
+          emergency_contact_phone: form.emergency_contact_phone.trim() || null,
+          status_change_reason: form.status_change_reason.trim() || null,
           ...(initial ? {} : { temporary_password: form.temporary_password }),
         }
       : {
@@ -437,13 +531,61 @@ function PersonForm({
           value={form.email}
           onChange={(e) => update("email", e.target.value)}
         />
-        <Input
-          required
-          label={isStudent ? "Mã học viên" : "Mã giảng viên"}
-          value={form.code}
-          onChange={(e) => update("code", e.target.value)}
-        />
+        {isStudent ? (
+          <Input
+            label="Mã học viên"
+            value={initial ? form.code : "Tự động tạo dạng HV00001"}
+            disabled
+          />
+        ) : (
+          <Input
+            required
+            label="Mã giảng viên"
+            value={form.code}
+            onChange={(e) => update("code", e.target.value)}
+          />
+        )}
       </div>
+      {isStudent ? (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select
+              label="Giới tính"
+              value={form.gender}
+              onChange={(e) => update("gender", e.target.value)}
+            >
+              <option value="">Chưa cập nhật</option>
+              <option value="male">Nam</option>
+              <option value="female">Nữ</option>
+              <option value="other">Khác</option>
+              <option value="unspecified">Không muốn cung cấp</option>
+            </Select>
+            <Input
+              label="Ngày nhập học"
+              type="date"
+              value={form.enrolled_at}
+              onChange={(e) => update("enrolled_at", e.target.value)}
+            />
+          </div>
+          <Textarea
+            label="Địa chỉ"
+            value={form.address}
+            onChange={(e) => update("address", e.target.value)}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Người liên hệ khẩn cấp"
+              value={form.emergency_contact_name}
+              onChange={(e) => update("emergency_contact_name", e.target.value)}
+            />
+            <Input
+              label="SĐT liên hệ khẩn cấp"
+              value={form.emergency_contact_phone}
+              onChange={(e) => update("emergency_contact_phone", e.target.value)}
+            />
+          </div>
+        </>
+      ) : null}
       <Input
         required
         label="Họ và tên"
@@ -473,6 +615,37 @@ function PersonForm({
           onChange={(e) => update("extra", e.target.value)}
         />
       </div>
+      {isStudent && initial && form.status !== initial.status ? (
+        <Textarea
+          required
+          label="Lý do thay đổi trạng thái"
+          value={form.status_change_reason}
+          onChange={(e) => update("status_change_reason", e.target.value)}
+          placeholder="Ví dụ: Học viên xin tạm nghỉ đến tháng 9"
+        />
+      ) : null}
+      {isStudent && initial ? (
+        <div className="rounded-2xl border border-gborder bg-slate-50 p-4">
+          <p className="mb-3 text-sm font-semibold text-navy">Lịch sử trạng thái</p>
+          {history.isLoading ? <p className="text-sm text-muted">Đang tải…</p> : null}
+          {history.error ? <ErrorBanner message="Không thể tải lịch sử trạng thái." /> : null}
+          <div className="space-y-3">
+            {(history.data ?? []).map((item) => (
+              <div key={item.id} className="border-l-2 border-gold pl-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  {item.from_status ? <StatusBadge value={item.from_status} /> : <Badge>Mới</Badge>}
+                  <span aria-hidden="true">→</span>
+                  <StatusBadge value={item.to_status} />
+                </div>
+                <p className="mt-1 text-navy">{item.reason}</p>
+                <p className="text-xs text-muted">
+                  {formatDateTime(item.changed_at)} · {item.changed_by_email ?? "Hệ thống"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <Select
           label="Trạng thái hồ sơ"

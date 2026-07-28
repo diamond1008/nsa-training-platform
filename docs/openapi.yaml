@@ -302,6 +302,63 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /api/v1/admin/students/{studentID}/status-history:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: List immutable student lifecycle transitions
+      operationId: listAdminStudentStatusHistory
+      responses:
+        "200":
+          description: Newest-first status history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentStatusHistoryResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/students/export:
+    get:
+      tags: [admin]
+      summary: Export the filtered student directory as UTF-8 CSV
+      operationId: exportAdminStudents
+      parameters:
+        - { $ref: "#/components/parameters/Search" }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/StudentStatus" }
+      responses:
+        "200":
+          description: Student CSV with a blank temporary_password template column
+          content:
+            text/csv:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/admin/students/import:
+    post:
+      tags: [admin]
+      summary: Import student profiles from UTF-8 CSV with row-level results
+      operationId: importAdminStudents
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string, maxLength: 2097152 }
+      responses:
+        "200":
+          description: Import result; valid rows may succeed when other rows fail validation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentImportResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/v1/admin/teachers:
     get:
       tags: [admin]
@@ -1553,29 +1610,39 @@ components:
 
     CreateStudentRequest:
       type: object
-      required: [email, temporary_password, account_status, student_code, full_name, status]
+      required: [email, temporary_password, account_status, full_name, status]
       properties:
         email: { type: string, format: email }
         temporary_password: { type: string, format: password, minLength: 8 }
         account_status: { $ref: "#/components/schemas/UserStatus" }
-        student_code: { type: string, maxLength: 30 }
         full_name: { type: string, maxLength: 160 }
         phone: { type: [string, "null"], maxLength: 30 }
         date_of_birth: { type: [string, "null"], format: date }
+        gender: { type: [string, "null"], enum: [male, female, other, unspecified, null] }
+        address: { type: [string, "null"], maxLength: 500 }
+        emergency_contact_name: { type: [string, "null"], maxLength: 160 }
+        emergency_contact_phone: { type: [string, "null"], maxLength: 30 }
         status: { $ref: "#/components/schemas/StudentStatus" }
         enrolled_at: { type: [string, "null"], format: date }
     UpdateStudentRequest:
       type: object
-      required: [email, account_status, student_code, full_name, status]
+      required: [email, account_status, full_name, status]
       properties:
         email: { type: string, format: email }
         account_status: { $ref: "#/components/schemas/UserStatus" }
-        student_code: { type: string, maxLength: 30 }
         full_name: { type: string, maxLength: 160 }
         phone: { type: [string, "null"], maxLength: 30 }
         date_of_birth: { type: [string, "null"], format: date }
+        gender: { type: [string, "null"], enum: [male, female, other, unspecified, null] }
+        address: { type: [string, "null"], maxLength: 500 }
+        emergency_contact_name: { type: [string, "null"], maxLength: 160 }
+        emergency_contact_phone: { type: [string, "null"], maxLength: 30 }
         status: { $ref: "#/components/schemas/StudentStatus" }
         enrolled_at: { type: [string, "null"], format: date }
+        status_change_reason:
+          type: [string, "null"]
+          maxLength: 500
+          description: Required when status differs from the stored status
     Student:
       type: object
       required: [id, user_id, email, account_status, student_code, full_name, status, created_at, updated_at]
@@ -1584,10 +1651,17 @@ components:
         user_id: { type: string, format: uuid }
         email: { type: string, format: email }
         account_status: { $ref: "#/components/schemas/UserStatus" }
-        student_code: { type: string }
+        student_code:
+          type: string
+          readOnly: true
+          description: New profiles receive an immutable HV + zero-padded sequence code; legacy codes remain readable
         full_name: { type: string }
         phone: { type: [string, "null"] }
         date_of_birth: { type: [string, "null"], format: date }
+        gender: { type: [string, "null"], enum: [male, female, other, unspecified, null] }
+        address: { type: [string, "null"] }
+        emergency_contact_name: { type: [string, "null"] }
+        emergency_contact_phone: { type: [string, "null"] }
         status: { $ref: "#/components/schemas/StudentStatus" }
         enrolled_at: { type: [string, "null"], format: date }
         created_at: { type: string, format: date-time }
@@ -1608,6 +1682,47 @@ components:
           properties:
             items: { type: array, items: { $ref: "#/components/schemas/Student" } }
             meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    StudentStatusHistory:
+      type: object
+      required: [id, student_id, to_status, reason, changed_at]
+      properties:
+        id: { type: string, format: uuid }
+        student_id: { type: string, format: uuid }
+        from_status: { type: [string, "null"] }
+        to_status: { $ref: "#/components/schemas/StudentStatus" }
+        reason: { type: string }
+        changed_by: { type: [string, "null"], format: uuid }
+        changed_by_email: { type: [string, "null"], format: email }
+        changed_at: { type: string, format: date-time }
+    StudentStatusHistoryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/StudentStatusHistory" }
+        message: { type: string }
+    StudentImportResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [imported, failed, errors]
+          properties:
+            imported: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }
+            errors:
+              type: array
+              items:
+                type: object
+                required: [row, message]
+                properties:
+                  row: { type: integer, minimum: 2 }
+                  email: { type: string }
+                  message: { type: string }
         message: { type: string }
 
     CreateTeacherRequest:

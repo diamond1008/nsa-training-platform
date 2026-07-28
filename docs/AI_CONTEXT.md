@@ -2,8 +2,8 @@
 
 ## Current Phase
 
-- Phase 11 — Student profiles and lifecycle
-- Status: roadmap approved; implementation is next
+- Phase 12 — Class and training schedule operations
+- Status: Phase 11 is complete and validated locally; Phase 12 is next
 
 ## Completed
 
@@ -25,15 +25,22 @@
   - Typed role API modules and shared domain models.
   - Assignment-scoped `GET /api/v1/teacher/classes` and `GET /api/v1/teacher/classes/{classID}` support endpoints.
   - OpenAPI 0.6.0 and integration/RBAC/unit coverage for the new endpoints and UI helpers.
+- Phase 10 + UI/UX polish (`27f8630`): CI/deployment hardening, attendance governance refinements, role dashboards, responsive application shell, mobile table cards, and week/month/agenda calendars.
+- Phase 11 implementation:
+  - Migration `00002_student_profiles_lifecycle.sql` adds a PostgreSQL sequence-backed immutable `HV*****` code, expanded contact fields, and immutable status history.
+  - Public create/update contracts no longer accept a manually editable student code; existing internal test-fixture codes remain supported by the service boundary.
+  - Student status transitions require a reason and record old/new state, actor, and timestamp in the same transaction as the profile/audit update.
+  - ADMIN can view lifecycle history and import/export UTF-8 CSV with strict validation and per-row outcomes.
+  - Concurrent integration coverage verifies generated code uniqueness and status-history behavior.
 
 ## In Progress
 
-- Nothing. Phase 10, attendance-governance refinements, and the responsive UI/UX polish are complete and validated locally.
+- Nothing. Phase 11 is complete and awaiting its authorized commit.
 
 ## Next
 
-- Implement Phase 11: PostgreSQL-generated `HV*****` student codes, expanded profile/contact data, lifecycle history, and controlled CSV exchange.
-- Payments, tuition, debt tracking, and third-party payment integrations are explicitly out of scope.
+- Implement Phase 12 class lifecycle/history, transfer/withdrawal operations, scheduling reasons, and operational conflict feedback.
+- Payments, tuition, debt tracking, and third-party payment integrations remain explicitly out of scope.
 
 ## Architecture Decisions
 
@@ -69,8 +76,10 @@
 - `apps/web/src/lib/{apiClient,domainTypes,format}.ts` — transport, contracts, and display helpers.
 - `apps/web/src/routes/router.tsx` — role-protected Phase 9 route tree.
 - `apps/api/internal/classes/{service,handler}.go` — Admin class workflows and Teacher assignment-scoped reads.
+- `apps/api/internal/students/{service,handler}.go` — generated codes, lifecycle transitions, profile fields, and CSV exchange.
+- `database/migrations/00002_student_profiles_lifecycle.sql` — Phase 11 schema and sequence.
 - `database/queries/classes.sql` — Admin and Teacher class queries.
-- `docs/openapi.yaml` — external API contract, version 0.6.0.
+- `docs/openapi.yaml` — external API contract, version 0.7.0.
 - `.github/workflows/ci.yml` — API, web, migration, E2E, and image-build gates.
 - `compose.production.yaml` and `infra/caddy/Caddyfile` — production topology and TLS edge.
 - `apps/web/e2e/critical-path.spec.ts` and `database/seeds/e2e.sql` — deterministic role journeys.
@@ -86,11 +95,11 @@
 
 ## Database and API State
 
-- Latest migration: `00001_baseline_schema.sql` (unchanged in Phase 10); clean up/down/up validated.
+- Latest migration: `00002_student_profiles_lifecycle.sql`; clean up/down/up and integration-database application validated.
 - Teacher class reads are assignment scoped by authenticated Teacher user ID.
 - Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`.
 - Student self-service APIs remain `/api/v1/student/{schedule,attendance,assessments,progress}`.
-- OpenAPI version: 0.6.0.
+- OpenAPI version: 0.7.0.
 
 ## Web State
 
@@ -102,8 +111,9 @@
 ## Git State
 
 - Current branch: `main`.
-- Last commit: `8982788 feat(web): complete role feature screens` (local branch).
-- Phase 10 changes are uncommitted. Do not commit or push without explicit permission.
+- Phase 10/UI baseline commit: `27f8630 feat(platform): harden delivery and polish role experiences`.
+- Phase 11 is complete; inspect `git log -1` for its final commit hash after handoff.
+- Do not push without explicit permission.
 ## Phase 10 Handoff (2026-07-28)
 
 - CI: `.github/workflows/ci.yml` gates Go format/vet/test/build, web typecheck/format/test/build/audit, Goose up/down/up, production image builds, and Playwright E2E.
