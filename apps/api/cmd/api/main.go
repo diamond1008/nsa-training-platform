@@ -131,7 +131,7 @@ func run() error {
 			classHandler, scheduleHandler, attendanceHandler,
 		)
 		mountRoleRoutes(
-			r, tokenService, scheduleHandler, attendanceHandler,
+			r, tokenService, classHandler, scheduleHandler, attendanceHandler,
 			assessmentHandler, progressHandler,
 		)
 	})
@@ -257,6 +257,7 @@ func mountAdminRoutes(
 func mountRoleRoutes(
 	r chi.Router,
 	tokenService *auth.TokenService,
+	classHandler *classes.Handler,
 	scheduleHandler *schedules.Handler,
 	attendanceHandler *attendance.Handler,
 	assessmentHandler *assessments.Handler,
@@ -265,6 +266,8 @@ func mountRoleRoutes(
 	r.Route("/teacher", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
 		r.Use(auth.RequireRole(auth.RoleTeacher))
+		r.Get("/classes", classHandler.ListTeacherClasses)
+		r.Get("/classes/{classID}", classHandler.GetTeacherClass)
 		r.Get("/schedule", scheduleHandler.TeacherSchedule)
 		r.Get("/sessions/{sessionID}/attendance", attendanceHandler.TeacherSession)
 		r.Post("/sessions/{sessionID}/attendance", attendanceHandler.RecordBatch)

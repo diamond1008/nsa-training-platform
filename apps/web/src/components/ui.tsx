@@ -1,6 +1,6 @@
 /** Shared UI primitives styled with the NSA Figma design tokens. */
 import { forwardRef } from "react";
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import clsx from "clsx";
 
 // ---------- Button ----------
@@ -72,6 +72,56 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           {error}
         </p>
       )}
+    </div>
+  );
+});
+
+export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  label: string;
+  error?: string;
+}
+
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
+  { label, error, id, className, children, ...rest }, ref,
+) {
+  const inputId = id ?? rest.name ?? label;
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={inputId} className="block text-sm font-medium text-navy">{label}</label>
+      <select
+        ref={ref}
+        id={inputId}
+        aria-invalid={!!error}
+        className={clsx("h-11 w-full rounded-lg border bg-white px-3 text-sm text-navy focus:border-gold", error ? "border-error" : "border-gborder", className)}
+        {...rest}
+      >
+        {children}
+      </select>
+      {error && <p role="alert" className="text-xs text-error">{error}</p>}
+    </div>
+  );
+});
+
+export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label: string;
+  error?: string;
+}
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { label, error, id, className, ...rest }, ref,
+) {
+  const inputId = id ?? rest.name ?? label;
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={inputId} className="block text-sm font-medium text-navy">{label}</label>
+      <textarea
+        ref={ref}
+        id={inputId}
+        aria-invalid={!!error}
+        className={clsx("min-h-24 w-full rounded-lg border bg-white px-3 py-2 text-sm text-navy focus:border-gold", error ? "border-error" : "border-gborder", className)}
+        {...rest}
+      />
+      {error && <p role="alert" className="text-xs text-error">{error}</p>}
     </div>
   );
 });
@@ -163,6 +213,33 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
         {subtitle && <p className="mt-1 text-sm text-gtext">{subtitle}</p>}
       </div>
       {actions}
+    </div>
+  );
+}
+
+export function ProgressBar({ value, label }: { value: number; label?: string }) {
+  const safe = Math.min(100, Math.max(0, value));
+  return (
+    <div>
+      {label && <div className="mb-1 flex justify-between text-xs text-gtext"><span>{label}</span><span>{safe.toFixed(0)}%</span></div>}
+      <div className="h-2 overflow-hidden rounded-full bg-gbg2" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={safe}>
+        <div className="h-full rounded-full bg-gold transition-[width]" style={{ width: `${safe}%` }} />
+      </div>
+    </div>
+  );
+}
+
+export function Modal({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50 p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gborder px-6 py-4">
+          <h2 id="modal-title" className="text-lg font-bold text-navy">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1 text-xl text-gtext hover:bg-gbg2" aria-label="Đóng">×</button>
+        </div>
+        <div className="p-6">{children}</div>
+      </div>
     </div>
   );
 }

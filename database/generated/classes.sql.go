@@ -539,6 +539,72 @@ func (q *Queries) ListTeacherAssignments(ctx context.Context, classID pgtype.UUI
 	return items, nil
 }
 
+const listTeacherClasses = `-- name: ListTeacherClasses :many
+SELECT
+  c.id, c.course_id, co.code AS course_code, co.name AS course_name,
+  c.class_code, c.name, c.start_date, c.end_date, c.maximum_students, c.status,
+  COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled')::int AS enrolled_students,
+  c.created_at, c.updated_at
+FROM classes c
+JOIN courses co ON co.id = c.course_id
+JOIN teacher_assignments ta ON ta.class_id = c.id
+JOIN teacher_profiles tp ON tp.id = ta.teacher_id
+LEFT JOIN class_enrollments ce ON ce.class_id = c.id
+WHERE tp.user_id = $1
+GROUP BY c.id, co.code, co.name
+ORDER BY c.start_date DESC, c.class_code
+`
+
+type ListTeacherClassesRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	CourseID         pgtype.UUID        `json:"course_id"`
+	CourseCode       string             `json:"course_code"`
+	CourseName       string             `json:"course_name"`
+	ClassCode        string             `json:"class_code"`
+	Name             string             `json:"name"`
+	StartDate        pgtype.Date        `json:"start_date"`
+	EndDate          pgtype.Date        `json:"end_date"`
+	MaximumStudents  int32              `json:"maximum_students"`
+	Status           ClassStatus        `json:"status"`
+	EnrolledStudents int32              `json:"enrolled_students"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListTeacherClasses(ctx context.Context, userID pgtype.UUID) ([]ListTeacherClassesRow, error) {
+	rows, err := q.db.Query(ctx, listTeacherClasses, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTeacherClassesRow{}
+	for rows.Next() {
+		var i ListTeacherClassesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CourseID,
+			&i.CourseCode,
+			&i.CourseName,
+			&i.ClassCode,
+			&i.Name,
+			&i.StartDate,
+			&i.EndDate,
+			&i.MaximumStudents,
+			&i.Status,
+			&i.EnrolledStudents,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateClass = `-- name: UpdateClass :one
 UPDATE classes
 SET

@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 8 — Frontend Foundation and Authenticated Shell (completed, awaiting commit)**
+**Current phase: Phase 9 — Feature Screens (completed, awaiting commit)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -18,8 +18,8 @@ Training management platform for an automotive vocational training center. It ma
 | 5 | Scheduling | ✅ Completed (commit 346ea36) |
 | 6 | Attendance | ✅ Completed (commit b8a580b) |
 | 7 | Skill assessment and progress | ✅ Completed (commit fb4813f) |
-| 8 | Frontend foundation and auth shell | ✅ Completed (awaiting commit) |
-| 9 | Feature screens | ⬜ Not started |
+| 8 | Frontend foundation and auth shell | ✅ Completed (commit 47d26a5) |
+| 9 | Feature screens | ✅ Completed (awaiting commit) |
 | 10 | Quality, CI, deployment readiness | ⬜ Not started |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
@@ -120,7 +120,11 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
 - **React SPA foundation (`apps/web`):** React 18, TypeScript, Vite, React Router, TanStack Query, React Hook Form, Zod, Tailwind CSS, and shared NSA design tokens/components
 - **Frontend authentication:** login, silent cookie-based refresh, in-memory access tokens, deduplicated 401 refresh/retry, logout, forced password change, and role-aware home redirects
-- **Authenticated shells:** responsive Admin, Teacher, and Student navigation with route guards, 403/404 handling, loading/error/empty patterns, and Phase 9 route placeholders
+- **Authenticated shells:** responsive Admin, Teacher, and Student navigation with route guards, 403/404 handling, and shared loading/error/empty patterns
+- **Admin feature screens:** searchable/paginated student, teacher, course, and class management; class enrollment and teacher assignment; session scheduling forms
+- **Teacher feature screens:** assigned-class workspaces, rosters, Google Calendar-style weekly teaching schedule with direct attendance navigation, batch attendance, and practical skill assessment history/lifecycle
+- **Student feature screens:** dashboard, enrolled courses, weekly class calendar with personal attendance status, attendance history/summary, assessment results, and deterministic progress views
+- **Teacher class API:** assignment-scoped class list/detail endpoints provide roster and competency data without exposing unassigned classes
 - **Web delivery:** multi-stage Node/Caddy Docker image, SPA route fallback, security headers, health check, and root `.dockerignore` rules that exclude nested frontend artifacts
 
 ## Technology Stack
@@ -247,7 +251,7 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 - The latest submitted or locked rating for each required competency supersedes its earlier rating when progress is calculated.
 - Rate limiting is in-memory per instance (fine for the single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
-- Phase 8 provides the authenticated shell and placeholder dashboards; real Admin, Teacher, and Student workflows arrive in Phase 9.
+- Phase 9 forms use the backend's validation and standard error envelopes; richer client-side field schemas can be expanded as workflows evolve.
 - CI/CD and Playwright end-to-end tests arrive in Phase 10.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.
 

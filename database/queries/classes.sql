@@ -63,6 +63,21 @@ AND (
   OR c.course_id = sqlc.narg(course_id)::uuid
 );
 
+-- name: ListTeacherClasses :many
+SELECT
+  c.id, c.course_id, co.code AS course_code, co.name AS course_name,
+  c.class_code, c.name, c.start_date, c.end_date, c.maximum_students, c.status,
+  COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled')::int AS enrolled_students,
+  c.created_at, c.updated_at
+FROM classes c
+JOIN courses co ON co.id = c.course_id
+JOIN teacher_assignments ta ON ta.class_id = c.id
+JOIN teacher_profiles tp ON tp.id = ta.teacher_id
+LEFT JOIN class_enrollments ce ON ce.class_id = c.id
+WHERE tp.user_id = $1
+GROUP BY c.id, co.code, co.name
+ORDER BY c.start_date DESC, c.class_code;
+
 -- name: UpdateClass :one
 UPDATE classes
 SET

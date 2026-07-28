@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "0.5.0"
+  version: "0.6.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -18,11 +18,12 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 7 — system probes, authentication/RBAC,
+    **Implementation status:** Phase 9 — system probes, authentication/RBAC,
     academic-core administration, training locations, class-session scheduling,
     role-scoped schedules, batch attendance, corrections, locking, and Student
     attendance history/summary are live. Practical assessment history and
-    deterministic Student progress dashboards are also live.
+    deterministic Student progress dashboards, and assignment-scoped Teacher
+    class workspaces are live.
 
     **Authentication:** `POST /api/v1/auth/login` returns a short-lived JWT
     access token (use as `Authorization: Bearer <token>`) and sets an
@@ -962,6 +963,37 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/teacher/classes:
+    get:
+      tags: [teacher]
+      summary: List classes assigned to the authenticated teacher
+      operationId: listTeacherClasses
+      responses:
+        "200":
+          description: Assigned classes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherClassListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/teacher/classes/{classID}:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+    get:
+      tags: [teacher]
+      summary: Get an assigned class with its students and competencies
+      operationId: getTeacherClass
+      responses:
+        "200":
+          description: Assigned class workspace data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherClassDetailResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/teacher/schedule:
     get:
       tags: [teacher]
@@ -1792,6 +1824,27 @@ components:
           properties:
             items: { type: array, items: { $ref: "#/components/schemas/Class" } }
             meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    TeacherClassListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Class" } }
+        message: { type: string }
+
+    TeacherClassDetail:
+      type: object
+      required: [class, students, competencies]
+      properties:
+        class: { $ref: "#/components/schemas/Class" }
+        students: { type: array, items: { $ref: "#/components/schemas/Enrollment" } }
+        competencies: { type: array, items: { $ref: "#/components/schemas/CompetencyCriterion" } }
+    TeacherClassDetailResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/TeacherClassDetail" }
         message: { type: string }
 
     EnrollmentCreateRequest:

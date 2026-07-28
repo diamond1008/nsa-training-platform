@@ -277,6 +277,19 @@ func TestIntegration_AcademicCoreLifecycle(t *testing.T) {
 		t.Fatalf("enroll after capacity released: %v", err)
 	}
 
+	teacherClasses, err := env.classes.ListTeacher(ctx, teacher.UserID)
+	if err != nil || len(teacherClasses) != 1 || teacherClasses[0].ID != class.ID {
+		t.Fatalf("list assigned teacher classes: classes=%+v err=%v", teacherClasses, err)
+	}
+	teacherClass, err := env.classes.GetTeacherClass(ctx, teacher.UserID, class.ID)
+	if err != nil || teacherClass.Class.ID != class.ID || len(teacherClass.Students) != 2 || len(teacherClass.Competencies) != 1 {
+		t.Fatalf("get assigned teacher class: class=%+v err=%v", teacherClass, err)
+	}
+	unassignedTeacher := env.createTeacher(t, "U")
+	if _, err := env.classes.GetTeacherClass(ctx, unassignedTeacher.UserID, class.ID); !errors.Is(err, classmodule.ErrTeacherNotAssigned) {
+		t.Fatalf("unassigned teacher class error = %v", err)
+	}
+
 	class, err = env.classes.Update(ctx, env.actorID, class.ID, classmodule.WriteInput{
 		CourseID: class.CourseID, ClassCode: class.ClassCode, Name: "Updated Class",
 		StartDate: class.StartDate, EndDate: class.EndDate,

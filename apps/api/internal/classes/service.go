@@ -32,6 +32,7 @@ var (
 	ErrClassFull           = errors.New("class is full")
 	ErrTeacherNotFound     = errors.New("teacher not found")
 	ErrTeacherInactive     = errors.New("teacher is not active")
+	ErrTeacherNotAssigned  = errors.New("teacher is not assigned to class")
 	ErrAssignmentNotFound  = errors.New("teacher assignment not found")
 	ErrDuplicateAssignment = errors.New("teacher already assigned")
 	ErrAssignmentInUse     = errors.New("teacher assignment is used by sessions")
@@ -76,6 +77,25 @@ type AssignmentView struct {
 	AssignedAt     string `json:"assigned_at"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
+}
+
+type CriterionView struct {
+	ID          string  `json:"id"`
+	CourseID    string  `json:"course_id"`
+	ModuleID    *string `json:"module_id"`
+	Code        string  `json:"code"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	IsRequired  bool    `json:"is_required"`
+	SequenceNo  int32   `json:"sequence_no"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+type TeacherClassView struct {
+	Class        View             `json:"class"`
+	Students     []EnrollmentView `json:"students"`
+	Competencies []CriterionView  `json:"competencies"`
 }
 
 type WriteInput struct {
@@ -178,6 +198,63 @@ func (s *Service) List(ctx context.Context, search, status, courseIDValue string
 		items = append(items, viewFromList(row))
 	}
 	return pagination.New(items, page, perPage, total), nil
+}
+
+func (s *Service) ListTeacher(ctx context.Context, userIDValue string) ([]View, error) {
+	userID, err := data.UUID(userIDValue)
+	if err != nil {
+		return nil, ErrTeacherNotAssigned
+	}
+	rows, err := s.queries.ListTeacherClasses(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list teacher classes: %w", err)
+	}
+	items := make([]View, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, viewFromTeacherList(row))
+	}
+	return items, nil
+}
+
+func (s *Service) GetTeacherClass(ctx context.Context, userIDValue, classIDValue string) (TeacherClassView, error) {
+	userID, err := data.UUID(userIDValue)
+	if err != nil {
+		return TeacherClassView{}, ErrTeacherNotAssigned
+	}
+	classID, err := data.UUID(classIDValue)
+	if err != nil {
+		return TeacherClassView{}, ErrClassNotFound
+	}
+	if _, err := s.queries.GetAssignedAssessmentTeacher(ctx, db.GetAssignedAssessmentTeacherParams{
+		ClassID: classID, UserID: userID,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return TeacherClassView{}, ErrTeacherNotAssigned
+	} else if err != nil {
+		return TeacherClassView{}, fmt.Errorf("authorize teacher class: %w", err)
+	}
+	classRow, err := s.queries.GetAdminClass(ctx, classID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TeacherClassView{}, ErrClassNotFound
+	} else if err != nil {
+		return TeacherClassView{}, fmt.Errorf("get teacher class: %w", err)
+	}
+	studentRows, err := s.queries.ListClassEnrollments(ctx, classID)
+	if err != nil {
+		return TeacherClassView{}, fmt.Errorf("list teacher class students: %w", err)
+	}
+	students := make([]EnrollmentView, 0, len(studentRows))
+	for _, row := range studentRows {
+		students = append(students, enrollmentViewFromList(row))
+	}
+	criterionRows, err := s.queries.ListCompetencyCriteria(ctx, classRow.CourseID)
+	if err != nil {
+		return TeacherClassView{}, fmt.Errorf("list teacher class competencies: %w", err)
+	}
+	criteria := make([]CriterionView, 0, len(criterionRows))
+	for _, row := range criterionRows {
+		criteria = append(criteria, criterionView(row))
+	}
+	return TeacherClassView{Class: viewFromGet(classRow), Students: students, Competencies: criteria}, nil
 }
 
 func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInput) (View, error) {
@@ -585,6 +662,34 @@ func viewFromList(row db.ListAdminClassesRow) View {
 		StartDate: row.StartDate.Time.Format("2006-01-02"), EndDate: row.EndDate.Time.Format("2006-01-02"),
 		MaximumStudents: row.MaximumStudents, EnrolledStudents: row.EnrolledStudents,
 		Status:    string(row.Status),
+		CreatedAt: row.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		UpdatedAt: row.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+	}
+}
+
+func viewFromTeacherList(row db.ListTeacherClassesRow) View {
+	return View{
+		ID: data.UUIDString(row.ID), CourseID: data.UUIDString(row.CourseID),
+		CourseCode: row.CourseCode, CourseName: row.CourseName,
+		ClassCode: row.ClassCode, Name: row.Name,
+		StartDate: row.StartDate.Time.Format("2006-01-02"), EndDate: row.EndDate.Time.Format("2006-01-02"),
+		MaximumStudents: row.MaximumStudents, EnrolledStudents: row.EnrolledStudents,
+		Status:    string(row.Status),
+		CreatedAt: row.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		UpdatedAt: row.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+	}
+}
+
+func criterionView(row db.CompetencyCriterium) CriterionView {
+	var moduleID *string
+	if row.ModuleID.Valid {
+		value := data.UUIDString(row.ModuleID)
+		moduleID = &value
+	}
+	return CriterionView{
+		ID: data.UUIDString(row.ID), CourseID: data.UUIDString(row.CourseID), ModuleID: moduleID,
+		Code: row.Code, Name: row.Name, Description: data.TextPointer(row.Description),
+		IsRequired: row.IsRequired, SequenceNo: row.SequenceNo,
 		CreatedAt: row.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		UpdatedAt: row.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 	}

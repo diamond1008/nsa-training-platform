@@ -30,6 +30,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ],
   STUDENT: [
     { to: "/student", label: "Tổng quan" },
+    { to: "/student/khoa-hoc", label: "Khóa học của tôi" },
     { to: "/student/lich-hoc", label: "Lịch học" },
     { to: "/student/diem-danh", label: "Điểm danh" },
     { to: "/student/danh-gia", label: "Đánh giá" },
@@ -104,9 +105,9 @@ export default function AppLayout() {
   );
 
   return (
-    <div className="flex min-h-screen bg-gbg">
+    <div className="flex h-dvh overflow-hidden bg-gbg">
       {/* Desktop sidebar */}
-      <div className="hidden md:block md:shrink-0">{sidebar}</div>
+      <div className="hidden h-full md:block md:shrink-0">{sidebar}</div>
 
       {/* Mobile sidebar overlay */}
       {menuOpen && (
@@ -116,9 +117,9 @@ export default function AppLayout() {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Top bar (64px per Figma) */}
-        <header className="flex h-16 items-center justify-between border-b border-gborder bg-white px-4 md:px-6">
+        <header className="flex h-16 shrink-0 items-center justify-between border-b border-gborder bg-white px-4 md:px-6">
           <button
             className="rounded-lg p-2 hover:bg-gbg2 md:hidden"
             aria-label="Mở menu"
@@ -135,7 +136,7 @@ export default function AppLayout() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-6">
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet />
         </main>
       </div>

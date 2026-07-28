@@ -96,6 +96,26 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, result)
 }
 
+func (h *Handler) ListTeacherClasses(w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserIDFrom(r.Context())
+	items, err := h.service.ListTeacher(r.Context(), userID)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, items)
+}
+
+func (h *Handler) GetTeacherClass(w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserIDFrom(r.Context())
+	view, err := h.service.GetTeacherClass(r.Context(), userID, chi.URLParam(r, "classID"))
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, view)
+}
+
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	input, ok := h.decodeClass(w, r)
 	if !ok {
@@ -287,6 +307,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Fail(w, http.StatusNotFound, "STUDENT_NOT_FOUND", "Student not found")
 	case errors.Is(err, ErrTeacherNotFound):
 		response.Fail(w, http.StatusNotFound, "TEACHER_NOT_FOUND", "Teacher not found")
+	case errors.Is(err, ErrTeacherNotAssigned):
+		response.Fail(w, http.StatusForbidden, "TEACHER_NOT_ASSIGNED", "Teacher is not assigned to this class")
 	case errors.Is(err, ErrEnrollmentNotFound):
 		response.Fail(w, http.StatusNotFound, "ENROLLMENT_NOT_FOUND", "Enrollment not found")
 	case errors.Is(err, ErrAssignmentNotFound):

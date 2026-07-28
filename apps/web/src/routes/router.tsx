@@ -4,13 +4,12 @@ import type { ReactNode } from "react";
 
 import AppLayout from "../app/AppLayout";
 import {
-  AdminDashboard,
-  ComingSoon,
   ForbiddenPage,
   NotFoundPage,
-  StudentDashboard,
-  TeacherDashboard,
 } from "../app/pages";
+import { AdminDashboardPage, ClassDetailPage, ClassesPage, CoursesPage, ScheduleAdminPage, StudentsPage, TeachersPage } from "../features/admin/AdminPages";
+import { AssessmentPage, AttendancePage, TeacherAssessmentLandingPage, TeacherClassDetailPage, TeacherClassesPage, TeacherDashboardPage, TeacherSchedulePage } from "../features/teacher/TeacherPages";
+import { StudentAssessmentsPage, StudentAttendancePage, StudentCoursesPage, StudentDashboardPage, StudentProgressPage, StudentSchedulePage } from "../features/student/StudentPages";
 import { FullPageLoading } from "../components/ui";
 import { homePathFor, useAuth } from "../features/auth/AuthContext";
 import ChangePasswordPage from "../features/auth/ChangePasswordPage";
@@ -84,39 +83,43 @@ export const router = createBrowserRouter([
             path: "/admin",
             element: (
               <RequireRole role="ADMIN">
-                <AdminDashboard />
+                <AdminDashboardPage />
               </RequireRole>
             ),
           },
-          { path: "/admin/hoc-vien", element: <RequireRole role="ADMIN"><ComingSoon title="Học viên" /></RequireRole> },
-          { path: "/admin/giang-vien", element: <RequireRole role="ADMIN"><ComingSoon title="Giảng viên" /></RequireRole> },
-          { path: "/admin/khoa-hoc", element: <RequireRole role="ADMIN"><ComingSoon title="Khóa học" /></RequireRole> },
-          { path: "/admin/lop-hoc", element: <RequireRole role="ADMIN"><ComingSoon title="Lớp học" /></RequireRole> },
-          { path: "/admin/lich-hoc", element: <RequireRole role="ADMIN"><ComingSoon title="Lịch học" /></RequireRole> },
+          { path: "/admin/hoc-vien", element: <RequireRole role="ADMIN"><StudentsPage /></RequireRole> },
+          { path: "/admin/giang-vien", element: <RequireRole role="ADMIN"><TeachersPage /></RequireRole> },
+          { path: "/admin/khoa-hoc", element: <RequireRole role="ADMIN"><CoursesPage /></RequireRole> },
+          { path: "/admin/lop-hoc", element: <RequireRole role="ADMIN"><ClassesPage /></RequireRole> },
+          { path: "/admin/lop-hoc/:classId", element: <RequireRole role="ADMIN"><ClassDetailPage /></RequireRole> },
+          { path: "/admin/lich-hoc", element: <RequireRole role="ADMIN"><ScheduleAdminPage /></RequireRole> },
           {
             path: "/teacher",
             element: (
               <RequireRole role="TEACHER">
-                <TeacherDashboard />
+                <TeacherDashboardPage />
               </RequireRole>
             ),
           },
-          { path: "/teacher/lop-phu-trach", element: <RequireRole role="TEACHER"><ComingSoon title="Lớp phụ trách" /></RequireRole> },
-          { path: "/teacher/diem-danh", element: <RequireRole role="TEACHER"><ComingSoon title="Điểm danh" /></RequireRole> },
-          { path: "/teacher/danh-gia", element: <RequireRole role="TEACHER"><ComingSoon title="Đánh giá kỹ năng" /></RequireRole> },
-          { path: "/teacher/lich-day", element: <RequireRole role="TEACHER"><ComingSoon title="Lịch dạy" /></RequireRole> },
+          { path: "/teacher/lop-phu-trach", element: <RequireRole role="TEACHER"><TeacherClassesPage /></RequireRole> },
+          { path: "/teacher/lop-phu-trach/:classId", element: <RequireRole role="TEACHER"><TeacherClassDetailPage /></RequireRole> },
+          { path: "/teacher/lop-phu-trach/:classId/hoc-vien/:studentId/danh-gia", element: <RequireRole role="TEACHER"><AssessmentPage /></RequireRole> },
+          { path: "/teacher/diem-danh", element: <RequireRole role="TEACHER"><AttendancePage /></RequireRole> },
+          { path: "/teacher/danh-gia", element: <RequireRole role="TEACHER"><TeacherAssessmentLandingPage /></RequireRole> },
+          { path: "/teacher/lich-day", element: <RequireRole role="TEACHER"><TeacherSchedulePage /></RequireRole> },
           {
             path: "/student",
             element: (
               <RequireRole role="STUDENT">
-                <StudentDashboard />
+                <StudentDashboardPage />
               </RequireRole>
             ),
           },
-          { path: "/student/lich-hoc", element: <RequireRole role="STUDENT"><ComingSoon title="Lịch học" /></RequireRole> },
-          { path: "/student/diem-danh", element: <RequireRole role="STUDENT"><ComingSoon title="Điểm danh" /></RequireRole> },
-          { path: "/student/danh-gia", element: <RequireRole role="STUDENT"><ComingSoon title="Đánh giá" /></RequireRole> },
-          { path: "/student/tien-do", element: <RequireRole role="STUDENT"><ComingSoon title="Tiến độ học tập" /></RequireRole> },
+          { path: "/student/khoa-hoc", element: <RequireRole role="STUDENT"><StudentCoursesPage /></RequireRole> },
+          { path: "/student/lich-hoc", element: <RequireRole role="STUDENT"><StudentSchedulePage /></RequireRole> },
+          { path: "/student/diem-danh", element: <RequireRole role="STUDENT"><StudentAttendancePage /></RequireRole> },
+          { path: "/student/danh-gia", element: <RequireRole role="STUDENT"><StudentAssessmentsPage /></RequireRole> },
+          { path: "/student/tien-do", element: <RequireRole role="STUDENT"><StudentProgressPage /></RequireRole> },
         ],
       },
     ],

@@ -13,6 +13,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/assessments"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/progress"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 )
@@ -26,7 +27,7 @@ func TestScheduleViewerRoutesEnforceOwnRole(t *testing.T) {
 	router := chi.NewRouter()
 	router.Route("/api/v1", func(r chi.Router) {
 		mountRoleRoutes(
-			r, tokens, schedules.NewHandler(nil, log), attendance.NewHandler(nil, log),
+			r, tokens, classes.NewHandler(nil, log), schedules.NewHandler(nil, log), attendance.NewHandler(nil, log),
 			assessments.NewHandler(nil, log), progress.NewHandler(nil, log),
 		)
 	})
@@ -50,6 +51,8 @@ func TestScheduleViewerRoutesEnforceOwnRole(t *testing.T) {
 	}{
 		{"teacher schedule without auth", http.MethodGet, "/api/v1/teacher/schedule", "", http.StatusUnauthorized},
 		{"student blocked from teacher schedule", http.MethodGet, "/api/v1/teacher/schedule", studentToken, http.StatusForbidden},
+		{"student blocked from teacher classes", http.MethodGet, "/api/v1/teacher/classes", studentToken, http.StatusForbidden},
+		{"student blocked from teacher class detail", http.MethodGet, "/api/v1/teacher/classes/11111111-1111-1111-1111-111111111111", studentToken, http.StatusForbidden},
 		{"teacher blocked from student schedule", http.MethodGet, "/api/v1/student/schedule", teacherToken, http.StatusForbidden},
 		{"student blocked from teacher attendance view", http.MethodGet, "/api/v1/teacher/sessions/11111111-1111-1111-1111-111111111111/attendance", studentToken, http.StatusForbidden},
 		{"student blocked from attendance recording", http.MethodPost, "/api/v1/teacher/sessions/11111111-1111-1111-1111-111111111111/attendance", studentToken, http.StatusForbidden},
