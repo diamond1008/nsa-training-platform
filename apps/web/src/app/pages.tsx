@@ -21,13 +21,29 @@ const MODULES: Record<Role, ModuleCard[]> = {
   ADMIN: [
     { title: "Học viên", description: "Quản lý hồ sơ và tài khoản học viên", phase: "Phase 9" },
     { title: "Giảng viên", description: "Quản lý đội ngũ giảng viên", phase: "Phase 9" },
-    { title: "Khóa học & Lớp học", description: "Chương trình đào tạo và các lớp đang mở", phase: "Phase 9" },
-    { title: "Lịch học", description: "Xếp lịch buổi học lý thuyết và thực hành", phase: "Phase 9" },
+    {
+      title: "Khóa học & Lớp học",
+      description: "Chương trình đào tạo và các lớp đang mở",
+      phase: "Phase 9",
+    },
+    {
+      title: "Lịch học",
+      description: "Xếp lịch buổi học lý thuyết và thực hành",
+      phase: "Phase 9",
+    },
   ],
   TEACHER: [
-    { title: "Lớp phụ trách", description: "Các lớp bạn được phân công giảng dạy", phase: "Phase 9" },
+    {
+      title: "Lớp phụ trách",
+      description: "Các lớp bạn được phân công giảng dạy",
+      phase: "Phase 9",
+    },
     { title: "Điểm danh", description: "Ghi nhận điểm danh theo buổi học", phase: "Phase 9" },
-    { title: "Đánh giá kỹ năng", description: "Đánh giá tay nghề theo tiêu chí khóa học", phase: "Phase 9" },
+    {
+      title: "Đánh giá kỹ năng",
+      description: "Đánh giá tay nghề theo tiêu chí khóa học",
+      phase: "Phase 9",
+    },
   ],
   STUDENT: [
     { title: "Lịch học", description: "Thời khóa biểu các buổi sắp tới", phase: "Phase 9" },
@@ -39,7 +55,8 @@ const MODULES: Record<Role, ModuleCard[]> = {
 
 function Dashboard({ role, heading }: { role: Role; heading: string }) {
   const { user } = useAuth();
-  const displayName = user?.teacher_profile?.full_name ?? user?.student_profile?.full_name ?? user?.email ?? "";
+  const displayName =
+    user?.teacher_profile?.full_name ?? user?.student_profile?.full_name ?? user?.email ?? "";
 
   return (
     <div>
@@ -85,7 +102,10 @@ export function ComingSoon({ title }: { title: string }) {
   return (
     <div>
       <PageHeader title={title} />
-      <EmptyState title="Màn hình đang được xây dựng" hint="Sẽ hoàn thiện ở Phase 9 — Feature Screens." />
+      <EmptyState
+        title="Màn hình đang được xây dựng"
+        hint="Sẽ hoàn thiện ở Phase 9 — Feature Screens."
+      />
     </div>
   );
 }
@@ -97,7 +117,8 @@ export function ForbiddenPage() {
       <p className="text-6xl font-bold text-gold">403</p>
       <h1 className="text-2xl font-bold text-navy-dark">Truy cập bị từ chối</h1>
       <p className="max-w-md text-sm text-gtext">
-        Tài khoản của bạn không có quyền truy cập trang này. Nếu bạn cho rằng đây là nhầm lẫn, vui lòng liên hệ quản trị viên.
+        Tài khoản của bạn không có quyền truy cập trang này. Nếu bạn cho rằng đây là nhầm lẫn, vui
+        lòng liên hệ quản trị viên.
       </p>
       <Link to={homePath(user)}>
         <Button variant="primary">Về trang tổng quan</Button>

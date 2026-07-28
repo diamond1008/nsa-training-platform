@@ -47,9 +47,11 @@ export function formatDateTime(value?: string | null): string {
 
 export function toQuery(params: object): string {
   const query = new URLSearchParams();
-  Object.entries(params as Record<string, string | number | undefined | null>).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
-  });
+  Object.entries(params as Record<string, string | number | undefined | null>).forEach(
+    ([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
+    },
+  );
   const text = query.toString();
   return text ? `?${text}` : "";
 }

@@ -65,6 +65,16 @@ func (h *Handler) AdminSession(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, view)
 }
 
+func (h *Handler) StudentSession(w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserIDFrom(r.Context())
+	view, err := h.service.GetStudentSession(r.Context(), userID, chi.URLParam(r, "sessionID"))
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, view)
+}
+
 func (h *Handler) RecordBatch(w http.ResponseWriter, r *http.Request) {
 	var body batchRequest
 	if err := request.DecodeJSON(w, r, &body); err != nil {
@@ -106,17 +116,7 @@ func (h *Handler) RecordBatch(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	response.Created(w, map[string]any{"items": records, "count": len(records)})
-}
-
-func (h *Handler) Lock(w http.ResponseWriter, r *http.Request) {
-	userID, _ := auth.UserIDFrom(r.Context())
-	view, err := h.service.Lock(r.Context(), userID, chi.URLParam(r, "sessionID"))
-	if err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	response.OK(w, view)
+	response.OK(w, map[string]any{"items": records, "count": len(records)})
 }
 
 func (h *Handler) Correct(w http.ResponseWriter, r *http.Request) {
@@ -227,20 +227,18 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Fail(w, http.StatusNotFound, "ATTENDANCE_NOT_FOUND", "Attendance record not found")
 	case errors.Is(err, ErrTeacherNotAssigned):
 		response.Fail(w, http.StatusForbidden, "TEACHER_NOT_ASSIGNED", "Teacher is not assigned to this class")
+	case errors.Is(err, ErrStudentNotInClass):
+		response.Fail(w, http.StatusForbidden, "STUDENT_NOT_IN_CLASS", "Student is not actively enrolled in this class")
 	case errors.Is(err, ErrSessionCancelled):
 		response.Fail(w, http.StatusConflict, "SESSION_CANCELLED", "Attendance is unavailable for a cancelled session")
 	case errors.Is(err, ErrSessionLocked):
 		response.Fail(w, http.StatusConflict, "ATTENDANCE_LOCKED", "Session attendance is locked")
 	case errors.Is(err, ErrSessionNotStarted):
-		response.Fail(w, http.StatusConflict, "SESSION_NOT_STARTED", "Attendance cannot be finalized before the session starts")
+		response.Fail(w, http.StatusConflict, "SESSION_NOT_STARTED", "Attendance cannot be recorded before the session starts")
 	case errors.Is(err, ErrStudentNotEnrolled):
 		response.Fail(w, http.StatusUnprocessableEntity, "STUDENT_NOT_ENROLLED", "Student is not actively enrolled in the session class")
 	case errors.Is(err, ErrDuplicateStudent):
 		response.Fail(w, http.StatusBadRequest, "DUPLICATE_STUDENT", "A student appears more than once in the batch")
-	case errors.Is(err, ErrAttendanceExists):
-		response.Fail(w, http.StatusConflict, "ATTENDANCE_ALREADY_EXISTS", "Attendance already exists for the student and session")
-	case errors.Is(err, ErrAttendanceIncomplete):
-		response.Fail(w, http.StatusConflict, "ATTENDANCE_INCOMPLETE", "Every active student must have attendance before locking")
 	default:
 		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
 	}

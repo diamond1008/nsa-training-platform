@@ -1,11 +1,12 @@
 // Package attendance implements session rosters, batch attendance recording,
-// administrative corrections, locking, and Student self-service history.
+// automatic locking, administrative corrections, and Student self-service history.
 package attendance
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -21,16 +22,15 @@ import (
 )
 
 var (
-	ErrSessionNotFound      = errors.New("class session not found")
-	ErrTeacherNotAssigned   = errors.New("teacher is not assigned to the class")
-	ErrSessionCancelled     = errors.New("attendance is unavailable for a cancelled session")
-	ErrSessionLocked        = errors.New("session attendance is locked")
-	ErrSessionNotStarted    = errors.New("attendance cannot be finalized before the session starts")
-	ErrStudentNotEnrolled   = errors.New("student is not actively enrolled in the session class")
-	ErrDuplicateStudent     = errors.New("student appears more than once in the batch")
-	ErrAttendanceExists     = errors.New("attendance already exists for the student and session")
-	ErrAttendanceIncomplete = errors.New("every active student must have attendance before locking")
-	ErrAttendanceNotFound   = errors.New("attendance record not found")
+	ErrSessionNotFound    = errors.New("class session not found")
+	ErrTeacherNotAssigned = errors.New("teacher is not assigned to the class")
+	ErrSessionCancelled   = errors.New("attendance is unavailable for a cancelled session")
+	ErrSessionLocked      = errors.New("session attendance is locked")
+	ErrSessionNotStarted  = errors.New("attendance cannot be finalized before the session starts")
+	ErrStudentNotEnrolled = errors.New("student is not actively enrolled in the session class")
+	ErrStudentNotInClass  = errors.New("student is not enrolled in the session class")
+	ErrDuplicateStudent   = errors.New("student appears more than once in the batch")
+	ErrAttendanceNotFound = errors.New("attendance record not found")
 )
 
 type BatchItemInput struct {
@@ -104,13 +104,6 @@ type RecordView struct {
 	UpdatedAt      string  `json:"updated_at"`
 }
 
-type LockView struct {
-	SessionID             string `json:"session_id"`
-	Status                string `json:"status"`
-	AttendanceLockedAt    string `json:"attendance_locked_at"`
-	AttendanceRecordCount int64  `json:"attendance_record_count"`
-}
-
 type StudentHistoryView struct {
 	ID             string  `json:"id"`
 	ClassSessionID string  `json:"class_session_id"`
@@ -169,7 +162,53 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool, queries: db.New(pool), now: func() time.Time { return time.Now().UTC() }}
 }
 
+// RunAutoLockWorker catches up on startup and then reconciles attendance every minute.
+// The date boundary is always midnight in Asia/Ho_Chi_Minh, regardless of host timezone.
+func (s *Service) RunAutoLockWorker(ctx context.Context, log *slog.Logger) {
+	run := func() {
+		filled, locked, err := s.ReconcileExpiredAttendance(ctx)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				log.Error("automatic attendance lock failed", "error", err)
+			}
+			return
+		}
+		if filled > 0 || locked > 0 {
+			log.Info("automatic attendance lock completed", "absences_filled", filled, "sessions_locked", locked)
+		}
+	}
+	run()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
+}
+
+// ReconcileExpiredAttendance marks unrecorded students absent and locks every
+// complete session from a previous Vietnamese calendar day.
+func (s *Service) ReconcileExpiredAttendance(ctx context.Context) (int64, int64, error) {
+	cutoff := pgtype.Timestamptz{Time: vietnamStartOfDay(s.now()), Valid: true}
+	filled, err := s.queries.AutoFillExpiredAttendance(ctx, cutoff)
+	if err != nil {
+		return 0, 0, fmt.Errorf("auto-fill expired attendance: %w", err)
+	}
+	locked, err := s.queries.AutoLockExpiredAttendanceSessions(ctx, cutoff)
+	if err != nil {
+		return filled, 0, fmt.Errorf("auto-lock expired attendance: %w", err)
+	}
+	return filled, locked, nil
+}
+
 func (s *Service) GetTeacherSession(ctx context.Context, userID, sessionID string) (SessionAttendanceView, error) {
+	if _, _, err := s.ReconcileExpiredAttendance(ctx); err != nil {
+		return SessionAttendanceView{}, err
+	}
 	id, err := data.UUID(sessionID)
 	if err != nil {
 		return SessionAttendanceView{}, ErrSessionNotFound
@@ -189,6 +228,9 @@ func (s *Service) GetTeacherSession(ctx context.Context, userID, sessionID strin
 }
 
 func (s *Service) GetAdminSession(ctx context.Context, sessionID string) (SessionAttendanceView, error) {
+	if _, _, err := s.ReconcileExpiredAttendance(ctx); err != nil {
+		return SessionAttendanceView{}, err
+	}
 	id, err := data.UUID(sessionID)
 	if err != nil {
 		return SessionAttendanceView{}, ErrSessionNotFound
@@ -203,12 +245,58 @@ func (s *Service) GetAdminSession(ctx context.Context, sessionID string) (Sessio
 	return s.sessionView(ctx, s.queries, snapshotFromGet(row))
 }
 
+func (s *Service) GetStudentSession(ctx context.Context, userID, sessionID string) (SessionAttendanceView, error) {
+	if _, _, err := s.ReconcileExpiredAttendance(ctx); err != nil {
+		return SessionAttendanceView{}, err
+	}
+	sessionUUID, err := data.UUID(sessionID)
+	if err != nil {
+		return SessionAttendanceView{}, ErrSessionNotFound
+	}
+	userUUID, err := data.UUID(userID)
+	if err != nil {
+		return SessionAttendanceView{}, ErrStudentNotInClass
+	}
+	enrolled, err := s.queries.CheckStudentEnrolledInSession(ctx, db.CheckStudentEnrolledInSessionParams{
+		SessionID: sessionUUID, UserID: userUUID,
+	})
+	if err != nil {
+		return SessionAttendanceView{}, fmt.Errorf("check student session enrollment: %w", err)
+	}
+	if !enrolled {
+		return SessionAttendanceView{}, ErrStudentNotInClass
+	}
+	row, err := s.queries.GetAttendanceSession(ctx, sessionUUID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SessionAttendanceView{}, ErrSessionNotFound
+	}
+	if err != nil {
+		return SessionAttendanceView{}, fmt.Errorf("get student attendance session: %w", err)
+	}
+	view, err := s.sessionView(ctx, s.queries, snapshotFromGet(row))
+	if err != nil {
+		return SessionAttendanceView{}, err
+	}
+	// Students may see their classmates' attendance status, but internal notes,
+	// recorder identities, and record IDs remain private to staff.
+	for index := range view.Items {
+		view.Items[index].AttendanceID = nil
+		view.Items[index].Note = nil
+		view.Items[index].RecordedBy = nil
+		view.Items[index].RecordedByEmail = nil
+	}
+	return view, nil
+}
+
 func (s *Service) RecordBatch(
 	ctx context.Context,
 	userID string,
 	sessionID string,
 	items []BatchItemInput,
 ) ([]RecordView, error) {
+	if _, _, err := s.ReconcileExpiredAttendance(ctx); err != nil {
+		return nil, err
+	}
 	sessionUUID, err := data.UUID(sessionID)
 	if err != nil {
 		return nil, ErrSessionNotFound
@@ -240,7 +328,7 @@ func (s *Service) RecordBatch(
 	}
 
 	seen := make(map[string]struct{}, len(items))
-	created := make([]RecordView, 0, len(items))
+	saved := make([]RecordView, 0, len(items))
 	for _, item := range items {
 		studentID, err := data.UUID(item.StudentID)
 		if err != nil {
@@ -261,7 +349,7 @@ func (s *Service) RecordBatch(
 		if !enrolled {
 			return nil, ErrStudentNotEnrolled
 		}
-		record, err := q.CreateAttendanceRecord(ctx, db.CreateAttendanceRecordParams{
+		record, err := q.UpsertAttendanceRecord(ctx, db.UpsertAttendanceRecordParams{
 			ClassSessionID: session.ID,
 			ClassID:        session.ClassID,
 			StudentID:      studentID,
@@ -272,80 +360,18 @@ func (s *Service) RecordBatch(
 		if err != nil {
 			return nil, mapAttendanceWriteError(err)
 		}
-		created = append(created, recordView(record))
+		saved = append(saved, recordView(record))
 	}
 	if err := audit.Write(
-		ctx, q, userID, "attendance.batch_record", "class_session",
-		session.ID, nil, created,
+		ctx, q, userID, "attendance.batch_save", "class_session",
+		session.ID, nil, saved,
 	); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit attendance batch: %w", err)
 	}
-	return created, nil
-}
-
-func (s *Service) Lock(ctx context.Context, userID, sessionID string) (LockView, error) {
-	sessionUUID, err := data.UUID(sessionID)
-	if err != nil {
-		return LockView{}, ErrSessionNotFound
-	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return LockView{}, fmt.Errorf("begin attendance lock: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	q := s.queries.WithTx(tx)
-
-	row, err := q.GetAttendanceSessionForUpdate(ctx, sessionUUID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return LockView{}, ErrSessionNotFound
-	}
-	if err != nil {
-		return LockView{}, fmt.Errorf("get session for attendance lock: %w", err)
-	}
-	session := snapshotFromLocked(row)
-	if err := checkTeacherAssignment(ctx, q, userID, session.ClassID); err != nil {
-		return LockView{}, err
-	}
-	if err := s.validateWritableSession(session); err != nil {
-		return LockView{}, err
-	}
-	studentCount, err := q.CountActiveSessionStudents(ctx, session.ID)
-	if err != nil {
-		return LockView{}, fmt.Errorf("count attendance roster: %w", err)
-	}
-	recordCount, err := q.CountSessionAttendanceRecords(ctx, session.ID)
-	if err != nil {
-		return LockView{}, fmt.Errorf("count attendance records: %w", err)
-	}
-	if studentCount != recordCount {
-		return LockView{}, ErrAttendanceIncomplete
-	}
-	locked, err := q.LockSessionAttendance(ctx, session.ID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return LockView{}, ErrSessionLocked
-	}
-	if err != nil {
-		return LockView{}, fmt.Errorf("lock session attendance: %w", err)
-	}
-	view := LockView{
-		SessionID:             data.UUIDString(locked.ID),
-		Status:                string(locked.Status),
-		AttendanceLockedAt:    timeValue(locked.AttendanceLockedAt),
-		AttendanceRecordCount: recordCount,
-	}
-	if err := audit.Write(
-		ctx, q, userID, "attendance.lock", "class_session",
-		session.ID, sessionView(session), view,
-	); err != nil {
-		return LockView{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return LockView{}, fmt.Errorf("commit attendance lock: %w", err)
-	}
-	return view, nil
+	return saved, nil
 }
 
 func (s *Service) Correct(
@@ -508,7 +534,19 @@ func (s *Service) validateWritableSession(session sessionSnapshot) error {
 	if session.StartsAt.Valid && s.now().Before(session.StartsAt.Time) {
 		return ErrSessionNotStarted
 	}
+	if session.StartsAt.Valid && session.StartsAt.Time.Before(vietnamStartOfDay(s.now())) {
+		return ErrSessionLocked
+	}
 	return nil
+}
+
+func vietnamStartOfDay(value time.Time) time.Time {
+	location, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		location = time.FixedZone("Asia/Ho_Chi_Minh", 7*60*60)
+	}
+	local := value.In(location)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location).UTC()
 }
 
 func checkTeacherAssignment(ctx context.Context, q *db.Queries, userID string, classID pgtype.UUID) error {
@@ -530,8 +568,6 @@ func checkTeacherAssignment(ctx context.Context, q *db.Queries, userID string, c
 
 func mapAttendanceWriteError(err error) error {
 	switch {
-	case dberror.IsCode(err, dberror.UniqueViolation):
-		return ErrAttendanceExists
 	case dberror.IsCode(err, dberror.ForeignKeyViolation):
 		return ErrStudentNotEnrolled
 	default:

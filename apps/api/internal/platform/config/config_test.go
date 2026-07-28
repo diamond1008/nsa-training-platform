@@ -124,3 +124,28 @@ func TestLoad_ParsesOverrides(t *testing.T) {
 		t.Errorf("BcryptCost = %d, want 12", cfg.BcryptCost)
 	}
 }
+
+func TestLoad_RejectsProductionPlaceholders(t *testing.T) {
+	clearEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://training.example.com")
+	t.Setenv("JWT_ACCESS_SECRET", "change-me-access-secret-min-32-chars")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("expected production placeholder error, got %v", err)
+	}
+}
+
+func TestLoad_RejectsInsecureProductionCORS(t *testing.T) {
+	clearEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "http://training.example.com")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("expected production CORS error, got %v", err)
+	}
+}

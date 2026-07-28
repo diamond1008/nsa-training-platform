@@ -1,26 +1,67 @@
 import type { ReactNode } from "react";
-import { ApiRequestError } from "../lib/apiClient";
-import { Badge, Button, Card, EmptyState, ErrorBanner, Spinner } from "./ui";
-import { statusLabel } from "../lib/format";
+import clsx from "clsx";
 
-export function QueryState({ loading, error, empty, emptyTitle = "Chưa có dữ liệu", children }: {
+import { ApiRequestError } from "../lib/apiClient";
+import type { SessionAttendance } from "../lib/domainTypes";
+import { statusLabel } from "../lib/format";
+import { Icon } from "./icons";
+import type { IconName } from "./icons";
+import { Badge, Button, Card, EmptyState, ErrorBanner, Skeleton } from "./ui";
+
+export function QueryState({
+  loading,
+  error,
+  empty,
+  emptyTitle = "Chưa có dữ liệu",
+  children,
+}: {
   loading: boolean;
   error: unknown;
   empty?: boolean;
   emptyTitle?: string;
   children: ReactNode;
 }) {
-  if (loading) return <Card className="flex min-h-40 items-center justify-center"><Spinner /></Card>;
-  if (error) {
-    const message = error instanceof ApiRequestError ? error.message : "Không tải được dữ liệu. Vui lòng thử lại.";
-    return <ErrorBanner message={message} />;
-  }
-  if (empty) return <EmptyState title={emptyTitle} hint="Thử thay đổi bộ lọc hoặc tạo dữ liệu mới." />;
+  if (loading) return <LoadingPanel />;
+  if (error)
+    return (
+      <ErrorBanner
+        message={
+          error instanceof ApiRequestError
+            ? error.message
+            : "Không tải được dữ liệu. Vui lòng thử lại."
+        }
+      />
+    );
+  if (empty)
+    return <EmptyState title={emptyTitle} hint="Thử thay đổi bộ lọc hoặc tạo dữ liệu mới." />;
   return <>{children}</>;
 }
 
+export function LoadingPanel() {
+  return (
+    <Card className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-10 w-10 rounded-xl" />
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-3 w-40" />
+          <Skeleton className="h-3 w-64 max-w-full" />
+        </div>
+      </div>
+      <Skeleton className="h-24 w-full" />
+    </Card>
+  );
+}
+
 export function StatusBadge({ value }: { value: string }) {
-  const tone = ["active", "present", "completed", "eligible", "excellent", "good", "competent"].includes(value)
+  const tone = [
+    "active",
+    "present",
+    "completed",
+    "eligible",
+    "excellent",
+    "good",
+    "competent",
+  ].includes(value)
     ? "green"
     : ["absent", "cancelled", "suspended", "needs_improvement"].includes(value)
       ? "red"
@@ -35,17 +76,70 @@ export interface Column<T> {
   cell: (item: T) => ReactNode;
   className?: string;
 }
-
-export function DataTable<T extends { id: string }>({ items, columns }: { items: T[]; columns: Column<T>[] }) {
+export function DataTable<T extends { id: string }>({
+  items,
+  columns,
+}: {
+  items: T[];
+  columns: Column<T>[];
+}) {
   return (
     <Card className="overflow-hidden p-0">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gborder text-left text-sm">
-          <thead className="bg-gbg2 text-xs uppercase tracking-wide text-gtext">
-            <tr>{columns.map((column) => <th key={column.header} className={`px-4 py-3 font-semibold ${column.className ?? ""}`}>{column.header}</th>)}</tr>
+      <div className="divide-y divide-gborder md:hidden">
+        {items.map((item) => (
+          <div key={item.id} className="space-y-3 p-4">
+            {columns.map((column) => (
+              <div
+                key={column.header || "action"}
+                className={clsx(
+                  "flex items-start justify-between gap-4",
+                  !column.header && "justify-end",
+                )}
+              >
+                {column.header && (
+                  <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-gtext">
+                    {column.header}
+                  </span>
+                )}
+                <div className="min-w-0 text-right text-sm text-navy">{column.cell(item)}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="hidden max-h-[calc(100dvh-15rem)] overflow-auto md:block">
+        <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-gbg2/95 text-[11px] uppercase tracking-[0.08em] text-gtext backdrop-blur">
+            <tr>
+              {columns.map((column) => (
+                <th
+                  key={column.header}
+                  className={clsx(
+                    "border-b border-gborder px-5 py-3.5 font-bold",
+                    column.className,
+                  )}
+                >
+                  {column.header}
+                </th>
+              ))}
+            </tr>
           </thead>
-          <tbody className="divide-y divide-gborder bg-white">
-            {items.map((item) => <tr key={item.id} className="hover:bg-gbg/70">{columns.map((column) => <td key={column.header} className={`px-4 py-3 align-middle ${column.className ?? ""}`}>{column.cell(item)}</td>)}</tr>)}
+          <tbody className="bg-white">
+            {items.map((item) => (
+              <tr key={item.id} className="group transition hover:bg-gbg/70">
+                {columns.map((column) => (
+                  <td
+                    key={column.header}
+                    className={clsx(
+                      "border-b border-gborder/70 px-5 py-4 align-middle last:border-b-0",
+                      column.className,
+                    )}
+                  >
+                    {column.cell(item)}
+                  </td>
+                ))}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -53,17 +147,195 @@ export function DataTable<T extends { id: string }>({ items, columns }: { items:
   );
 }
 
-export function Pagination({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (page: number) => void }) {
+export function Pagination({
+  page,
+  totalPages,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  onPage: (page: number) => void;
+}) {
   if (totalPages <= 1) return null;
   return (
-    <div className="mt-4 flex items-center justify-end gap-2">
-      <Button variant="ghost" disabled={page <= 1} onClick={() => onPage(page - 1)}>Trang trước</Button>
-      <span className="text-sm text-gtext">Trang {page}/{totalPages}</span>
-      <Button variant="ghost" disabled={page >= totalPages} onClick={() => onPage(page + 1)}>Trang sau</Button>
+    <div className="mt-4 flex items-center justify-between rounded-xl border border-gborder bg-white p-2 pl-4">
+      <span className="text-xs font-medium text-gtext">
+        Trang {page} / {totalPages}
+      </span>
+      <div className="flex gap-2">
+        <Button
+          variant="soft"
+          className="h-9 px-3"
+          aria-label="Trang trước"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+        >
+          <Icon name="arrow-left" className="h-4 w-4" />
+          <span className="hidden sm:inline">Trước</span>
+        </Button>
+        <Button
+          variant="soft"
+          className="h-9 px-3"
+          aria-label="Trang sau"
+          disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)}
+        >
+          <span className="hidden sm:inline">Sau</span>
+          <Icon name="arrow-right" className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }
 
-export function StatCard({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
-  return <Card><p className="text-xs font-medium uppercase tracking-wide text-gtext">{label}</p><p className="mt-2 text-3xl font-bold text-navy">{value}</p>{hint && <p className="mt-1 text-xs text-gtext">{hint}</p>}</Card>;
+const statTone = {
+  navy: "bg-navy text-white",
+  gold: "bg-gold/25 text-gold-dark",
+  green: "bg-success-bg text-success",
+  blue: "bg-info-bg text-info",
+};
+export function StatCard({
+  label,
+  value,
+  hint,
+  icon,
+  tone = "navy",
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  icon?: IconName;
+  tone?: keyof typeof statTone;
+}) {
+  return (
+    <Card className="relative overflow-hidden">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-gtext">{label}</p>
+          <div className="mt-2 text-2xl font-bold tracking-tight text-navy md:text-3xl">
+            {value}
+          </div>
+          {hint && <p className="mt-1.5 text-xs leading-5 text-gtext">{hint}</p>}
+        </div>
+        {icon && (
+          <div
+            className={clsx(
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl",
+              statTone[tone],
+            )}
+          >
+            <Icon name={icon} className="h-5 w-5" />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+export function SectionHeader({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-4 flex items-end justify-between gap-4">
+      <div>
+        <h2 className="font-bold text-navy md:text-lg">{title}</h2>
+        {subtitle && <p className="mt-1 text-xs text-gtext">{subtitle}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+export function QuickAction({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: IconName;
+  children?: ReactNode;
+}) {
+  return (
+    <Card className="group h-full transition hover:-translate-y-0.5 hover:border-gold/70 hover:shadow-elevated">
+      <div className="flex items-start gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-navy text-white transition group-hover:bg-gold group-hover:text-navy">
+          <Icon name={icon} className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold text-navy">{title}</h3>
+          <p className="mt-1 text-xs leading-5 text-gtext">{description}</p>
+          {children}
+        </div>
+        <Icon
+          name="chevron-right"
+          className="mt-2 h-4 w-4 text-gtext transition group-hover:translate-x-1 group-hover:text-gold-dark"
+        />
+      </div>
+    </Card>
+  );
+}
+
+export function AttendanceRoster({ data }: { data: SessionAttendance }) {
+  const locked = !!data.session.attendance_locked_at;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          ["Tổng", data.summary.total, "navy"],
+          ["Có mặt", data.summary.present, "green"],
+          ["Vắng / trễ", data.summary.absent + data.summary.late, "red"],
+          ["Trạng thái", locked ? "Đã khóa" : "Trong ngày", "gold"],
+        ].map(([label, value, tone]) => (
+          <div
+            key={String(label)}
+            className={clsx(
+              "rounded-xl border p-3",
+              tone === "green"
+                ? "border-success/15 bg-success-bg"
+                : tone === "red"
+                  ? "border-error/15 bg-error-bg"
+                  : tone === "gold"
+                    ? "border-gold/25 bg-gold/10"
+                    : "border-gborder bg-gbg2",
+            )}
+          >
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gtext">{label}</p>
+            <b className="mt-1 block text-navy">{value}</b>
+          </div>
+        ))}
+      </div>
+      <div className="max-h-80 divide-y divide-gborder overflow-y-auto rounded-xl border border-gborder">
+        {data.items.map((item) => (
+          <div
+            key={item.student_id}
+            className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-gbg"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy/8 text-xs font-bold text-navy">
+                {item.full_name.trim().split(" ").at(-1)?.[0] ?? "H"}
+              </div>
+              <div className="min-w-0">
+                <b className="block truncate text-sm text-navy">{item.full_name}</b>
+                <p className="text-[11px] text-gtext">{item.student_code}</p>
+                {item.note && <p className="mt-1 text-xs text-gtext">{item.note}</p>}
+              </div>
+            </div>
+            {item.attendance_status ? (
+              <StatusBadge value={item.attendance_status} />
+            ) : (
+              <Badge tone="gray">Chưa ghi nhận</Badge>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

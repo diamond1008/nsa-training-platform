@@ -11,6 +11,89 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const autoFillExpiredAttendance = `-- name: AutoFillExpiredAttendance :execrows
+INSERT INTO attendance_records (
+  class_session_id, class_id, student_id, status, note, recorded_by
+)
+SELECT
+  cs.id,
+  cs.class_id,
+  ce.student_id,
+  'absent',
+  'Tự động ghi vắng khi hết ngày điểm danh',
+  COALESCE(
+    tp.user_id,
+    cs.created_by,
+    (
+      SELECT u.id
+      FROM users u
+      JOIN user_roles ur ON ur.user_id = u.id
+      JOIN roles r ON r.id = ur.role_id AND r.code = 'ADMIN'
+      WHERE u.status = 'active'
+      ORDER BY u.created_at, u.id
+      LIMIT 1
+    )
+  )
+FROM class_sessions cs
+JOIN class_enrollments ce
+  ON ce.class_id = cs.class_id
+  AND ce.status = 'enrolled'
+LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
+WHERE cs.starts_at < $1
+  AND cs.status IN ('scheduled', 'completed')
+  AND cs.attendance_locked_at IS NULL
+  AND COALESCE(
+    tp.user_id,
+    cs.created_by,
+    (
+      SELECT u.id
+      FROM users u
+      JOIN user_roles ur ON ur.user_id = u.id
+      JOIN roles r ON r.id = ur.role_id AND r.code = 'ADMIN'
+      WHERE u.status = 'active'
+      ORDER BY u.created_at, u.id
+      LIMIT 1
+    )
+  ) IS NOT NULL
+ON CONFLICT (class_session_id, student_id) DO NOTHING
+`
+
+// Missing students become absent when the Vietnamese calendar day ends.
+// The assigned teacher is the recorder; created_by/admin is the fallback.
+func (q *Queries) AutoFillExpiredAttendance(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, autoFillExpiredAttendance, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const autoLockExpiredAttendanceSessions = `-- name: AutoLockExpiredAttendanceSessions :execrows
+UPDATE class_sessions cs
+SET status = 'locked', attendance_locked_at = $1
+WHERE cs.starts_at < $1
+  AND cs.status IN ('scheduled', 'completed')
+  AND cs.attendance_locked_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM class_enrollments ce
+    LEFT JOIN attendance_records ar
+      ON ar.class_session_id = cs.id
+      AND ar.student_id = ce.student_id
+    WHERE ce.class_id = cs.class_id
+      AND ce.status = 'enrolled'
+      AND ar.id IS NULL
+  )
+`
+
+func (q *Queries) AutoLockExpiredAttendanceSessions(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, autoLockExpiredAttendanceSessions, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const checkActiveEnrollment = `-- name: CheckActiveEnrollment :one
 SELECT EXISTS(
   SELECT 1
@@ -28,6 +111,31 @@ type CheckActiveEnrollmentParams struct {
 
 func (q *Queries) CheckActiveEnrollment(ctx context.Context, arg CheckActiveEnrollmentParams) (bool, error) {
 	row := q.db.QueryRow(ctx, checkActiveEnrollment, arg.ClassID, arg.StudentID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const checkStudentEnrolledInSession = `-- name: CheckStudentEnrolledInSession :one
+SELECT EXISTS(
+  SELECT 1
+  FROM class_sessions cs
+  JOIN class_enrollments ce
+    ON ce.class_id = cs.class_id
+    AND ce.status = 'enrolled'
+  JOIN student_profiles sp ON sp.id = ce.student_id
+  WHERE cs.id = $1
+    AND sp.user_id = $2
+)
+`
+
+type CheckStudentEnrolledInSessionParams struct {
+	SessionID pgtype.UUID `json:"session_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) CheckStudentEnrolledInSession(ctx context.Context, arg CheckStudentEnrolledInSessionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkStudentEnrolledInSession, arg.SessionID, arg.UserID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -64,39 +172,6 @@ func (q *Queries) CorrectAttendanceRecord(ctx context.Context, arg CorrectAttend
 	return i, err
 }
 
-const countActiveSessionStudents = `-- name: CountActiveSessionStudents :one
-SELECT COUNT(*)
-FROM class_sessions cs
-JOIN class_enrollments ce
-  ON ce.class_id = cs.class_id
-  AND ce.status = 'enrolled'
-WHERE cs.id = $1
-`
-
-func (q *Queries) CountActiveSessionStudents(ctx context.Context, id pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countActiveSessionStudents, id)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countSessionAttendanceRecords = `-- name: CountSessionAttendanceRecords :one
-SELECT COUNT(*)
-FROM attendance_records ar
-JOIN class_enrollments ce
-  ON ce.class_id = ar.class_id
-  AND ce.student_id = ar.student_id
-  AND ce.status = 'enrolled'
-WHERE ar.class_session_id = $1
-`
-
-func (q *Queries) CountSessionAttendanceRecords(ctx context.Context, classSessionID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countSessionAttendanceRecords, classSessionID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countStudentAttendance = `-- name: CountStudentAttendance :one
 SELECT COUNT(*)
 FROM attendance_records ar
@@ -118,48 +193,6 @@ func (q *Queries) CountStudentAttendance(ctx context.Context, arg CountStudentAt
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const createAttendanceRecord = `-- name: CreateAttendanceRecord :one
-INSERT INTO attendance_records (
-  class_session_id, class_id, student_id, status, note, recorded_by
-)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, class_session_id, class_id, student_id, status, note,
-  recorded_by, recorded_at, updated_at
-`
-
-type CreateAttendanceRecordParams struct {
-	ClassSessionID pgtype.UUID      `json:"class_session_id"`
-	ClassID        pgtype.UUID      `json:"class_id"`
-	StudentID      pgtype.UUID      `json:"student_id"`
-	Status         AttendanceStatus `json:"status"`
-	Note           pgtype.Text      `json:"note"`
-	RecordedBy     pgtype.UUID      `json:"recorded_by"`
-}
-
-func (q *Queries) CreateAttendanceRecord(ctx context.Context, arg CreateAttendanceRecordParams) (AttendanceRecord, error) {
-	row := q.db.QueryRow(ctx, createAttendanceRecord,
-		arg.ClassSessionID,
-		arg.ClassID,
-		arg.StudentID,
-		arg.Status,
-		arg.Note,
-		arg.RecordedBy,
-	)
-	var i AttendanceRecord
-	err := row.Scan(
-		&i.ID,
-		&i.ClassSessionID,
-		&i.ClassID,
-		&i.StudentID,
-		&i.Status,
-		&i.Note,
-		&i.RecordedBy,
-		&i.RecordedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }
 
 const getAttendanceRecordForUpdate = `-- name: GetAttendanceRecordForUpdate :one
@@ -540,38 +573,48 @@ func (q *Queries) ListStudentAttendanceSummaries(ctx context.Context, arg ListSt
 	return items, nil
 }
 
-const lockSessionAttendance = `-- name: LockSessionAttendance :one
-UPDATE class_sessions
-SET
-  status = 'locked',
-  attendance_locked_at = NOW()
-WHERE id = $1
-  AND attendance_locked_at IS NULL
-  AND status IN ('scheduled', 'completed')
-  AND starts_at <= NOW()
-RETURNING id, class_id, course_id, module_id, teacher_id, location_id,
-  title, session_type, starts_at, ends_at, status, attendance_locked_at,
-  created_by, created_at, updated_at
+const upsertAttendanceRecord = `-- name: UpsertAttendanceRecord :one
+INSERT INTO attendance_records (
+  class_session_id, class_id, student_id, status, note, recorded_by
+)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (class_session_id, student_id) DO UPDATE
+SET status = EXCLUDED.status,
+    note = EXCLUDED.note,
+    recorded_by = EXCLUDED.recorded_by,
+    updated_at = NOW()
+RETURNING id, class_session_id, class_id, student_id, status, note,
+  recorded_by, recorded_at, updated_at
 `
 
-func (q *Queries) LockSessionAttendance(ctx context.Context, id pgtype.UUID) (ClassSession, error) {
-	row := q.db.QueryRow(ctx, lockSessionAttendance, id)
-	var i ClassSession
+type UpsertAttendanceRecordParams struct {
+	ClassSessionID pgtype.UUID      `json:"class_session_id"`
+	ClassID        pgtype.UUID      `json:"class_id"`
+	StudentID      pgtype.UUID      `json:"student_id"`
+	Status         AttendanceStatus `json:"status"`
+	Note           pgtype.Text      `json:"note"`
+	RecordedBy     pgtype.UUID      `json:"recorded_by"`
+}
+
+func (q *Queries) UpsertAttendanceRecord(ctx context.Context, arg UpsertAttendanceRecordParams) (AttendanceRecord, error) {
+	row := q.db.QueryRow(ctx, upsertAttendanceRecord,
+		arg.ClassSessionID,
+		arg.ClassID,
+		arg.StudentID,
+		arg.Status,
+		arg.Note,
+		arg.RecordedBy,
+	)
+	var i AttendanceRecord
 	err := row.Scan(
 		&i.ID,
+		&i.ClassSessionID,
 		&i.ClassID,
-		&i.CourseID,
-		&i.ModuleID,
-		&i.TeacherID,
-		&i.LocationID,
-		&i.Title,
-		&i.SessionType,
-		&i.StartsAt,
-		&i.EndsAt,
+		&i.StudentID,
 		&i.Status,
-		&i.AttendanceLockedAt,
-		&i.CreatedBy,
-		&i.CreatedAt,
+		&i.Note,
+		&i.RecordedBy,
+		&i.RecordedAt,
 		&i.UpdatedAt,
 	)
 	return i, err

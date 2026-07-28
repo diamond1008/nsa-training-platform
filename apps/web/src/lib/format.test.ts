@@ -9,7 +9,8 @@ describe("format helpers", () => {
   });
 
   it("builds an encoded query and omits empty values", () => {
-    expect(toQuery({ page: 2, search: "động cơ", status: "", class_id: undefined }))
-      .toBe("?page=2&search=%C4%91%E1%BB%99ng+c%C6%A1");
+    expect(toQuery({ page: 2, search: "động cơ", status: "", class_id: undefined })).toBe(
+      "?page=2&search=%C4%91%E1%BB%99ng+c%C6%A1",
+    );
   });
 });

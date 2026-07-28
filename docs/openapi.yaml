@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "0.6.0"
+  version: "0.7.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -1032,12 +1032,13 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [teacher]
-      summary: Record a batch of attendance
+      summary: Save or update a batch of attendance during the session day
       description: |
         The authenticated teacher must be assigned to the session's class.
         The entire batch is transactional. Every student must have an active
-        enrollment, student IDs must be unique inside the request, and an
-        existing session/student record produces a conflict.
+        enrollment and student IDs must be unique inside the request. Existing
+        records are updated. At 00:00 Asia/Ho_Chi_Minh on the next day, missing
+        records are saved as Absent and the session is automatically locked.
       operationId: recordTeacherSessionAttendance
       requestBody:
         required: true
@@ -1045,8 +1046,8 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/AttendanceBatchRequest" }
       responses:
-        "201":
-          description: Attendance batch recorded
+        "200":
+          description: Attendance batch saved
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AttendanceBatchResponse" }
@@ -1056,28 +1057,6 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
-
-  /api/v1/teacher/sessions/{sessionID}/attendance/lock:
-    parameters:
-      - { $ref: "#/components/parameters/SessionID" }
-    post:
-      tags: [teacher]
-      summary: Finalize and lock session attendance
-      description: |
-        Available after the session starts and only when every actively
-        enrolled student has exactly one attendance record. Teacher writes
-        are rejected after locking; administrators may still correct records.
-      operationId: lockTeacherSessionAttendance
-      responses:
-        "200":
-          description: Attendance locked
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AttendanceLockResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
 
   /api/v1/teacher/classes/{classID}/students/{studentID}/assessments:
     parameters:
@@ -1222,6 +1201,26 @@ paths:
         "400": { $ref: "#/components/responses/ValidationError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/sessions/{sessionID}/attendance:
+    parameters:
+      - { $ref: "#/components/parameters/SessionID" }
+    get:
+      tags: [student]
+      summary: View attendance statuses for classmates in an enrolled class
+      description: |
+        Returns student names and attendance statuses for the session roster.
+        Internal notes, recorder identities, and attendance record IDs are hidden.
+      operationId: getStudentSessionAttendance
+      responses:
+        "200":
+          description: Class attendance roster visible to an enrolled student
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionAttendanceResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/student/attendance:
     get:
@@ -2172,20 +2171,6 @@ components:
               type: array
               items: { $ref: "#/components/schemas/AttendanceRecord" }
             count: { type: integer, minimum: 1, maximum: 200 }
-        message: { type: string }
-    AttendanceLock:
-      type: object
-      required: [session_id, status, attendance_locked_at, attendance_record_count]
-      properties:
-        session_id: { type: string, format: uuid }
-        status: { type: string, const: locked }
-        attendance_locked_at: { type: string, format: date-time }
-        attendance_record_count: { type: integer, minimum: 0 }
-    AttendanceLockResponse:
-      type: object
-      required: [data, message]
-      properties:
-        data: { $ref: "#/components/schemas/AttendanceLock" }
         message: { type: string }
     StudentAttendanceHistoryItem:
       type: object

@@ -4,10 +4,31 @@
 
 :root {
   color-scheme: light;
+  font-synthesis: none;
 }
 
 body {
-  @apply bg-gbg font-sans text-navy antialiased;
+  @apply m-0 bg-gbg font-sans text-navy antialiased;
+  min-width: 320px;
+}
+
+::selection {
+  @apply bg-gold/35 text-navy;
+}
+
+* {
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
 
 /* Accessible focus ring using the NSA gold accent. */

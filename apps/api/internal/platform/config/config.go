@@ -73,6 +73,17 @@ func Load() (*Config, error) {
 	if len(cfg.JWTAccessSecret) < 32 {
 		return nil, fmt.Errorf("JWT_ACCESS_SECRET is required and must be at least 32 characters")
 	}
+	if cfg.Env == "production" {
+		secret := strings.ToLower(cfg.JWTAccessSecret)
+		if strings.Contains(secret, "change-me") || strings.Contains(secret, "replace-with") {
+			return nil, fmt.Errorf("JWT_ACCESS_SECRET must not use a placeholder in production")
+		}
+		for _, origin := range cfg.CORSAllowedOrigins {
+			if origin == "*" || strings.HasPrefix(origin, "http://") {
+				return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS must contain only explicit HTTPS origins in production")
+			}
+		}
+	}
 	if cfg.RefreshTokenTTLDays <= 0 {
 		return nil, fmt.Errorf("REFRESH_TOKEN_TTL_DAYS must be positive")
 	}

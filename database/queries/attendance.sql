@@ -49,43 +49,95 @@ SELECT EXISTS(
     AND status = 'enrolled'
 );
 
--- name: CreateAttendanceRecord :one
+-- name: UpsertAttendanceRecord :one
 INSERT INTO attendance_records (
   class_session_id, class_id, student_id, status, note, recorded_by
 )
 VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (class_session_id, student_id) DO UPDATE
+SET status = EXCLUDED.status,
+    note = EXCLUDED.note,
+    recorded_by = EXCLUDED.recorded_by,
+    updated_at = NOW()
 RETURNING id, class_session_id, class_id, student_id, status, note,
   recorded_by, recorded_at, updated_at;
 
--- name: CountActiveSessionStudents :one
-SELECT COUNT(*)
+-- name: CheckStudentEnrolledInSession :one
+SELECT EXISTS(
+  SELECT 1
+  FROM class_sessions cs
+  JOIN class_enrollments ce
+    ON ce.class_id = cs.class_id
+    AND ce.status = 'enrolled'
+  JOIN student_profiles sp ON sp.id = ce.student_id
+  WHERE cs.id = sqlc.arg(session_id)
+    AND sp.user_id = sqlc.arg(user_id)
+);
+
+-- Missing students become absent when the Vietnamese calendar day ends.
+-- The assigned teacher is the recorder; created_by/admin is the fallback.
+-- name: AutoFillExpiredAttendance :execrows
+INSERT INTO attendance_records (
+  class_session_id, class_id, student_id, status, note, recorded_by
+)
+SELECT
+  cs.id,
+  cs.class_id,
+  ce.student_id,
+  'absent',
+  'Tự động ghi vắng khi hết ngày điểm danh',
+  COALESCE(
+    tp.user_id,
+    cs.created_by,
+    (
+      SELECT u.id
+      FROM users u
+      JOIN user_roles ur ON ur.user_id = u.id
+      JOIN roles r ON r.id = ur.role_id AND r.code = 'ADMIN'
+      WHERE u.status = 'active'
+      ORDER BY u.created_at, u.id
+      LIMIT 1
+    )
+  )
 FROM class_sessions cs
 JOIN class_enrollments ce
   ON ce.class_id = cs.class_id
   AND ce.status = 'enrolled'
-WHERE cs.id = $1;
+LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
+WHERE cs.starts_at < sqlc.arg(cutoff)
+  AND cs.status IN ('scheduled', 'completed')
+  AND cs.attendance_locked_at IS NULL
+  AND COALESCE(
+    tp.user_id,
+    cs.created_by,
+    (
+      SELECT u.id
+      FROM users u
+      JOIN user_roles ur ON ur.user_id = u.id
+      JOIN roles r ON r.id = ur.role_id AND r.code = 'ADMIN'
+      WHERE u.status = 'active'
+      ORDER BY u.created_at, u.id
+      LIMIT 1
+    )
+  ) IS NOT NULL
+ON CONFLICT (class_session_id, student_id) DO NOTHING;
 
--- name: CountSessionAttendanceRecords :one
-SELECT COUNT(*)
-FROM attendance_records ar
-JOIN class_enrollments ce
-  ON ce.class_id = ar.class_id
-  AND ce.student_id = ar.student_id
-  AND ce.status = 'enrolled'
-WHERE ar.class_session_id = $1;
-
--- name: LockSessionAttendance :one
-UPDATE class_sessions
-SET
-  status = 'locked',
-  attendance_locked_at = NOW()
-WHERE id = $1
-  AND attendance_locked_at IS NULL
-  AND status IN ('scheduled', 'completed')
-  AND starts_at <= NOW()
-RETURNING id, class_id, course_id, module_id, teacher_id, location_id,
-  title, session_type, starts_at, ends_at, status, attendance_locked_at,
-  created_by, created_at, updated_at;
+-- name: AutoLockExpiredAttendanceSessions :execrows
+UPDATE class_sessions cs
+SET status = 'locked', attendance_locked_at = sqlc.arg(cutoff)
+WHERE cs.starts_at < sqlc.arg(cutoff)
+  AND cs.status IN ('scheduled', 'completed')
+  AND cs.attendance_locked_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM class_enrollments ce
+    LEFT JOIN attendance_records ar
+      ON ar.class_session_id = cs.id
+      AND ar.student_id = ce.student_id
+    WHERE ce.class_id = cs.class_id
+      AND ce.status = 'enrolled'
+      AND ar.id IS NULL
+  );
 
 -- name: GetAttendanceRecordForUpdate :one
 SELECT

@@ -3,13 +3,33 @@ import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router
 import type { ReactNode } from "react";
 
 import AppLayout from "../app/AppLayout";
+import { ForbiddenPage, NotFoundPage } from "../app/pages";
 import {
-  ForbiddenPage,
-  NotFoundPage,
-} from "../app/pages";
-import { AdminDashboardPage, ClassDetailPage, ClassesPage, CoursesPage, ScheduleAdminPage, StudentsPage, TeachersPage } from "../features/admin/AdminPages";
-import { AssessmentPage, AttendancePage, TeacherAssessmentLandingPage, TeacherClassDetailPage, TeacherClassesPage, TeacherDashboardPage, TeacherSchedulePage } from "../features/teacher/TeacherPages";
-import { StudentAssessmentsPage, StudentAttendancePage, StudentCoursesPage, StudentDashboardPage, StudentProgressPage, StudentSchedulePage } from "../features/student/StudentPages";
+  AdminDashboardPage,
+  ClassDetailPage,
+  ClassesPage,
+  CoursesPage,
+  ScheduleAdminPage,
+  StudentsPage,
+  TeachersPage,
+} from "../features/admin/AdminPages";
+import {
+  AssessmentPage,
+  AttendancePage,
+  TeacherAssessmentLandingPage,
+  TeacherClassDetailPage,
+  TeacherClassesPage,
+  TeacherDashboardPage,
+  TeacherSchedulePage,
+} from "../features/teacher/TeacherPages";
+import {
+  StudentAssessmentsPage,
+  StudentAttendancePage,
+  StudentCoursesPage,
+  StudentDashboardPage,
+  StudentProgressPage,
+  StudentSchedulePage,
+} from "../features/student/StudentPages";
 import { FullPageLoading } from "../components/ui";
 import { homePathFor, useAuth } from "../features/auth/AuthContext";
 import ChangePasswordPage from "../features/auth/ChangePasswordPage";
@@ -44,7 +64,9 @@ function RedirectIfAuthed({ children }: { children: ReactNode }) {
   const { status, user } = useAuth();
   if (status === "loading") return <FullPageLoading />;
   if (status === "authenticated" && user) {
-    return <Navigate to={user.must_change_password ? "/doi-mat-khau" : homePathFor(user)} replace />;
+    return (
+      <Navigate to={user.must_change_password ? "/doi-mat-khau" : homePathFor(user)} replace />
+    );
   }
   return <>{children}</>;
 }
@@ -87,12 +109,54 @@ export const router = createBrowserRouter([
               </RequireRole>
             ),
           },
-          { path: "/admin/hoc-vien", element: <RequireRole role="ADMIN"><StudentsPage /></RequireRole> },
-          { path: "/admin/giang-vien", element: <RequireRole role="ADMIN"><TeachersPage /></RequireRole> },
-          { path: "/admin/khoa-hoc", element: <RequireRole role="ADMIN"><CoursesPage /></RequireRole> },
-          { path: "/admin/lop-hoc", element: <RequireRole role="ADMIN"><ClassesPage /></RequireRole> },
-          { path: "/admin/lop-hoc/:classId", element: <RequireRole role="ADMIN"><ClassDetailPage /></RequireRole> },
-          { path: "/admin/lich-hoc", element: <RequireRole role="ADMIN"><ScheduleAdminPage /></RequireRole> },
+          {
+            path: "/admin/hoc-vien",
+            element: (
+              <RequireRole role="ADMIN">
+                <StudentsPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/giang-vien",
+            element: (
+              <RequireRole role="ADMIN">
+                <TeachersPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/khoa-hoc",
+            element: (
+              <RequireRole role="ADMIN">
+                <CoursesPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/lop-hoc",
+            element: (
+              <RequireRole role="ADMIN">
+                <ClassesPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/lop-hoc/:classId",
+            element: (
+              <RequireRole role="ADMIN">
+                <ClassDetailPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/lich-hoc",
+            element: (
+              <RequireRole role="ADMIN">
+                <ScheduleAdminPage />
+              </RequireRole>
+            ),
+          },
           {
             path: "/teacher",
             element: (
@@ -101,12 +165,54 @@ export const router = createBrowserRouter([
               </RequireRole>
             ),
           },
-          { path: "/teacher/lop-phu-trach", element: <RequireRole role="TEACHER"><TeacherClassesPage /></RequireRole> },
-          { path: "/teacher/lop-phu-trach/:classId", element: <RequireRole role="TEACHER"><TeacherClassDetailPage /></RequireRole> },
-          { path: "/teacher/lop-phu-trach/:classId/hoc-vien/:studentId/danh-gia", element: <RequireRole role="TEACHER"><AssessmentPage /></RequireRole> },
-          { path: "/teacher/diem-danh", element: <RequireRole role="TEACHER"><AttendancePage /></RequireRole> },
-          { path: "/teacher/danh-gia", element: <RequireRole role="TEACHER"><TeacherAssessmentLandingPage /></RequireRole> },
-          { path: "/teacher/lich-day", element: <RequireRole role="TEACHER"><TeacherSchedulePage /></RequireRole> },
+          {
+            path: "/teacher/lop-phu-trach",
+            element: (
+              <RequireRole role="TEACHER">
+                <TeacherClassesPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/teacher/lop-phu-trach/:classId",
+            element: (
+              <RequireRole role="TEACHER">
+                <TeacherClassDetailPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/teacher/lop-phu-trach/:classId/hoc-vien/:studentId/danh-gia",
+            element: (
+              <RequireRole role="TEACHER">
+                <AssessmentPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/teacher/diem-danh",
+            element: (
+              <RequireRole role="TEACHER">
+                <AttendancePage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/teacher/danh-gia",
+            element: (
+              <RequireRole role="TEACHER">
+                <TeacherAssessmentLandingPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/teacher/lich-day",
+            element: (
+              <RequireRole role="TEACHER">
+                <TeacherSchedulePage />
+              </RequireRole>
+            ),
+          },
           {
             path: "/student",
             element: (
@@ -115,15 +221,57 @@ export const router = createBrowserRouter([
               </RequireRole>
             ),
           },
-          { path: "/student/khoa-hoc", element: <RequireRole role="STUDENT"><StudentCoursesPage /></RequireRole> },
-          { path: "/student/lich-hoc", element: <RequireRole role="STUDENT"><StudentSchedulePage /></RequireRole> },
-          { path: "/student/diem-danh", element: <RequireRole role="STUDENT"><StudentAttendancePage /></RequireRole> },
-          { path: "/student/danh-gia", element: <RequireRole role="STUDENT"><StudentAssessmentsPage /></RequireRole> },
-          { path: "/student/tien-do", element: <RequireRole role="STUDENT"><StudentProgressPage /></RequireRole> },
+          {
+            path: "/student/khoa-hoc",
+            element: (
+              <RequireRole role="STUDENT">
+                <StudentCoursesPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/student/lich-hoc",
+            element: (
+              <RequireRole role="STUDENT">
+                <StudentSchedulePage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/student/diem-danh",
+            element: (
+              <RequireRole role="STUDENT">
+                <StudentAttendancePage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/student/danh-gia",
+            element: (
+              <RequireRole role="STUDENT">
+                <StudentAssessmentsPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/student/tien-do",
+            element: (
+              <RequireRole role="STUDENT">
+                <StudentProgressPage />
+              </RequireRole>
+            ),
+          },
         ],
       },
     ],
   },
-  { path: "/403", element: <RequireAuth><ForbiddenPage /></RequireAuth> },
+  {
+    path: "/403",
+    element: (
+      <RequireAuth>
+        <ForbiddenPage />
+      </RequireAuth>
+    ),
+  },
   { path: "*", element: <NotFoundPage /> },
 ]);

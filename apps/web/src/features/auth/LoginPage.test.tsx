@@ -59,7 +59,9 @@ describe("LoginPage", () => {
 
   it("shows the generic server error on 401", async () => {
     const { ApiRequestError } = await import("../../lib/apiClient");
-    loginMock.mockRejectedValue(new ApiRequestError(401, "INVALID_CREDENTIALS", "Invalid email or password"));
+    loginMock.mockRejectedValue(
+      new ApiRequestError(401, "INVALID_CREDENTIALS", "Invalid email or password"),
+    );
 
     renderPage();
     await userEvent.type(screen.getByLabelText("Email"), "admin@nsa.local");

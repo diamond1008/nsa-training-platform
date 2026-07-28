@@ -28,9 +28,11 @@ describe("apiClient", () => {
   it("throws ApiRequestError with code/message from the error envelope", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse(404, { error: { code: "STUDENT_NOT_FOUND", message: "Student not found" } }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse(404, { error: { code: "STUDENT_NOT_FOUND", message: "Student not found" } }),
+        ),
     );
     await expect(api("/x", { auth: false })).rejects.toMatchObject({
       name: "ApiRequestError",
@@ -41,7 +43,9 @@ describe("apiClient", () => {
   });
 
   it("attaches the Bearer token when present", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: {}, message: "Success" }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { data: {}, message: "Success" }));
     vi.stubGlobal("fetch", fetchMock);
     tokenStore.set("test-token");
 
@@ -54,9 +58,13 @@ describe("apiClient", () => {
     const fetchMock = vi
       .fn()
       // 1) original request -> 401
-      .mockResolvedValueOnce(jsonResponse(401, { error: { code: "UNAUTHORIZED", message: "expired" } }))
+      .mockResolvedValueOnce(
+        jsonResponse(401, { error: { code: "UNAUTHORIZED", message: "expired" } }),
+      )
       // 2) refresh call -> new token
-      .mockResolvedValueOnce(jsonResponse(200, { data: { access_token: "new-token" }, message: "Success" }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, { data: { access_token: "new-token" }, message: "Success" }),
+      )
       // 3) retried request -> 200
       .mockResolvedValueOnce(jsonResponse(200, { data: { ok: true }, message: "Success" }));
     vi.stubGlobal("fetch", fetchMock);
@@ -71,8 +79,12 @@ describe("apiClient", () => {
   it("on 401 with failed refresh: clears token and rethrows", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse(401, { error: { code: "UNAUTHORIZED", message: "expired" } }))
-      .mockResolvedValueOnce(jsonResponse(401, { error: { code: "INVALID_REFRESH_TOKEN", message: "no" } }));
+      .mockResolvedValueOnce(
+        jsonResponse(401, { error: { code: "UNAUTHORIZED", message: "expired" } }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(401, { error: { code: "INVALID_REFRESH_TOKEN", message: "no" } }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     tokenStore.set("old-token");
 

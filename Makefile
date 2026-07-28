@@ -32,7 +32,8 @@ WEB_DIR        := apps/web
 	migrate-up migrate-down migrate-status migrate-create \
 	db-test-create db-test-migrate \
 	api-run api-test api-test-integration api-build api-vet \
-	web-install web-dev web-test web-build swagger check
+	web-install web-dev web-test web-build web-lint web-format-check web-e2e \
+	docker-build-prod prod-config load-test swagger check
 
 # ---------- Help ----------
 help: ## Show this help
@@ -58,6 +59,12 @@ help: ## Show this help
 	@echo   web-dev          Start the Vite dev server
 	@echo   web-test         Run web unit tests
 	@echo   web-build        Build the web app for production
+	@echo   web-lint         Run ESLint and TypeScript checks
+	@echo   web-format-check Verify Prettier formatting
+	@echo   web-e2e          Run Playwright critical-path tests
+	@echo   docker-build-prod Build all production images
+	@echo   prod-config      Validate production Compose configuration
+	@echo   load-test        Exercise authenticated student read paths
 	@echo   swagger          Start Swagger UI docs at http://localhost:8081
 	@echo   check            Run all available checks for the current phase
 
@@ -140,6 +147,24 @@ web-test:
 web-build:
 	cd $(WEB_DIR) && npm run build
 
+web-lint:
+	cd $(WEB_DIR) && npm run lint && npm run typecheck
+
+web-format-check:
+	cd $(WEB_DIR) && npm run format:check
+
+web-e2e:
+	cd $(WEB_DIR) && npm run test:e2e
+
+docker-build-prod:
+	docker compose --env-file .env.production -f compose.production.yaml build
+
+prod-config:
+	docker compose --env-file .env.production -f compose.production.yaml config
+
+load-test:
+	cd $(API_DIR) && go run ./cmd/loadtest -base-url http://127.0.0.1:8080/api/v1
+
 # ---------- API documentation ----------
 swagger: ## Start Swagger UI viewing docs/openapi.yaml at http://localhost:8081
 	docker compose up -d swagger-ui
@@ -156,6 +181,6 @@ endif
 ifeq ($(wildcard $(WEB_DIR)/package.json),)
 	@echo Web app not initialized yet - skipped
 else
-	cd $(WEB_DIR) && npm run test -- --run && npm run build
+	cd $(WEB_DIR) && npm run lint && npm run format:check && npm run test -- --run && npm run build
 endif
 	@echo Checks finished.

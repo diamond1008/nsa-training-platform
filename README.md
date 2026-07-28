@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 9 — Feature Screens (completed, awaiting commit)**
+**Current phase: Phase 11 — Student profiles and lifecycle (planned next)**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -19,10 +19,75 @@ Training management platform for an automotive vocational training center. It ma
 | 6 | Attendance | ✅ Completed (commit b8a580b) |
 | 7 | Skill assessment and progress | ✅ Completed (commit fb4813f) |
 | 8 | Frontend foundation and auth shell | ✅ Completed (commit 47d26a5) |
-| 9 | Feature screens | ✅ Completed (awaiting commit) |
-| 10 | Quality, CI, deployment readiness | ⬜ Not started |
+| 9 | Feature screens | ✅ Completed (commit 8982788) |
+| 10 | Quality, CI, deployment readiness | ✅ Completed locally; first GitHub Actions run pending |
+| 11 | Student profiles and lifecycle | ⏭️ Next |
+| 12 | Class and training schedule operations | Planned |
+| 13 | Attendance governance | Planned |
+| 14 | Practical competency assessment | Planned |
+| 15 | Course completion and certificates | Planned |
+| 16 | Reports, notifications, and production hardening | Planned |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
+
+## Product Scope and Roadmap
+
+NSA Training Platform is an internal vocational-training operations system, not a university SIS and not an accounting system. Its core workflow is:
+
+```text
+Create student → Assign class → Schedule training → Record attendance
+→ Assess practical skills → Approve completion → Issue certificate
+```
+
+### Phase 11 — Student profiles and lifecycle
+
+- Generate concurrency-safe, human-readable student codes (`HV00001`, `HV00002`, ...) from PostgreSQL while retaining UUIDs as internal identifiers.
+- Maintain contact, date of birth, gender, address, emergency-contact, enrollment-date, and lifecycle information.
+- Support the lifecycle states Pending, Active, Suspended, Completed, and Withdrawn with an auditable status history.
+- Search and filter the student directory and support controlled CSV import/export for operational handover.
+- Never reuse a student code after a profile is removed or deactivated.
+
+### Phase 12 — Class and training schedule operations
+
+- Enroll, transfer, withdraw, and complete students while retaining class-history records.
+- Assign teachers and manage class capacity, rooms, and workshops.
+- Schedule theory, workshop, and assessment sessions.
+- Prevent overlapping class, teacher, and location schedules.
+- Reschedule or cancel sessions with a reason and an audit trail.
+
+### Phase 13 — Attendance governance
+
+- Let assigned teachers save and revise attendance during the Vietnamese calendar day.
+- Automatically fill missing records as Absent and lock attendance at the next `00:00` in `Asia/Ho_Chi_Minh`.
+- Permit audited ADMIN corrections after locking only when a reason is supplied.
+- Provide Present, Late, Excused, and Absent states, attendance rates, and absence-risk warnings.
+- Scope visibility to all sessions for ADMIN, assigned classes for TEACHER, and the enrolled class roster for STUDENT.
+
+### Phase 14 — Practical competency assessment
+
+- Configure course-specific competency criteria and required skills.
+- Record repeated assessments using Needs Improvement, Competent, Good, and Excellent ratings.
+- Keep teacher comments and optional evidence while preserving assessment history.
+- Show each student's latest competency status and progress toward the course outcome.
+
+### Phase 15 — Course completion and certificates
+
+- Configure completion rules from attendance, required competencies, and final assessments.
+- Provide an ADMIN approval workflow with a permanent decision history.
+- Generate certificate numbers and downloadable PDFs.
+- Support QR/code verification, reissue, and audited revocation.
+
+### Phase 16 — Reports, notifications, and production hardening
+
+- Build operational dashboards and exportable attendance, competency, class, and completion reports.
+- Notify users about schedule changes, absence risk, pending work, and course completion.
+- Complete server-side filtering/pagination, audit coverage, recovery procedures, authorization tests, and deployment checks.
+
+### Explicitly Out of Scope
+
+- Tuition, payment collection, debt tracking, accounting, and third-party payment integrations. Admissions handles payment outside this platform.
+- University credit registration, semesters, GPA, prerequisites, dormitory, library, payroll, and HR management.
+- Public admissions CRM, real-time chat, native mobile apps, and microservice infrastructure for the current product stage.
 
 ## Quick Start (Run Locally)
 
@@ -108,10 +173,10 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Training locations (`/api/v1/admin/locations`):** create/list/detail/update workshops and rooms, including capacity and active state
 - **Role schedules:** `GET /api/v1/teacher/schedule` returns the authenticated teacher's assigned sessions; `GET /api/v1/student/schedule` returns only active-enrollment sessions
 - **Timezone contract:** API accepts RFC3339 offsets, stores/returns UTC, and evaluates class date boundaries in `Asia/Ho_Chi_Minh`
-- **Teacher attendance:** assigned teachers can view active class rosters, record transactional batches using Present/Absent/Late/Excused, and lock a session only after every active student has a record
-- **Attendance integrity:** service validation plus PostgreSQL foreign keys and uniqueness prevent non-enrolled or duplicate records; session-row locking serializes batch recording and finalization
+- **Teacher attendance:** assigned teachers can view their class rosters and save or revise transactional Present/Absent/Late/Excused batches during the Vietnamese calendar day
+- **Automatic attendance lock:** at 00:00 Asia/Ho_Chi_Minh, unrecorded active students are saved as Absent and the session is locked; teachers then have read-only access while administrators retain audited correction access
 - **Attendance corrections:** ADMIN can correct an existing record even after finalization; the required reason and old/new values are written to the audit log in the same transaction
-- **Student attendance:** authenticated students can view only their own paginated history and per-class summary; Present and Late count as attended while Excused is excluded from the informational percentage denominator
+- **Attendance visibility:** administrators can inspect every session, assigned teachers can inspect their classes, and enrolled students can view classmates' statuses without staff notes or recorder metadata; personal history and summaries remain available
 - **Practical assessments:** assigned teachers create and replace drafts containing competency ratings/comments, submit only after every required criterion is rated, then lock immutable results; assessment numbers retain history over time
 - **Assessment integrity:** student enrollment, teacher assignment/ownership, optional session class/course, and every competency's course are validated transactionally and backed by composite PostgreSQL constraints
 - **Student assessment history:** authenticated students see only their own submitted/locked assessments through `/api/v1/student/assessments`
@@ -123,7 +188,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Authenticated shells:** responsive Admin, Teacher, and Student navigation with route guards, 403/404 handling, and shared loading/error/empty patterns
 - **Admin feature screens:** searchable/paginated student, teacher, course, and class management; class enrollment and teacher assignment; session scheduling forms
 - **Teacher feature screens:** assigned-class workspaces, rosters, Google Calendar-style weekly teaching schedule with direct attendance navigation, batch attendance, and practical skill assessment history/lifecycle
-- **Student feature screens:** dashboard, enrolled courses, weekly class calendar with personal attendance status, attendance history/summary, assessment results, and deterministic progress views
+- **Student feature screens:** dashboard, enrolled courses, weekly class calendar with personal and class attendance status, attendance history/summary, assessment results, and deterministic progress views
 - **Teacher class API:** assignment-scoped class list/detail endpoints provide roster and competency data without exposing unassigned classes
 - **Web delivery:** multi-stage Node/Caddy Docker image, SPA route fallback, security headers, health check, and root `.dockerignore` rules that exclude nested frontend artifacts
 
@@ -132,7 +197,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Backend:** Go, net/http, Chi router, slog, pgx/pgxpool, sqlc, Goose migrations, REST/JSON
 - **Frontend:** React, TypeScript, Vite, React Router, TanStack Query, React Hook Form, Zod, Tailwind CSS, shadcn/ui, Vitest
 - **Database:** PostgreSQL 15+ (schema baseline: `NSA_Training_Portal_PostgreSQL_v1.2.sql`, applied via Goose migrations in Phase 1)
-- **Infrastructure:** Docker, Docker Compose, Caddy (deployment, later), GitHub Actions (Phase 10)
+- **Infrastructure:** Docker, Docker Compose, Caddy reverse proxy/TLS, GitHub Actions
 - **Architecture:** modular monolith, vertical slices by business module, CQRS-lite
 
 ## Repository Structure
@@ -241,24 +306,32 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 | API unit tests | `make api-test` | `cd apps/api; go test ./...` |
 | API + DB integration tests | `make api-test-integration` | needs `make db-test-migrate` first |
 | Web tests | `make web-test` | `cd apps/web; npm run test` |
+| Web lint + typecheck | `make web-lint` | `cd apps/web; npm run lint && npm run typecheck` |
+| Web format check | `make web-format-check` | `cd apps/web; npm run format:check` |
+| Browser E2E | `make web-e2e` | needs the documented E2E database and a running API |
 | Web production build | `make web-build` | `cd apps/web; npm run build` |
+| Production image build | `make docker-build-prod` | needs `.env.production` |
+| Read-path load smoke | `make load-test` | needs `LOADTEST_EMAIL` / `LOADTEST_PASSWORD` |
 | All checks for current phase | `make check` | — |
 
 ## Current Limitations
 
-- Attendance roster/locking follows the current `enrolled` relationship. A later enrollment-history policy may be needed if transfers or withdrawals must retroactively affect old session rosters.
+- Attendance roster/automatic locking follows the current `enrolled` relationship. A later enrollment-history policy may be needed if transfers or withdrawals must retroactively affect old session rosters.
 - Progress exposes deterministic Pending/Eligible status; formal ADMIN approval/rejection of `course_completions` is not exposed in Phase 7.
 - The latest submitted or locked rating for each required competency supersedes its earlier rating when progress is calculated.
 - Rate limiting is in-memory per instance (fine for the single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
 - Phase 9 forms use the backend's validation and standard error envelopes; richer client-side field schemas can be expanded as workflows evolve.
-- CI/CD and Playwright end-to-end tests arrive in Phase 10.
+- Playwright integration and production image builds run in CI; locally they require Docker Desktop.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.
 
 ## Documentation
 
 - `docs/AI_CONTEXT.md` — **read first**: current phase, decisions, commands, git state (for developers and AI agents)
 - `docs/openapi.yaml` — API contract source of truth (view with `make swagger`)
+- `docs/DEPLOYMENT.md` — production deployment and rollback
+- `docs/OPERATIONS.md` — health, logs, backup/restore, and load smoke
+- `docs/SECURITY_REVIEW.md` — Phase 10 controls and residual risks
 - `database/schema.dbml` — ERD for dbdiagram.io (regenerate when schema changes)
 - `docs/adr/` — architecture decision records (created when a significant decision is made)
 
@@ -266,3 +339,12 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 - No commits without explicit user permission. Conventional Commits when permitted.
 - No push/merge/rebase/tag/PR without explicit separate permission.
+# Phase 10 — production readiness
+
+Phase 10 adds GitHub Actions quality gates, migration up/down/up validation, Playwright critical-path tests, hardened Caddy/Docker Compose deployment, dependency monitoring, security review, backup/restore instructions, and an authenticated read-path load smoke test.
+
+- Production deployment and rollback: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+- Operations, backup/restore, and load test: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- Security review: [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md)
+
+Run the local quality gate with `make check`. E2E requires a migrated database loaded with `database/seeds/dev.sql` and `database/seeds/e2e.sql`, plus a running API; then run `make web-e2e`. Local Phase 10 validation completed the Goose up/down/up cycle, all three production image builds, Caddy validation, 3/3 Playwright paths, and a 200-request authenticated load smoke with zero failures.

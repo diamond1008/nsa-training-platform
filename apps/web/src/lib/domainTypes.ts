@@ -183,11 +183,7 @@ export interface StudentAttendanceSummary {
 }
 
 export type CompetencyRating =
-  | "not_assessed"
-  | "needs_improvement"
-  | "competent"
-  | "good"
-  | "excellent";
+  "not_assessed" | "needs_improvement" | "competent" | "good" | "excellent";
 
 export interface AssessmentItem {
   id: string;

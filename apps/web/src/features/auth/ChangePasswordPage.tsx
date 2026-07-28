@@ -5,7 +5,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
 
-import { Button, Card, ErrorBanner, Input } from "../../components/ui";
+import { Button, Card, ErrorBanner, Input, SuccessBanner } from "../../components/ui";
 import { ApiRequestError } from "../../lib/apiClient";
 import * as authApi from "./authApi";
 import { useAuth } from "./AuthContext";
@@ -58,9 +58,9 @@ export default function ChangePasswordPage() {
   const forced = user?.must_change_password ?? false;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gbg px-4">
+    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_right,rgba(239,192,75,.16),transparent_35%),#F5F7FB] px-4">
       <div className="w-full max-w-[480px]">
-        <Card className="p-8">
+        <Card className="border-0 p-6 shadow-elevated sm:p-8">
           <div className="mb-8 text-center">
             <h1 className="text-[28px] font-bold text-navy-dark">
               {forced ? "Đổi mật khẩu bắt buộc" : "Đổi mật khẩu"}
@@ -73,9 +73,7 @@ export default function ChangePasswordPage() {
           </div>
 
           {done ? (
-            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-center text-sm text-green-800">
-              Đổi mật khẩu thành công! Đang chuyển về trang đăng nhập…
-            </div>
+            <SuccessBanner message="Đổi mật khẩu thành công! Đang chuyển về trang đăng nhập…" />
           ) : (
             <form onSubmit={onSubmit} noValidate className="space-y-4">
               {serverError && <ErrorBanner message={serverError} />}

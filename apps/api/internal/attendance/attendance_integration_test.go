@@ -27,6 +27,7 @@ type attendanceEnv struct {
 	otherTeacher string
 	studentUserA string
 	studentUserB string
+	outsiderUser string
 	studentA     string
 	studentB     string
 	outsider     string
@@ -60,13 +61,13 @@ func setupAttendance(t *testing.T) *attendanceEnv {
 	env.otherTeacher = env.insertUser(t, "teacher-b", "TEACHER")
 	env.studentUserA = env.insertUser(t, "student-a", "STUDENT")
 	env.studentUserB = env.insertUser(t, "student-b", "STUDENT")
-	outsiderUser := env.insertUser(t, "student-outside", "STUDENT")
+	env.outsiderUser = env.insertUser(t, "student-outside", "STUDENT")
 
 	teacherID := env.insertTeacher(t, env.teacherUser, "A")
 	env.insertTeacher(t, env.otherTeacher, "B")
 	env.studentA = env.insertStudent(t, env.studentUserA, "A")
 	env.studentB = env.insertStudent(t, env.studentUserB, "B")
-	env.outsider = env.insertStudent(t, outsiderUser, "OUT")
+	env.outsider = env.insertStudent(t, env.outsiderUser, "OUT")
 
 	var courseID string
 	err = pool.QueryRow(ctx,
@@ -245,10 +246,11 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	if len(recordsA) != 1 {
 		t.Fatalf("recorded A count = %d", len(recordsA))
 	}
-	if _, err := env.service.RecordBatch(ctx, env.teacherUser, env.sessionID, []attendancemodule.BatchItemInput{{
+	updatedA, err := env.service.RecordBatch(ctx, env.teacherUser, env.sessionID, []attendancemodule.BatchItemInput{{
 		StudentID: env.studentA, Status: db.AttendanceStatusAbsent,
-	}}); !errors.Is(err, attendancemodule.ErrAttendanceExists) {
-		t.Fatalf("existing attendance error = %v", err)
+	}})
+	if err != nil || len(updatedA) != 1 || updatedA[0].Status != "absent" || updatedA[0].ID != recordsA[0].ID {
+		t.Fatalf("same-day attendance update = %+v, err=%v", updatedA, err)
 	}
 
 	view, err := env.service.GetTeacherSession(ctx, env.teacherUser, env.sessionID)
@@ -258,25 +260,22 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	if view.Summary.Total != 2 || view.Summary.Recorded != 1 || view.Summary.Unrecorded != 1 {
 		t.Fatalf("partial summary = %+v", view.Summary)
 	}
-	if _, err := env.service.Lock(ctx, env.teacherUser, env.sessionID); !errors.Is(err, attendancemodule.ErrAttendanceIncomplete) {
-		t.Fatalf("incomplete lock error = %v", err)
+	studentView, err := env.service.GetStudentSession(ctx, env.studentUserA, env.sessionID)
+	if err != nil || len(studentView.Items) != 2 || studentView.Items[0].AttendanceID != nil || studentView.Items[0].Note != nil {
+		t.Fatalf("student class attendance view = %+v, err=%v", studentView, err)
 	}
-
-	recordsB, err := env.service.RecordBatch(ctx, env.teacherUser, env.sessionID, []attendancemodule.BatchItemInput{{
-		StudentID: env.studentB, Status: db.AttendanceStatusLate,
-	}})
-	if err != nil {
-		t.Fatalf("record student B: %v", err)
+	if _, err := env.service.GetStudentSession(ctx, env.outsiderUser, env.sessionID); !errors.Is(err, attendancemodule.ErrStudentNotInClass) {
+		t.Fatalf("outsider student view error = %v", err)
 	}
-	if len(recordsB) != 1 {
-		t.Fatalf("recorded B count = %d", len(recordsB))
+	if _, err := env.pool.Exec(ctx,
+		`UPDATE class_sessions
+		 SET starts_at = NOW() - INTERVAL '2 days', ends_at = NOW() - INTERVAL '2 days' + INTERVAL '1 hour'
+		 WHERE id = $1`, env.sessionID); err != nil {
+		t.Fatalf("expire attendance session: %v", err)
 	}
-	locked, err := env.service.Lock(ctx, env.teacherUser, env.sessionID)
-	if err != nil {
-		t.Fatalf("lock complete attendance: %v", err)
-	}
-	if locked.Status != "locked" || locked.AttendanceLockedAt == "" || locked.AttendanceRecordCount != 2 {
-		t.Fatalf("lock result = %+v", locked)
+	filled, locked, err := env.service.ReconcileExpiredAttendance(ctx)
+	if err != nil || filled < 1 || locked < 1 {
+		t.Fatalf("automatic attendance lock filled=%d locked=%d err=%v", filled, locked, err)
 	}
 	if _, err := env.service.RecordBatch(ctx, env.teacherUser, env.sessionID, []attendancemodule.BatchItemInput{{
 		StudentID: env.studentB, Status: db.AttendanceStatusPresent,
@@ -318,16 +317,15 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("student B history: %v", err)
 	}
-	if historyB.Meta.Total != 1 || len(historyB.Items) != 1 ||
-		historyB.Items[0].ID != recordsB[0].ID || historyB.Items[0].Status != "late" {
+	if historyB.Meta.Total != 1 || len(historyB.Items) != 1 || historyB.Items[0].Status != "absent" {
 		t.Fatalf("student B history = %+v", historyB)
 	}
 	summaryB, err := env.service.StudentSummary(ctx, env.studentUserB, "")
 	if err != nil {
 		t.Fatalf("student B summary: %v", err)
 	}
-	if len(summaryB) != 1 || summaryB[0].AttendancePct != 100 ||
-		summaryB[0].LateSessions != 1 || summaryB[0].PresentSessions != 0 {
+	if len(summaryB) != 1 || summaryB[0].AttendancePct != 0 ||
+		summaryB[0].AbsentSessions != 1 || summaryB[0].PresentSessions != 0 {
 		t.Fatalf("student B summary = %+v", summaryB)
 	}
 
@@ -335,7 +333,7 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admin attendance view: %v", err)
 	}
-	if adminView.Summary.Absent != 1 || adminView.Summary.Late != 1 || adminView.Summary.Unrecorded != 0 {
+	if adminView.Summary.Absent != 2 || adminView.Summary.Late != 0 || adminView.Summary.Unrecorded != 0 || adminView.Session.AttendanceLockedAt == nil {
 		t.Fatalf("admin summary after correction = %+v", adminView.Summary)
 	}
 }
