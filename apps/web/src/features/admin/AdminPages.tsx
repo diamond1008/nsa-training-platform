@@ -28,7 +28,21 @@ import {
   Textarea,
 } from "../../components/ui";
 import { ApiRequestError } from "../../lib/apiClient";
-import type { Course, Paginated, Student, Teacher, TrainingClass } from "../../lib/domainTypes";
+import type {
+  AttendanceRosterItem,
+  AttendanceStatus,
+  ClassSession,
+  CompletionCandidate,
+  Course,
+  Enrollment,
+  EnrollmentTransfer,
+  Paginated,
+  Student,
+  Teacher,
+  TeacherAssignment,
+  TrainingClass,
+  TrainingLocation,
+} from "../../lib/domainTypes";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { adminApi } from "./adminApi";
 
@@ -36,6 +50,185 @@ function mutationMessage(error: unknown): string {
   return error instanceof ApiRequestError
     ? error.message
     : "Không thể lưu dữ liệu. Vui lòng thử lại.";
+}
+
+export function AdminOperationsPage() {
+  const queryClient = useQueryClient();
+  const [selected, setSelected] = useState<CompletionCandidate | null>(null);
+  const [decision, setDecision] = useState<"approved" | "rejected">("approved");
+  const [note, setNote] = useState("");
+  const summary = useQuery({
+    queryKey: ["admin", "reports", "summary"],
+    queryFn: () => adminApi.reportSummary(),
+  });
+  const candidates = useQuery({
+    queryKey: ["admin", "completions"],
+    queryFn: () => adminApi.completions({ page: 1, per_page: 100 }),
+  });
+  const decide = useMutation({
+    mutationFn: () =>
+      adminApi.decideCompletion(selected!.class_id, selected!.student_id, decision, note),
+    onSuccess: () => {
+      setSelected(null);
+      setNote("");
+      void queryClient.invalidateQueries({ queryKey: ["admin", "completions"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "reports", "summary"] });
+    },
+  });
+  const exportReport = useMutation({
+    mutationFn: (kind: "attendance" | "competencies" | "classes" | "completions") =>
+      adminApi.exportReport(kind).then((blob) => ({ blob, kind })),
+    onSuccess: ({ blob, kind }) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${kind}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    },
+  });
+  const reports = [
+    ["attendance", "Chuyên cần"],
+    ["competencies", "Năng lực"],
+    ["classes", "Lớp học"],
+    ["completions", "Hoàn thành"],
+  ] as const;
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Điều hành đào tạo"
+        title="Vận hành & báo cáo"
+        subtitle="Theo dõi chỉ số, duyệt hoàn thành khóa học và xuất dữ liệu nghiệp vụ."
+      />
+      <QueryState loading={summary.isLoading} error={summary.error}>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+          <StatCard label="Học viên hoạt động" value={summary.data?.active_students ?? 0} />
+          <StatCard label="Lớp đang mở" value={summary.data?.open_classes ?? 0} />
+          <StatCard label="Buổi học sắp tới" value={summary.data?.upcoming_sessions ?? 0} />
+          <StatCard label="Rủi ro chuyên cần" value={summary.data?.at_risk_students ?? 0} />
+          <StatCard label="Đã duyệt hoàn thành" value={summary.data?.approved_completions ?? 0} />
+          <StatCard label="Thông báo chưa đọc" value={summary.data?.pending_notifications ?? 0} />
+        </div>
+      </QueryState>
+
+      <Card className="mt-6">
+        <SectionHeader title="Xuất báo cáo CSV" subtitle="Dữ liệu UTF-8 mở trực tiếp bằng Excel." />
+        <div className="flex flex-wrap gap-2">
+          {reports.map(([kind, label]) => (
+            <Button
+              key={kind}
+              variant="soft"
+              loading={exportReport.isPending && exportReport.variables === kind}
+              onClick={() => exportReport.mutate(kind)}
+            >
+              Xuất {label}
+            </Button>
+          ))}
+        </div>
+      </Card>
+
+      <section className="mt-6">
+        <SectionHeader
+          title="Duyệt hoàn thành khóa học"
+          subtitle="Hệ thống chỉ cho duyệt khi đủ buổi học, chuyên cần, năng lực và đánh giá bắt buộc."
+        />
+        <QueryState
+          loading={candidates.isLoading}
+          error={candidates.error}
+          empty={!candidates.data?.items.length}
+        >
+          <div className="space-y-3">
+            {candidates.data?.items.map((item) => (
+              <Card key={`${item.class_id}-${item.student_id}`}>
+                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-bold text-navy">
+                        {item.student_code} — {item.student_name}
+                      </h3>
+                      <StatusBadge value={item.status} />
+                    </div>
+                    <p className="mt-1 text-sm text-gtext">
+                      {item.class_code} · {item.course_name}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gtext">
+                      <span>
+                        Buổi học: {item.completed_sessions}/{item.total_sessions}
+                      </span>
+                      <span>Chuyên cần: {item.attendance_pct.toFixed(1)}%</span>
+                      <span>
+                        Năng lực: {item.required_competencies_met}/
+                        {item.required_competencies_total}
+                      </span>
+                      <span>
+                        Đánh giá: {item.completed_assessments}/{item.required_assessments}
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    variant={item.is_eligible ? "accent" : "soft"}
+                    onClick={() => {
+                      setSelected(item);
+                      setDecision(item.is_eligible ? "approved" : "rejected");
+                      setNote("");
+                    }}
+                  >
+                    Xem xét hồ sơ
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </QueryState>
+      </section>
+
+      <Modal open={!!selected} title="Quyết định hoàn thành" onClose={() => setSelected(null)}>
+        {selected && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-gbg2 p-4">
+              <b>
+                {selected.student_code} — {selected.student_name}
+              </b>
+              <p className="mt-1 text-sm text-gtext">
+                {selected.class_code} · {selected.course_name}
+              </p>
+            </div>
+            {!selected.is_eligible && (
+              <ErrorBanner message="Hồ sơ chưa đủ điều kiện nên không thể phê duyệt." />
+            )}
+            {decide.error && <ErrorBanner message={mutationMessage(decide.error)} />}
+            <Select
+              label="Quyết định"
+              value={decision}
+              onChange={(event) => setDecision(event.target.value as "approved" | "rejected")}
+            >
+              <option value="approved" disabled={!selected.is_eligible}>
+                Phê duyệt và cấp chứng nhận
+              </option>
+              <option value="rejected">Từ chối / yêu cầu bổ sung</option>
+            </Select>
+            <Textarea
+              label="Lý do quyết định"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setSelected(null)}>
+                Hủy
+              </Button>
+              <Button
+                disabled={!note.trim() || (decision === "approved" && !selected.is_eligible)}
+                loading={decide.isPending}
+                onClick={() => decide.mutate()}
+              >
+                Lưu quyết định
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
 }
 
 function SearchFilters({
@@ -997,6 +1190,7 @@ function ClassForm({
     end_date: initial?.end_date ?? "",
     maximum_students: initial?.maximum_students ?? 20,
     status: initial?.status ?? "planning",
+    change_reason: "",
   });
   const update = (k: string, v: string | number) => setForm((o) => ({ ...o, [k]: v }));
   return (
@@ -1070,6 +1264,15 @@ function ClassForm({
           ))}
         </Select>
       </div>
+      {initial ? (
+        <Textarea
+          required
+          label="Lý do cập nhật"
+          value={form.change_reason}
+          onChange={(e) => update("change_reason", e.target.value)}
+          placeholder="Ví dụ: Điều chỉnh sĩ số theo tình hình thực tế"
+        />
+      ) : null}
       <div className="flex justify-end">
         <Button type="submit" loading={loading}>
           Lưu lớp học
@@ -1085,6 +1288,12 @@ export function ClassDetailPage() {
   const [studentId, setStudentId] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [role, setRole] = useState("Giảng viên phụ trách");
+  const [enrollmentAction, setEnrollmentAction] = useState<Enrollment | null>(null);
+  const [actionType, setActionType] = useState<"transfer" | "completed" | "withdrawn">("transfer");
+  const [actionReason, setActionReason] = useState("");
+  const [targetClassId, setTargetClassId] = useState("");
+  const [assignmentToRemove, setAssignmentToRemove] = useState<TeacherAssignment | null>(null);
+  const [removeReason, setRemoveReason] = useState("");
   const detail = useQuery({
     queryKey: ["admin", "class", classId],
     queryFn: () => adminApi.getClass(classId),
@@ -1099,6 +1308,16 @@ export function ClassDetailPage() {
     queryKey: ["admin", "class", classId, "assignments"],
     queryFn: () => adminApi.assignments(classId),
     enabled: !!classId,
+  });
+  const history = useQuery({
+    queryKey: ["admin", "class", classId, "operation-history"],
+    queryFn: () => adminApi.classHistory(classId),
+    enabled: !!classId,
+  });
+  const transferTargets = useQuery({
+    queryKey: ["admin", "classes", "transfer-targets", detail.data?.course_id],
+    queryFn: () => adminApi.classes({ page: 1, per_page: 100, course_id: detail.data!.course_id }),
+    enabled: Boolean(detail.data?.course_id),
   });
   const students = useQuery({
     queryKey: ["admin", "students", "options"],
@@ -1123,9 +1342,27 @@ export function ClassDetailPage() {
     },
   });
   const remove = useMutation({
-    mutationFn: (id: string) => adminApi.removeAssignment(classId, id),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: ["admin", "class", classId, "assignments"] }),
+    mutationFn: () => adminApi.removeAssignment(classId, assignmentToRemove!.id, removeReason),
+    onSuccess: () => {
+      setAssignmentToRemove(null);
+      setRemoveReason("");
+      void client.invalidateQueries({ queryKey: ["admin", "class", classId] });
+    },
+  });
+  const enrollmentOperation = useMutation<Enrollment | EnrollmentTransfer, Error>({
+    mutationFn: () => {
+      if (!enrollmentAction) throw new Error("Chưa chọn học viên");
+      return actionType === "transfer"
+        ? adminApi.transferEnrollment(classId, enrollmentAction.id, targetClassId, actionReason)
+        : adminApi.updateEnrollment(classId, enrollmentAction.id, actionType, actionReason);
+    },
+    onSuccess: () => {
+      setEnrollmentAction(null);
+      setActionReason("");
+      setTargetClassId("");
+      void client.invalidateQueries({ queryKey: ["admin", "class", classId] });
+      void client.invalidateQueries({ queryKey: ["admin", "classes"] });
+    },
   });
   return (
     <div>
@@ -1195,7 +1432,40 @@ export function ClassDetailPage() {
                     <b>{e.student_code}</b>
                     <p className="text-sm text-gtext">{e.full_name}</p>
                   </div>
-                  <StatusBadge value={e.status} />
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <StatusBadge value={e.status} />
+                    {e.status === "enrolled" ? (
+                      <>
+                        <Button
+                          variant="soft"
+                          onClick={() => {
+                            setEnrollmentAction(e);
+                            setActionType("transfer");
+                          }}
+                        >
+                          Chuyển lớp
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setEnrollmentAction(e);
+                            setActionType("completed");
+                          }}
+                        >
+                          Hoàn thành
+                        </Button>
+                        <Button
+                          variant="danger"
+                          onClick={() => {
+                            setEnrollmentAction(e);
+                            setActionType("withdrawn");
+                          }}
+                        >
+                          Rút lớp
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1247,11 +1517,7 @@ export function ClassDetailPage() {
                     </b>
                     <p className="text-sm text-gtext">{a.assignment_role}</p>
                   </div>
-                  <Button
-                    variant="danger"
-                    loading={remove.isPending}
-                    onClick={() => remove.mutate(a.id)}
-                  >
+                  <Button variant="danger" onClick={() => setAssignmentToRemove(a)}>
                     Gỡ
                   </Button>
                 </div>
@@ -1260,14 +1526,200 @@ export function ClassDetailPage() {
           </QueryState>
         </Card>
       </div>
+      <Card className="mt-6">
+        <SectionHeader
+          title="Lịch sử vận hành"
+          subtitle="Các thay đổi quan trọng được lưu lại để đối soát."
+        />
+        <QueryState
+          loading={history.isLoading}
+          error={history.error}
+          empty={!history.data?.length}
+          emptyTitle="Chưa có lịch sử vận hành"
+        >
+          <div className="divide-y divide-gborder">
+            {history.data?.map((item) => (
+              <div key={item.id} className="grid gap-2 py-4 sm:grid-cols-[180px_1fr_auto]">
+                <div>
+                  <p className="font-semibold text-navy">{operationEventLabel(item.event_type)}</p>
+                  <p className="text-xs text-gtext">{formatDateTime(item.occurred_at)}</p>
+                </div>
+                <div className="text-sm text-gtext">
+                  <p>{item.reason || "Thao tác khởi tạo dữ liệu"}</p>
+                  {Object.keys(item.details ?? {}).length > 0 ? (
+                    <p className="mt-1 text-xs text-gtext/80">{operationDetails(item.details)}</p>
+                  ) : null}
+                </div>
+                <span className="text-xs font-medium text-navy">
+                  {item.actor_email || "Hệ thống"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </QueryState>
+      </Card>
+      <Modal
+        open={!!enrollmentAction}
+        title={
+          actionType === "transfer"
+            ? "Chuyển học viên sang lớp khác"
+            : actionType === "completed"
+              ? "Xác nhận hoàn thành lớp"
+              : "Xác nhận rút khỏi lớp"
+        }
+        onClose={() => {
+          setEnrollmentAction(null);
+          setActionReason("");
+          setTargetClassId("");
+        }}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            enrollmentOperation.mutate();
+          }}
+        >
+          {enrollmentAction ? (
+            <div className="rounded-xl bg-gbg2 p-4 text-sm text-navy">
+              <b>{enrollmentAction.student_code}</b> — {enrollmentAction.full_name}
+            </div>
+          ) : null}
+          {actionType === "transfer" ? (
+            <Select
+              required
+              label="Lớp tiếp nhận"
+              value={targetClassId}
+              onChange={(event) => setTargetClassId(event.target.value)}
+            >
+              <option value="">Chọn lớp cùng khóa học</option>
+              {transferTargets.data?.items
+                .filter(
+                  (item) =>
+                    item.id !== classId &&
+                    ["planning", "open", "in_progress"].includes(item.status),
+                )
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.class_code} — {item.name} ({item.enrolled_students}/
+                    {item.maximum_students})
+                  </option>
+                ))}
+            </Select>
+          ) : null}
+          <Textarea
+            required
+            label="Lý do"
+            value={actionReason}
+            onChange={(event) => setActionReason(event.target.value)}
+            placeholder="Nhập lý do để lưu vào lịch sử vận hành"
+          />
+          {enrollmentOperation.error ? (
+            <ErrorBanner message={mutationMessage(enrollmentOperation.error)} />
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setEnrollmentAction(null)}>
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              loading={enrollmentOperation.isPending}
+              disabled={!actionReason.trim() || (actionType === "transfer" && !targetClassId)}
+            >
+              Xác nhận
+            </Button>
+          </div>
+        </form>
+      </Modal>
+      <Modal
+        open={!!assignmentToRemove}
+        title="Gỡ phân công giảng viên"
+        onClose={() => {
+          setAssignmentToRemove(null);
+          setRemoveReason("");
+        }}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            remove.mutate();
+          }}
+        >
+          <p className="text-sm text-gtext">
+            Phân công của <b className="text-navy">{assignmentToRemove?.full_name}</b> sẽ được gỡ
+            khỏi lớp và lưu vào lịch sử.
+          </p>
+          <Textarea
+            required
+            label="Lý do"
+            value={removeReason}
+            onChange={(event) => setRemoveReason(event.target.value)}
+          />
+          {remove.error ? <ErrorBanner message={mutationMessage(remove.error)} /> : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setAssignmentToRemove(null)}>
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              loading={remove.isPending}
+              disabled={!removeReason.trim()}
+            >
+              Gỡ phân công
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
+}
+
+const operationEventLabels: Record<string, string> = {
+  class_created: "Tạo lớp học",
+  class_updated: "Cập nhật lớp học",
+  student_enrolled: "Ghi danh học viên",
+  enrollment_status_changed: "Cập nhật ghi danh",
+  student_transferred_out: "Chuyển học viên đi",
+  student_transferred_in: "Tiếp nhận học viên",
+  teacher_assigned: "Phân công giảng viên",
+  teacher_assignment_updated: "Cập nhật phân công",
+  teacher_removed: "Gỡ phân công",
+  session_created: "Tạo buổi học",
+  session_updated: "Điều chỉnh buổi học",
+  session_cancelled: "Hủy buổi học",
+  attendance_corrected: "Hiệu chỉnh điểm danh",
+};
+
+function operationEventLabel(value: string) {
+  return operationEventLabels[value] ?? value.replaceAll("_", " ");
+}
+
+function operationDetails(details: Record<string, unknown>) {
+  if ("before" in details || "after" in details) {
+    return "Đã lưu dữ liệu trước và sau thay đổi";
+  }
+  return Object.entries(details)
+    .filter(([, value]) => value !== null && value !== "")
+    .slice(0, 4)
+    .map(
+      ([key, value]) =>
+        `${key.replaceAll("_", " ")}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`,
+    )
+    .join(" · ");
 }
 
 export function ScheduleAdminPage() {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [locationsOpen, setLocationsOpen] = useState(false);
+  const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
   const [attendanceSessionId, setAttendanceSessionId] = useState("");
+  const [correctionItem, setCorrectionItem] = useState<AttendanceRosterItem | null>(null);
+  const [correctionStatus, setCorrectionStatus] = useState<AttendanceStatus>("present");
+  const [correctionNote, setCorrectionNote] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
   const [calendarAnchor, setCalendarAnchor] = useState(currentWeekStart);
   const [calendarView, setCalendarView] = useState<CalendarView>("week");
   const calendarRange =
@@ -1301,6 +1753,36 @@ export function ScheduleAdminPage() {
       setOpen(false);
     },
   });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => adminApi.updateSession(id, body),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["admin", "sessions"] });
+      void client.invalidateQueries({ queryKey: ["admin", "class"] });
+      setSelectedSession(null);
+    },
+  });
+  const correctionMutation = useMutation({
+    mutationFn: () =>
+      adminApi.correctAttendance(correctionItem!.attendance_id!, {
+        status: correctionStatus,
+        note: correctionNote.trim() || null,
+        reason: correctionReason,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({
+        queryKey: ["admin", "session-attendance", attendanceSessionId],
+      });
+      setCorrectionItem(null);
+      setCorrectionReason("");
+    },
+  });
+  const openCorrection = (item: AttendanceRosterItem) => {
+    setCorrectionItem(item);
+    setCorrectionStatus(item.attendance_status ?? "present");
+    setCorrectionNote(item.note ?? "");
+    setCorrectionReason("");
+    correctionMutation.reset();
+  };
   const events: WeekCalendarEvent[] = (query.data?.items ?? []).map((session) => ({
     id: session.id,
     title: session.title,
@@ -1323,10 +1805,15 @@ export function ScheduleAdminPage() {
         title="Lịch học"
         subtitle="Lập lịch, theo dõi giảng viên và xem điểm danh trên một lịch thống nhất."
         actions={
-          <Button onClick={() => setOpen(true)}>
-            <Icon name="plus" className="h-4 w-4" />
-            Tạo buổi học
-          </Button>
+          <>
+            <Button variant="ghost" onClick={() => setLocationsOpen(true)}>
+              Phòng / xưởng
+            </Button>
+            <Button onClick={() => setOpen(true)}>
+              <Icon name="plus" className="h-4 w-4" />
+              Tạo buổi học
+            </Button>
+          </>
         }
       />
       <QueryState loading={query.isLoading} error={query.error} empty={!query.data?.items.length}>
@@ -1336,11 +1823,14 @@ export function ScheduleAdminPage() {
           onWeekStartChange={setCalendarAnchor}
           view={calendarView}
           onViewChange={setCalendarView}
-          onEventClick={(event) => setAttendanceSessionId(event.id)}
+          onEventClick={(event) =>
+            setSelectedSession(query.data?.items.find((item) => item.id === event.id) ?? null)
+          }
         />
       </QueryState>
       <Modal open={open} title="Tạo buổi học" onClose={() => setOpen(false)}>
         <SessionForm
+          key="new-session"
           classes={classes.data?.items ?? []}
           teachers={teachers.data?.items ?? []}
           locations={locations.data?.items ?? []}
@@ -1350,22 +1840,146 @@ export function ScheduleAdminPage() {
         />
       </Modal>
       <Modal
+        open={!!selectedSession}
+        title={selectedSession?.title ?? "Chi tiết buổi học"}
+        onClose={() => setSelectedSession(null)}
+      >
+        {selectedSession ? (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gbg2 p-4">
+              <div className="text-sm text-gtext">
+                <b className="text-navy">{selectedSession.class_code}</b>
+                <span> · {formatDateTime(selectedSession.starts_at)}</span>
+                <p>{selectedSession.location_name || "Chưa xếp phòng"}</p>
+              </div>
+              <Button
+                variant="soft"
+                onClick={() => {
+                  setAttendanceSessionId(selectedSession.id);
+                  setSelectedSession(null);
+                }}
+              >
+                Xem điểm danh
+              </Button>
+            </div>
+            {selectedSession.status === "locked" || selectedSession.attendance_locked_at ? (
+              <div className="rounded-xl border border-gborder p-4 text-sm text-gtext">
+                Buổi học đã được khóa sau ngày điểm danh. Bạn vẫn có thể xem tình trạng điểm danh
+                nhưng không thể thay đổi lịch.
+              </div>
+            ) : (
+              <SessionForm
+                key={selectedSession.id}
+                initial={selectedSession}
+                classes={classes.data?.items ?? []}
+                teachers={teachers.data?.items ?? []}
+                locations={locations.data?.items ?? []}
+                loading={updateMutation.isPending}
+                error={updateMutation.error}
+                onSubmit={(body) => updateMutation.mutate({ id: selectedSession.id, body })}
+              />
+            )}
+          </div>
+        ) : null}
+      </Modal>
+      <Modal
+        open={locationsOpen}
+        title="Quản lý phòng và xưởng"
+        onClose={() => setLocationsOpen(false)}
+      >
+        <LocationManager
+          locations={locations.data?.items ?? []}
+          loading={locations.isLoading}
+          error={locations.error}
+          onSaved={() => {
+            void client.invalidateQueries({ queryKey: ["admin", "locations"] });
+          }}
+        />
+      </Modal>
+      <Modal
         open={!!attendanceSessionId}
         title={
           query.data?.items.find((item) => item.id === attendanceSessionId)?.title ??
           "Tình trạng điểm danh"
         }
-        onClose={() => setAttendanceSessionId("")}
+        onClose={() => {
+          setAttendanceSessionId("");
+          setCorrectionItem(null);
+        }}
       >
         <QueryState loading={attendance.isLoading} error={attendance.error}>
-          {attendance.data && <AttendanceRoster data={attendance.data} />}
+          {attendance.data && (
+            <AttendanceRoster data={attendance.data} onCorrect={openCorrection} />
+          )}
         </QueryState>
+      </Modal>
+      <Modal
+        open={!!correctionItem}
+        title="Hiệu chỉnh điểm danh"
+        onClose={() => {
+          setCorrectionItem(null);
+          setCorrectionReason("");
+        }}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            correctionMutation.mutate();
+          }}
+        >
+          <div className="rounded-xl bg-gbg2 p-4 text-sm">
+            <b className="text-navy">{correctionItem?.student_code}</b> —{" "}
+            {correctionItem?.full_name}
+            <p className="mt-1 text-xs text-gtext">
+              Kết quả hiện tại: {correctionItem?.attendance_status ?? "Chưa ghi nhận"}
+            </p>
+          </div>
+          <Select
+            label="Trạng thái mới"
+            value={correctionStatus}
+            onChange={(event) => setCorrectionStatus(event.target.value as AttendanceStatus)}
+          >
+            <option value="present">Có mặt</option>
+            <option value="late">Đi trễ</option>
+            <option value="excused">Vắng có phép</option>
+            <option value="absent">Vắng</option>
+          </Select>
+          <Textarea
+            label="Ghi chú"
+            value={correctionNote}
+            onChange={(event) => setCorrectionNote(event.target.value)}
+          />
+          <Textarea
+            required
+            label="Lý do hiệu chỉnh"
+            value={correctionReason}
+            onChange={(event) => setCorrectionReason(event.target.value)}
+            placeholder="Lý do sẽ được lưu vĩnh viễn trong nhật ký kiểm toán"
+          />
+          {correctionMutation.error ? (
+            <ErrorBanner message={mutationMessage(correctionMutation.error)} />
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setCorrectionItem(null)}>
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              loading={correctionMutation.isPending}
+              disabled={!correctionReason.trim()}
+            >
+              Lưu hiệu chỉnh
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );
 }
 
 function SessionForm({
+  initial = null,
   classes,
   teachers,
   locations,
@@ -1373,22 +1987,24 @@ function SessionForm({
   error,
   onSubmit,
 }: {
+  initial?: ClassSession | null;
   classes: TrainingClass[];
   teachers: Teacher[];
-  locations: Array<{ id: string; code: string; name: string }>;
+  locations: TrainingLocation[];
   loading: boolean;
   error: Error | null;
   onSubmit: (body: unknown) => void;
 }) {
   const [form, setForm] = useState({
-    class_id: "",
-    teacher_id: "",
-    location_id: "",
-    title: "",
-    session_type: "theory",
-    starts_at: "",
-    ends_at: "",
-    status: "scheduled",
+    class_id: initial?.class_id ?? "",
+    teacher_id: initial?.teacher_id ?? "",
+    location_id: initial?.location_id ?? "",
+    title: initial?.title ?? "",
+    session_type: initial?.session_type ?? "theory",
+    starts_at: localDateTimeInput(initial?.starts_at),
+    ends_at: localDateTimeInput(initial?.ends_at),
+    status: initial?.status ?? "scheduled",
+    change_reason: "",
   });
   const update = (k: string, v: string) => setForm((o) => ({ ...o, [k]: v }));
   const body = useMemo(
@@ -1481,11 +2097,179 @@ function SessionForm({
           ))}
         </Select>
       </div>
+      {initial ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select
+            label="Trạng thái"
+            value={form.status}
+            onChange={(e) => update("status", e.target.value)}
+          >
+            <option value="scheduled">Đã lên lịch</option>
+            <option value="completed">Đã diễn ra</option>
+            <option value="cancelled">Đã hủy</option>
+          </Select>
+          <Textarea
+            required
+            label="Lý do điều chỉnh"
+            value={form.change_reason}
+            onChange={(e) => update("change_reason", e.target.value)}
+            placeholder="Đổi giờ, đổi phòng, hủy buổi…"
+          />
+        </div>
+      ) : null}
       <div className="flex justify-end">
         <Button type="submit" loading={loading}>
-          Tạo buổi học
+          {initial ? "Lưu thay đổi" : "Tạo buổi học"}
         </Button>
       </div>
     </form>
+  );
+}
+
+function localDateTimeInput(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function LocationManager({
+  locations,
+  loading,
+  error,
+  onSaved,
+}: {
+  locations: TrainingLocation[];
+  loading: boolean;
+  error: Error | null;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState<TrainingLocation | null>(null);
+  const [form, setForm] = useState({
+    code: "",
+    name: "",
+    location_type: "classroom",
+    capacity: "",
+    is_active: true,
+  });
+  const save = useMutation({
+    mutationFn: () => {
+      const body = {
+        ...form,
+        capacity: form.capacity ? Number(form.capacity) : null,
+      };
+      return editing ? adminApi.updateLocation(editing.id, body) : adminApi.createLocation(body);
+    },
+    onSuccess: () => {
+      setEditing(null);
+      setForm({ code: "", name: "", location_type: "classroom", capacity: "", is_active: true });
+      onSaved();
+    },
+  });
+  const selectLocation = (location: TrainingLocation) => {
+    setEditing(location);
+    setForm({
+      code: location.code,
+      name: location.name,
+      location_type: location.location_type,
+      capacity: location.capacity ? String(location.capacity) : "",
+      is_active: location.is_active,
+    });
+  };
+  return (
+    <div className="space-y-6">
+      <form
+        className="space-y-4 rounded-2xl border border-gborder p-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          save.mutate();
+        }}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            required
+            label="Mã địa điểm"
+            value={form.code}
+            onChange={(event) => setForm((old) => ({ ...old, code: event.target.value }))}
+          />
+          <Input
+            required
+            label="Tên phòng / xưởng"
+            value={form.name}
+            onChange={(event) => setForm((old) => ({ ...old, name: event.target.value }))}
+          />
+          <Select
+            label="Loại địa điểm"
+            value={form.location_type}
+            onChange={(event) => setForm((old) => ({ ...old, location_type: event.target.value }))}
+          >
+            <option value="classroom">Phòng học</option>
+            <option value="workshop">Xưởng thực hành</option>
+            <option value="lab">Phòng máy / phòng lab</option>
+            <option value="other">Khác</option>
+          </Select>
+          <Input
+            label="Sức chứa"
+            type="number"
+            min="1"
+            value={form.capacity}
+            onChange={(event) => setForm((old) => ({ ...old, capacity: event.target.value }))}
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm font-medium text-navy">
+          <input
+            type="checkbox"
+            checked={form.is_active}
+            onChange={(event) => setForm((old) => ({ ...old, is_active: event.target.checked }))}
+          />
+          Cho phép xếp lịch tại địa điểm này
+        </label>
+        {save.error ? <ErrorBanner message={mutationMessage(save.error)} /> : null}
+        <div className="flex justify-end gap-2">
+          {editing ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setEditing(null);
+                setForm({
+                  code: "",
+                  name: "",
+                  location_type: "classroom",
+                  capacity: "",
+                  is_active: true,
+                });
+              }}
+            >
+              Tạo mới
+            </Button>
+          ) : null}
+          <Button type="submit" loading={save.isPending}>
+            {editing ? "Lưu địa điểm" : "Thêm địa điểm"}
+          </Button>
+        </div>
+      </form>
+      <QueryState loading={loading} error={error} empty={!locations.length}>
+        <div className="space-y-2">
+          {locations.map((location) => (
+            <button
+              key={location.id}
+              type="button"
+              onClick={() => selectLocation(location)}
+              className="flex w-full items-center justify-between rounded-xl border border-gborder p-3 text-left transition hover:border-gold"
+            >
+              <span>
+                <b className="text-navy">
+                  {location.code} — {location.name}
+                </b>
+                <span className="block text-xs text-gtext">
+                  {location.location_type} · {location.capacity || "Không giới hạn"} chỗ
+                </span>
+              </span>
+              <StatusBadge value={location.is_active ? "active" : "inactive"} />
+            </button>
+          ))}
+        </div>
+      </QueryState>
+    </div>
   );
 }

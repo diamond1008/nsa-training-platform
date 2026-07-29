@@ -149,11 +149,11 @@ func (q *Queries) CreateAssessmentItem(ctx context.Context, arg CreateAssessment
 const createStudentAssessment = `-- name: CreateStudentAssessment :one
 INSERT INTO student_assessments (
   class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment
+  assessment_no, status, overall_comment, evidence_url
 )
-VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
+VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8)
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at
 `
 
@@ -165,9 +165,27 @@ type CreateStudentAssessmentParams struct {
 	SessionID      pgtype.UUID `json:"session_id"`
 	AssessmentNo   int32       `json:"assessment_no"`
 	OverallComment pgtype.Text `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text `json:"evidence_url"`
 }
 
-func (q *Queries) CreateStudentAssessment(ctx context.Context, arg CreateStudentAssessmentParams) (StudentAssessment, error) {
+type CreateStudentAssessmentRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	ClassID        pgtype.UUID        `json:"class_id"`
+	CourseID       pgtype.UUID        `json:"course_id"`
+	StudentID      pgtype.UUID        `json:"student_id"`
+	AssessedBy     pgtype.UUID        `json:"assessed_by"`
+	SessionID      pgtype.UUID        `json:"session_id"`
+	AssessmentNo   int32              `json:"assessment_no"`
+	Status         AssessmentStatus   `json:"status"`
+	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
+	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
+	LockedAt       pgtype.Timestamptz `json:"locked_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateStudentAssessment(ctx context.Context, arg CreateStudentAssessmentParams) (CreateStudentAssessmentRow, error) {
 	row := q.db.QueryRow(ctx, createStudentAssessment,
 		arg.ClassID,
 		arg.CourseID,
@@ -176,8 +194,9 @@ func (q *Queries) CreateStudentAssessment(ctx context.Context, arg CreateStudent
 		arg.SessionID,
 		arg.AssessmentNo,
 		arg.OverallComment,
+		arg.EvidenceUrl,
 	)
-	var i StudentAssessment
+	var i CreateStudentAssessmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.ClassID,
@@ -188,6 +207,7 @@ func (q *Queries) CreateStudentAssessment(ctx context.Context, arg CreateStudent
 		&i.AssessmentNo,
 		&i.Status,
 		&i.OverallComment,
+		&i.EvidenceUrl,
 		&i.SubmittedAt,
 		&i.LockedAt,
 		&i.CreatedAt,
@@ -207,7 +227,6 @@ func (q *Queries) DeleteAssessmentItems(ctx context.Context, assessmentID pgtype
 }
 
 const getAssessmentEnrollmentForUpdate = `-- name: GetAssessmentEnrollmentForUpdate :one
-
 SELECT
   ce.class_id, c.course_id, c.class_code, c.name AS class_name,
   co.code AS course_code, co.name AS course_name,
@@ -239,7 +258,6 @@ type GetAssessmentEnrollmentForUpdateRow struct {
 	EnrollmentStatus EnrollmentStatus `json:"enrollment_status"`
 }
 
-// Practical skill assessment lifecycle and role-scoped history.
 func (q *Queries) GetAssessmentEnrollmentForUpdate(ctx context.Context, arg GetAssessmentEnrollmentForUpdateParams) (GetAssessmentEnrollmentForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, getAssessmentEnrollmentForUpdate, arg.ClassID, arg.StudentID)
 	var i GetAssessmentEnrollmentForUpdateRow
@@ -265,7 +283,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -295,6 +313,7 @@ type GetAssessmentHeaderRow struct {
 	AssessmentNo   int32              `json:"assessment_no"`
 	Status         AssessmentStatus   `json:"status"`
 	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
 	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
 	LockedAt       pgtype.Timestamptz `json:"locked_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -323,6 +342,7 @@ func (q *Queries) GetAssessmentHeader(ctx context.Context, id pgtype.UUID) (GetA
 		&i.AssessmentNo,
 		&i.Status,
 		&i.OverallComment,
+		&i.EvidenceUrl,
 		&i.SubmittedAt,
 		&i.LockedAt,
 		&i.CreatedAt,
@@ -338,7 +358,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -369,6 +389,7 @@ type GetAssessmentHeaderForUpdateRow struct {
 	AssessmentNo   int32              `json:"assessment_no"`
 	Status         AssessmentStatus   `json:"status"`
 	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
 	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
 	LockedAt       pgtype.Timestamptz `json:"locked_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -397,12 +418,26 @@ func (q *Queries) GetAssessmentHeaderForUpdate(ctx context.Context, id pgtype.UU
 		&i.AssessmentNo,
 		&i.Status,
 		&i.OverallComment,
+		&i.EvidenceUrl,
 		&i.SubmittedAt,
 		&i.LockedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getAssessmentStudentUserID = `-- name: GetAssessmentStudentUserID :one
+
+SELECT user_id FROM student_profiles WHERE id=$1
+`
+
+// Practical skill assessment lifecycle and role-scoped history.
+func (q *Queries) GetAssessmentStudentUserID(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getAssessmentStudentUserID, id)
+	var user_id pgtype.UUID
+	err := row.Scan(&user_id)
+	return user_id, err
 }
 
 const getAssignedAssessmentTeacher = `-- name: GetAssignedAssessmentTeacher :one
@@ -459,7 +494,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -496,6 +531,7 @@ type GetStudentAssessmentHeaderRow struct {
 	AssessmentNo   int32              `json:"assessment_no"`
 	Status         AssessmentStatus   `json:"status"`
 	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
 	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
 	LockedAt       pgtype.Timestamptz `json:"locked_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -524,6 +560,7 @@ func (q *Queries) GetStudentAssessmentHeader(ctx context.Context, arg GetStudent
 		&i.AssessmentNo,
 		&i.Status,
 		&i.OverallComment,
+		&i.EvidenceUrl,
 		&i.SubmittedAt,
 		&i.LockedAt,
 		&i.CreatedAt,
@@ -601,7 +638,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -645,6 +682,7 @@ type ListStudentAssessmentHistoryRow struct {
 	AssessmentNo   int32              `json:"assessment_no"`
 	Status         AssessmentStatus   `json:"status"`
 	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
 	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
 	LockedAt       pgtype.Timestamptz `json:"locked_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -684,6 +722,7 @@ func (q *Queries) ListStudentAssessmentHistory(ctx context.Context, arg ListStud
 			&i.AssessmentNo,
 			&i.Status,
 			&i.OverallComment,
+			&i.EvidenceUrl,
 			&i.SubmittedAt,
 			&i.LockedAt,
 			&i.CreatedAt,
@@ -706,7 +745,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -745,6 +784,7 @@ type ListTeacherAssessmentHistoryRow struct {
 	AssessmentNo   int32              `json:"assessment_no"`
 	Status         AssessmentStatus   `json:"status"`
 	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
 	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
 	LockedAt       pgtype.Timestamptz `json:"locked_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -784,6 +824,7 @@ func (q *Queries) ListTeacherAssessmentHistory(ctx context.Context, arg ListTeac
 			&i.AssessmentNo,
 			&i.Status,
 			&i.OverallComment,
+			&i.EvidenceUrl,
 			&i.SubmittedAt,
 			&i.LockedAt,
 			&i.CreatedAt,
@@ -804,13 +845,30 @@ UPDATE student_assessments
 SET status = 'locked', locked_at = NOW()
 WHERE id = $1 AND status = 'submitted'
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at
 `
 
-func (q *Queries) LockAssessment(ctx context.Context, id pgtype.UUID) (StudentAssessment, error) {
+type LockAssessmentRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	ClassID        pgtype.UUID        `json:"class_id"`
+	CourseID       pgtype.UUID        `json:"course_id"`
+	StudentID      pgtype.UUID        `json:"student_id"`
+	AssessedBy     pgtype.UUID        `json:"assessed_by"`
+	SessionID      pgtype.UUID        `json:"session_id"`
+	AssessmentNo   int32              `json:"assessment_no"`
+	Status         AssessmentStatus   `json:"status"`
+	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
+	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
+	LockedAt       pgtype.Timestamptz `json:"locked_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) LockAssessment(ctx context.Context, id pgtype.UUID) (LockAssessmentRow, error) {
 	row := q.db.QueryRow(ctx, lockAssessment, id)
-	var i StudentAssessment
+	var i LockAssessmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.ClassID,
@@ -821,6 +879,7 @@ func (q *Queries) LockAssessment(ctx context.Context, id pgtype.UUID) (StudentAs
 		&i.AssessmentNo,
 		&i.Status,
 		&i.OverallComment,
+		&i.EvidenceUrl,
 		&i.SubmittedAt,
 		&i.LockedAt,
 		&i.CreatedAt,
@@ -834,13 +893,30 @@ UPDATE student_assessments
 SET status = 'submitted', submitted_at = NOW()
 WHERE id = $1 AND status = 'draft'
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at
 `
 
-func (q *Queries) SubmitAssessment(ctx context.Context, id pgtype.UUID) (StudentAssessment, error) {
+type SubmitAssessmentRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	ClassID        pgtype.UUID        `json:"class_id"`
+	CourseID       pgtype.UUID        `json:"course_id"`
+	StudentID      pgtype.UUID        `json:"student_id"`
+	AssessedBy     pgtype.UUID        `json:"assessed_by"`
+	SessionID      pgtype.UUID        `json:"session_id"`
+	AssessmentNo   int32              `json:"assessment_no"`
+	Status         AssessmentStatus   `json:"status"`
+	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
+	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
+	LockedAt       pgtype.Timestamptz `json:"locked_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) SubmitAssessment(ctx context.Context, id pgtype.UUID) (SubmitAssessmentRow, error) {
 	row := q.db.QueryRow(ctx, submitAssessment, id)
-	var i StudentAssessment
+	var i SubmitAssessmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.ClassID,
@@ -851,6 +927,7 @@ func (q *Queries) SubmitAssessment(ctx context.Context, id pgtype.UUID) (Student
 		&i.AssessmentNo,
 		&i.Status,
 		&i.OverallComment,
+		&i.EvidenceUrl,
 		&i.SubmittedAt,
 		&i.LockedAt,
 		&i.CreatedAt,
@@ -861,10 +938,10 @@ func (q *Queries) SubmitAssessment(ctx context.Context, id pgtype.UUID) (Student
 
 const updateDraftAssessment = `-- name: UpdateDraftAssessment :one
 UPDATE student_assessments
-SET session_id = $2, overall_comment = $3
+SET session_id = $2, overall_comment = $3, evidence_url = $4
 WHERE id = $1 AND status = 'draft'
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at
 `
 
@@ -872,11 +949,34 @@ type UpdateDraftAssessmentParams struct {
 	ID             pgtype.UUID `json:"id"`
 	SessionID      pgtype.UUID `json:"session_id"`
 	OverallComment pgtype.Text `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text `json:"evidence_url"`
 }
 
-func (q *Queries) UpdateDraftAssessment(ctx context.Context, arg UpdateDraftAssessmentParams) (StudentAssessment, error) {
-	row := q.db.QueryRow(ctx, updateDraftAssessment, arg.ID, arg.SessionID, arg.OverallComment)
-	var i StudentAssessment
+type UpdateDraftAssessmentRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	ClassID        pgtype.UUID        `json:"class_id"`
+	CourseID       pgtype.UUID        `json:"course_id"`
+	StudentID      pgtype.UUID        `json:"student_id"`
+	AssessedBy     pgtype.UUID        `json:"assessed_by"`
+	SessionID      pgtype.UUID        `json:"session_id"`
+	AssessmentNo   int32              `json:"assessment_no"`
+	Status         AssessmentStatus   `json:"status"`
+	OverallComment pgtype.Text        `json:"overall_comment"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
+	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
+	LockedAt       pgtype.Timestamptz `json:"locked_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateDraftAssessment(ctx context.Context, arg UpdateDraftAssessmentParams) (UpdateDraftAssessmentRow, error) {
+	row := q.db.QueryRow(ctx, updateDraftAssessment,
+		arg.ID,
+		arg.SessionID,
+		arg.OverallComment,
+		arg.EvidenceUrl,
+	)
+	var i UpdateDraftAssessmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.ClassID,
@@ -887,6 +987,7 @@ func (q *Queries) UpdateDraftAssessment(ctx context.Context, arg UpdateDraftAsse
 		&i.AssessmentNo,
 		&i.Status,
 		&i.OverallComment,
+		&i.EvidenceUrl,
 		&i.SubmittedAt,
 		&i.LockedAt,
 		&i.CreatedAt,

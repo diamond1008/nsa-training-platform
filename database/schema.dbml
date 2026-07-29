@@ -177,7 +177,7 @@ Table class_enrollments {
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
   indexes { (class_id, student_id) [unique] }
-  note: 'A student cannot enroll twice in the same class. status/ended_at must stay consistent.'
+  note: 'A student cannot enroll twice in the same class. status/ended_at must stay consistent; enrolled_at/ended_at define historical attendance-roster membership.'
 }
 
 Table teacher_assignments {
@@ -190,6 +190,20 @@ Table teacher_assignments {
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
   indexes { (class_id, teacher_id) [unique] }
+}
+
+Table class_operation_history {
+  id uuid [pk, default: `gen_random_uuid()`]
+  class_id uuid [not null, ref: > classes.id]
+  event_type varchar(60) [not null]
+  entity_type varchar(40) [not null]
+  entity_id uuid
+  reason varchar(500)
+  details jsonb [not null, default: `'{}'::jsonb`]
+  actor_user_id uuid [ref: > users.id]
+  occurred_at timestamptz [not null, default: `now()`]
+  indexes { (class_id, occurred_at) }
+  note: 'Immutable operational timeline for class, enrollment, assignment, and schedule changes.'
 }
 
 Table training_locations {
@@ -263,6 +277,7 @@ Table student_assessments {
   assessment_no int [not null, default: 1]
   status assessment_status [not null, default: 'draft']
   overall_comment text
+  evidence_url text [note: 'Optional HTTP(S) evidence link']
   submitted_at timestamptz
   locked_at timestamptz
   created_at timestamptz [not null, default: `now()`]
@@ -315,6 +330,34 @@ Table course_completions {
 
 Ref: course_completions.student_id > student_profiles.id
 Ref: course_completions.class_id > classes.id
+
+Table completion_decision_history {
+  id uuid [pk, default: `gen_random_uuid()`]
+  completion_id uuid [not null, ref: > course_completions.id]
+  status completion_status [not null]
+  attendance_pct numeric(5,2) [not null]
+  required_competencies_met int [not null]
+  required_competencies_total int [not null]
+  note varchar(1000) [not null]
+  decided_by uuid [not null, ref: > users.id]
+  decided_at timestamptz [not null, default: `now()`]
+  note: 'Immutable ADMIN approval/rejection decision history.'
+}
+
+Table certificates {
+  id uuid [pk, default: `gen_random_uuid()`]
+  completion_id uuid [not null, ref: > course_completions.id]
+  certificate_number varchar(20) [not null, unique, note: 'Generated CC########']
+  verification_code uuid [not null, unique]
+  issued_by uuid [not null, ref: > users.id]
+  issued_at timestamptz [not null, default: `now()`]
+  revoked_at timestamptz
+  revoked_by uuid [ref: > users.id]
+  revoke_reason varchar(1000)
+  is_current boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  note: 'At most one current certificate per completion; revoked documents remain verifiable.'
+}
 
 // ------------------------------ SYSTEM ------------------------------
 

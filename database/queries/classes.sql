@@ -112,6 +112,16 @@ FROM class_enrollments ce
 JOIN student_profiles sp ON sp.id = ce.student_id
 WHERE ce.id = $1 AND ce.class_id = $2;
 
+-- name: GetClassEnrollmentForUpdate :one
+SELECT
+  ce.id, ce.class_id, ce.student_id, sp.student_code, sp.full_name,
+  ce.status, ce.enrolled_at, ce.ended_at, ce.created_by,
+  ce.created_at, ce.updated_at
+FROM class_enrollments ce
+JOIN student_profiles sp ON sp.id = ce.student_id
+WHERE ce.id = $1 AND ce.class_id = $2
+FOR UPDATE OF ce;
+
 -- name: ListClassEnrollments :many
 SELECT
   ce.id, ce.class_id, ce.student_id, sp.student_code, sp.full_name,
@@ -168,3 +178,24 @@ RETURNING id, class_id, teacher_id, assignment_role, assigned_at,
 -- name: DeleteTeacherAssignment :execrows
 DELETE FROM teacher_assignments
 WHERE id = $1 AND class_id = $2;
+
+-- name: CreateClassOperationEvent :one
+INSERT INTO class_operation_history (
+  class_id, event_type, entity_type, entity_id, reason, details, actor_user_id
+)
+VALUES (
+  sqlc.arg(class_id), sqlc.arg(event_type), sqlc.arg(entity_type), sqlc.narg(entity_id),
+  sqlc.narg(reason), sqlc.arg(details), sqlc.narg(actor_user_id)
+)
+RETURNING id, class_id, event_type, entity_type, entity_id, reason,
+  details, actor_user_id, occurred_at;
+
+-- name: ListClassOperationHistory :many
+SELECT
+  coh.id, coh.class_id, coh.event_type, coh.entity_type, coh.entity_id,
+  coh.reason, coh.details, coh.actor_user_id, u.email AS actor_email,
+  coh.occurred_at
+FROM class_operation_history coh
+LEFT JOIN users u ON u.id = coh.actor_user_id
+WHERE coh.class_id = $1
+ORDER BY coh.occurred_at DESC, coh.id DESC;

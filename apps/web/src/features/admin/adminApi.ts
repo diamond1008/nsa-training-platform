@@ -1,9 +1,15 @@
 import { api, apiCSV, apiDownload } from "../../lib/apiClient";
 import type {
+  AttendanceStatus,
   ClassSession,
+  CompletionCandidate,
+  CompletionDecisionResult,
+  ClassOperationHistory,
   Course,
   Enrollment,
+  EnrollmentTransfer,
   Paginated,
+  ReportSummary,
   SessionAttendance,
   Student,
   StudentStatusHistory,
@@ -56,36 +62,62 @@ export const adminApi = {
   createClass: (body: unknown) => api<TrainingClass>("/admin/classes", { method: "POST", body }),
   updateClass: (id: string, body: unknown) =>
     api<TrainingClass>(`/admin/classes/${id}`, { method: "PUT", body }),
+  classHistory: (id: string) =>
+    api<ClassOperationHistory[]>(`/admin/classes/${id}/operation-history`),
   enrollments: (classId: string) => api<Enrollment[]>(`/admin/classes/${classId}/enrollments`),
-  enroll: (classId: string, studentId: string) =>
+  enroll: (classId: string, studentId: string, reason = "") =>
     api<Enrollment>(`/admin/classes/${classId}/enrollments`, {
       method: "POST",
-      body: { student_id: studentId },
+      body: { student_id: studentId, reason },
     }),
-  updateEnrollment: (classId: string, id: string, status: string) =>
+  updateEnrollment: (classId: string, id: string, status: string, reason: string) =>
     api<Enrollment>(`/admin/classes/${classId}/enrollments/${id}`, {
       method: "PUT",
-      body: { status },
+      body: { status, reason },
+    }),
+  transferEnrollment: (classId: string, id: string, targetClassId: string, reason: string) =>
+    api<EnrollmentTransfer>(`/admin/classes/${classId}/enrollments/${id}/transfer`, {
+      method: "POST",
+      body: { target_class_id: targetClassId, reason },
     }),
   assignments: (classId: string) =>
     api<TeacherAssignment[]>(`/admin/classes/${classId}/teacher-assignments`),
-  assign: (classId: string, teacherId: string, assignmentRole: string) =>
+  assign: (classId: string, teacherId: string, assignmentRole: string, reason = "") =>
     api<TeacherAssignment>(`/admin/classes/${classId}/teacher-assignments`, {
       method: "POST",
-      body: { teacher_id: teacherId, assignment_role: assignmentRole },
+      body: { teacher_id: teacherId, assignment_role: assignmentRole, reason },
     }),
-  removeAssignment: (classId: string, id: string) =>
+  removeAssignment: (classId: string, id: string, reason: string) =>
     api<{ message: string }>(`/admin/classes/${classId}/teacher-assignments/${id}`, {
       method: "DELETE",
+      body: { reason },
     }),
 
   locations: (params: ListParams = {}) =>
     api<Paginated<TrainingLocation>>(`/admin/locations${toQuery(params)}`),
   createLocation: (body: unknown) =>
     api<TrainingLocation>("/admin/locations", { method: "POST", body }),
+  updateLocation: (id: string, body: unknown) =>
+    api<TrainingLocation>(`/admin/locations/${id}`, { method: "PUT", body }),
   sessions: (params: ListParams & { from?: string; to?: string; class_id?: string } = {}) =>
     api<Paginated<ClassSession>>(`/admin/sessions${toQuery(params)}`),
   sessionAttendance: (sessionId: string) =>
     api<SessionAttendance>(`/admin/sessions/${sessionId}/attendance`),
+  correctAttendance: (
+    attendanceId: string,
+    body: { status: AttendanceStatus; note: string | null; reason: string },
+  ) => api(`/admin/attendance/${attendanceId}`, { method: "PUT", body }),
   createSession: (body: unknown) => api<ClassSession>("/admin/sessions", { method: "POST", body }),
+  updateSession: (id: string, body: unknown) =>
+    api<ClassSession>(`/admin/sessions/${id}`, { method: "PUT", body }),
+  completions: (params: ListParams = {}) =>
+    api<Paginated<CompletionCandidate>>(`/admin/completions${toQuery(params)}`),
+  decideCompletion: (classId: string, studentId: string, status: string, note: string) =>
+    api<CompletionDecisionResult>(`/admin/completions/${classId}/${studentId}`, {
+      method: "PUT",
+      body: { status, note },
+    }),
+  reportSummary: () => api<ReportSummary>("/admin/reports/summary"),
+  exportReport: (kind: "attendance" | "competencies" | "classes" | "completions") =>
+    apiDownload(`/admin/reports/${kind}.csv`),
 };

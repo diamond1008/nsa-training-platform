@@ -14,6 +14,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/completions"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/progress"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 )
@@ -29,6 +30,7 @@ func TestScheduleViewerRoutesEnforceOwnRole(t *testing.T) {
 		mountRoleRoutes(
 			r, tokens, classes.NewHandler(nil, log), schedules.NewHandler(nil, log), attendance.NewHandler(nil, log),
 			assessments.NewHandler(nil, log), progress.NewHandler(nil, log),
+			completions.NewHandler(nil, log),
 		)
 	})
 	teacherToken, _, _ := tokens.Issue(
@@ -68,6 +70,8 @@ func TestScheduleViewerRoutesEnforceOwnRole(t *testing.T) {
 		{"teacher blocked from student assessments", http.MethodGet, "/api/v1/student/assessments", teacherToken, http.StatusForbidden},
 		{"teacher blocked from student assessment detail", http.MethodGet, "/api/v1/student/assessments/11111111-1111-1111-1111-111111111111", teacherToken, http.StatusForbidden},
 		{"teacher blocked from student progress", http.MethodGet, "/api/v1/student/progress", teacherToken, http.StatusForbidden},
+		{"teacher blocked from student certificates", http.MethodGet, "/api/v1/student/certificates", teacherToken, http.StatusForbidden},
+		{"teacher blocked from student certificate PDF", http.MethodGet, "/api/v1/student/certificates/11111111-1111-1111-1111-111111111111/pdf", teacherToken, http.StatusForbidden},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "0.7.0"
+  version: "1.0.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -18,12 +18,13 @@ info:
     - Success: `{ "data": ..., "message": "Success" }`
     - Error: `{ "error": { "code": "SOME_CODE", "message": "...", "details": [] } }`
 
-    **Implementation status:** Phase 9 — system probes, authentication/RBAC,
+    **Implementation status:** Phase 16 — system probes, authentication/RBAC,
     academic-core administration, training locations, class-session scheduling,
     role-scoped schedules, batch attendance, corrections, locking, and Student
-    attendance history/summary are live. Practical assessment history and
-    deterministic Student progress dashboards, and assignment-scoped Teacher
-    class workspaces are live.
+    temporally correct attendance history/summary with absence-risk warnings
+    are live. Practical assessments with evidence, deterministic Student progress,
+    ADMIN completion decisions, verifiable PDF certificates, in-app notifications,
+    operational CSV reports, and assignment-scoped Teacher workspaces are live.
 
     **Authentication:** `POST /api/v1/auth/login` returns a short-lived JWT
     access token (use as `Authorization: Bearer <token>`) and sets an
@@ -723,6 +724,21 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /api/v1/admin/classes/{classID}/operation-history:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+    get:
+      tags: [admin]
+      summary: List immutable class operation history
+      operationId: listAdminClassOperationHistory
+      responses:
+        "200":
+          description: Class operation history ordered from newest to oldest
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClassOperationHistoryListResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/admin/classes/{classID}/enrollments/{enrollmentID}:
     parameters:
       - { $ref: "#/components/parameters/ClassID" }
@@ -742,6 +758,29 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/EnrollmentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/classes/{classID}/enrollments/{enrollmentID}/transfer:
+    parameters:
+      - { $ref: "#/components/parameters/ClassID" }
+      - { $ref: "#/components/parameters/EnrollmentID" }
+    post:
+      tags: [admin]
+      summary: Atomically transfer an active enrollment to another class of the same course
+      operationId: transferAdminClassEnrollment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnrollmentTransferRequest" }
+      responses:
+        "200":
+          description: Enrollment transferred
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnrollmentTransferResponse" }
         "400": { $ref: "#/components/responses/ValidationError" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -805,6 +844,11 @@ paths:
       tags: [admin]
       summary: Remove a teacher assignment
       operationId: deleteAdminTeacherAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonRequest" }
       responses:
         "200":
           description: Assignment removed
@@ -1386,6 +1430,178 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/v1/admin/completions:
+    get:
+      tags: [admin]
+      summary: List course-completion candidates and calculated eligibility
+      operationId: listCompletionCandidates
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Completion candidates, content: { application/json: { schema: { $ref: "#/components/schemas/CompletionCandidateListResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/admin/completions/{classID}/{studentID}:
+    put:
+      tags: [admin]
+      summary: Approve or reject course completion
+      operationId: decideCourseCompletion
+      parameters:
+        - { name: classID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: studentID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompletionDecisionRequest" }
+      responses:
+        "200": { description: Saved decision and optional certificate, content: { application/json: { schema: { $ref: "#/components/schemas/CompletionDecisionResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/reports/summary:
+    get:
+      tags: [admin]
+      summary: Get operational dashboard metrics
+      operationId: getOperationalReportSummary
+      responses:
+        "200": { description: Operational metrics, content: { application/json: { schema: { $ref: "#/components/schemas/ReportSummaryResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/admin/completions/{classID}/{studentID}/history:
+    get:
+      tags: [admin]
+      summary: List immutable completion decision history
+      operationId: listCompletionDecisionHistory
+      parameters:
+        - { name: classID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: studentID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Decision history }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/admin/certificates/{certificateID}/pdf:
+    get:
+      tags: [admin]
+      summary: Download a current certificate PDF
+      operationId: downloadAdminCertificate
+      parameters:
+        - { name: certificateID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Certificate PDF, content: { application/pdf: { schema: { type: string, format: binary } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/certificates/{certificateID}/revoke:
+    post:
+      tags: [admin]
+      summary: Revoke a current certificate
+      operationId: revokeCertificate
+      parameters:
+        - { name: certificateID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CertificateActionRequest" } } }
+      responses:
+        "200": { description: Revoked certificate, content: { application/json: { schema: { $ref: "#/components/schemas/CertificateResponse" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/certificates/{certificateID}/reissue:
+    post:
+      tags: [admin]
+      summary: Revoke and replace a current certificate
+      operationId: reissueCertificate
+      parameters:
+        - { name: certificateID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CertificateActionRequest" } } }
+      responses:
+        "200": { description: Replacement certificate, content: { application/json: { schema: { $ref: "#/components/schemas/CertificateResponse" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/reports/{reportKind}.csv:
+    get:
+      tags: [admin]
+      summary: Export an operational report as UTF-8 CSV
+      operationId: exportOperationalReport
+      parameters:
+        - { name: reportKind, in: path, required: true, schema: { type: string, enum: [attendance, competencies, classes, completions] } }
+      responses:
+        "200": { description: CSV file, content: { text/csv: { schema: { type: string } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/certificates:
+    get:
+      tags: [student]
+      summary: List the authenticated student's certificates
+      operationId: listStudentCertificates
+      responses:
+        "200": { description: Certificate history, content: { application/json: { schema: { $ref: "#/components/schemas/CertificateListResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/certificates/{certificateID}/pdf:
+    get:
+      tags: [student]
+      summary: Download an owned current certificate PDF
+      operationId: downloadStudentCertificate
+      parameters:
+        - { name: certificateID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Certificate PDF, content: { application/pdf: { schema: { type: string, format: binary } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/certificates/{verificationCode}:
+    get:
+      tags: [system]
+      security: []
+      summary: Publicly verify a certificate, including revocation state
+      operationId: verifyCertificate
+      parameters:
+        - { name: verificationCode, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Certificate verification record, content: { application/json: { schema: { $ref: "#/components/schemas/CertificateResponse" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/notifications:
+    get:
+      tags: [student, teacher, admin]
+      summary: List authenticated user's in-app notifications
+      operationId: listNotifications
+      responses:
+        "200": { description: Notifications and unread count, content: { application/json: { schema: { $ref: "#/components/schemas/NotificationListResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/notifications/{notificationID}/read:
+    put:
+      tags: [student, teacher, admin]
+      summary: Mark an owned notification read
+      operationId: markNotificationRead
+      parameters:
+        - { name: notificationID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Updated notification }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/notifications/{notificationID}:
+    delete:
+      tags: [student, teacher, admin]
+      summary: Archive an owned notification
+      operationId: archiveNotification
+      parameters:
+        - { name: notificationID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Archived notification }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1905,6 +2121,10 @@ components:
         end_date: { type: string, format: date }
         maximum_students: { type: integer, minimum: 1 }
         status: { $ref: "#/components/schemas/ClassStatus" }
+        change_reason:
+          type: string
+          maxLength: 500
+          description: Required when updating an existing class.
     Class:
       type: object
       required: [id, course_id, course_code, course_name, class_code, name, start_date, end_date, maximum_students, enrolled_students, status, created_at, updated_at]
@@ -1966,11 +2186,19 @@ components:
       required: [student_id]
       properties:
         student_id: { type: string, format: uuid }
+        reason: { type: string, maxLength: 500 }
     EnrollmentUpdateRequest:
       type: object
-      required: [status]
+      required: [status, reason]
       properties:
         status: { $ref: "#/components/schemas/EnrollmentStatus" }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    EnrollmentTransferRequest:
+      type: object
+      required: [target_class_id, reason]
+      properties:
+        target_class_id: { type: string, format: uuid }
+        reason: { type: string, minLength: 1, maxLength: 500 }
     Enrollment:
       type: object
       required: [id, class_id, student_id, student_code, full_name, status, enrolled_at, created_at, updated_at]
@@ -1997,6 +2225,39 @@ components:
       properties:
         data: { type: array, items: { $ref: "#/components/schemas/Enrollment" } }
         message: { type: string }
+    EnrollmentTransfer:
+      type: object
+      required: [source, target]
+      properties:
+        source: { $ref: "#/components/schemas/Enrollment" }
+        target: { $ref: "#/components/schemas/Enrollment" }
+    EnrollmentTransferResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/EnrollmentTransfer" }
+        message: { type: string }
+
+    ClassOperationHistory:
+      type: object
+      required: [id, class_id, event_type, entity_type, details, occurred_at]
+      properties:
+        id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        event_type: { type: string }
+        entity_type: { type: string }
+        entity_id: { type: [string, "null"], format: uuid }
+        reason: { type: [string, "null"], maxLength: 500 }
+        details: { type: object, additionalProperties: true }
+        actor_user_id: { type: [string, "null"], format: uuid }
+        actor_email: { type: [string, "null"], format: email }
+        occurred_at: { type: string, format: date-time }
+    ClassOperationHistoryListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/ClassOperationHistory" } }
+        message: { type: string }
 
     AssignmentCreateRequest:
       type: object
@@ -2004,11 +2265,18 @@ components:
       properties:
         teacher_id: { type: string, format: uuid }
         assignment_role: { type: string, maxLength: 80 }
+        reason: { type: string, maxLength: 500 }
     AssignmentUpdateRequest:
       type: object
-      required: [assignment_role]
+      required: [assignment_role, reason]
       properties:
         assignment_role: { type: string, maxLength: 80 }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
     TeacherAssignment:
       type: object
       required: [id, class_id, teacher_id, teacher_code, full_name, assignment_role, assigned_at, created_at, updated_at]
@@ -2111,6 +2379,10 @@ components:
           format: date-time
           example: "2026-09-01T10:00:00+07:00"
         status: { $ref: "#/components/schemas/WritableSessionStatus" }
+        change_reason:
+          type: string
+          maxLength: 500
+          description: Required when rescheduling, cancelling, or otherwise updating a session.
     ClassSession:
       type: object
       required: [id, class_id, class_code, class_name, course_id, course_code, course_name, title, session_type, starts_at, ends_at, status, created_at, updated_at]
@@ -2321,7 +2593,7 @@ components:
         message: { type: string }
     StudentAttendanceSummary:
       type: object
-      required: [class_id, class_code, class_name, course_id, course_code, course_name, recorded_sessions, present_sessions, absent_sessions, late_sessions, excused_sessions, attendance_pct]
+      required: [class_id, class_code, class_name, course_id, course_code, course_name, recorded_sessions, present_sessions, absent_sessions, late_sessions, excused_sessions, attendance_pct, minimum_attendance_pct, is_at_risk]
       properties:
         class_id: { type: string, format: uuid }
         class_code: { type: string }
@@ -2339,6 +2611,14 @@ components:
           format: double
           minimum: 0
           maximum: 100
+        minimum_attendance_pct:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        is_at_risk:
+          type: boolean
+          description: True after at least one recorded session when attendance is below the course threshold.
     StudentAttendanceSummaryResponse:
       type: object
       required: [data, message]
@@ -2375,6 +2655,7 @@ components:
       properties:
         session_id: { type: [string, "null"], format: uuid }
         overall_comment: { type: [string, "null"], maxLength: 2000 }
+        evidence_url: { type: [string, "null"], format: uri, maxLength: 2000 }
         items:
           type: array
           maxItems: 200
@@ -2416,6 +2697,7 @@ components:
         assessment_no: { type: integer, minimum: 1 }
         status: { $ref: "#/components/schemas/AssessmentStatus" }
         overall_comment: { type: [string, "null"] }
+        evidence_url: { type: [string, "null"], format: uri }
         submitted_at: { type: [string, "null"], format: date-time }
         locked_at: { type: [string, "null"], format: date-time }
         items:
@@ -2514,6 +2796,135 @@ components:
       required: [data, message]
       properties:
         data: { $ref: "#/components/schemas/ProgressDashboard" }
+        message: { type: string }
+
+    CompletionCandidate:
+      type: object
+      required: [class_id, class_code, class_name, student_id, student_code, student_name, course_code, course_name, completed_sessions, total_sessions, attendance_pct, minimum_attendance_pct, required_competencies_met, required_competencies_total, completed_assessments, required_assessments, is_eligible, status]
+      properties:
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        student_id: { type: string, format: uuid }
+        student_code: { type: string }
+        student_name: { type: string }
+        course_code: { type: string }
+        course_name: { type: string }
+        completed_sessions: { type: integer }
+        total_sessions: { type: integer }
+        attendance_pct: { type: number }
+        minimum_attendance_pct: { type: number }
+        required_competencies_met: { type: integer }
+        required_competencies_total: { type: integer }
+        completed_assessments: { type: integer }
+        required_assessments: { type: integer }
+        is_eligible: { type: boolean }
+        status: { type: string, enum: [pending, eligible, approved, rejected] }
+        review_note: { type: [string, "null"] }
+        reviewed_at: { type: [string, "null"], format: date-time }
+    CompletionCandidateListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/CompletionCandidate" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+    CompletionDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [status, note]
+      properties:
+        status: { type: string, enum: [approved, rejected] }
+        note: { type: string, minLength: 1, maxLength: 1000 }
+    Certificate:
+      type: object
+      required: [id, completion_id, certificate_number, verification_code, class_code, class_name, course_code, course_name, student_code, student_name, issued_at, is_current]
+      properties:
+        id: { type: string, format: uuid }
+        completion_id: { type: string, format: uuid }
+        certificate_number: { type: string, pattern: '^CC[0-9]{8}$' }
+        verification_code: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_code: { type: string }
+        course_name: { type: string }
+        student_code: { type: string }
+        student_name: { type: string }
+        issued_at: { type: string, format: date-time }
+        is_current: { type: boolean }
+        revoked_at: { type: [string, "null"], format: date-time }
+        revoke_reason: { type: [string, "null"] }
+    CertificateActionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 1000 }
+    CompletionDecisionResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [candidate]
+          properties:
+            candidate: { $ref: "#/components/schemas/CompletionCandidate" }
+            certificate: { oneOf: [{ $ref: "#/components/schemas/Certificate" }, { type: "null" }] }
+        message: { type: string }
+    CertificateResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/Certificate" }
+        message: { type: string }
+    CertificateListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Certificate" } }
+        message: { type: string }
+    ReportSummaryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [active_students, open_classes, upcoming_sessions, at_risk_students, approved_completions, pending_notifications]
+          properties:
+            active_students: { type: integer }
+            open_classes: { type: integer }
+            upcoming_sessions: { type: integer }
+            at_risk_students: { type: integer }
+            approved_completions: { type: integer }
+            pending_notifications: { type: integer }
+        message: { type: string }
+    Notification:
+      type: object
+      required: [id, title, message, type, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        message: { type: string }
+        type: { type: string }
+        status: { type: string, enum: [unread, read, archived] }
+        action_url: { type: [string, "null"] }
+        read_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+    NotificationListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta, unread]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/Notification" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+            unread: { type: integer }
         message: { type: string }
 
     ErrorResponse:

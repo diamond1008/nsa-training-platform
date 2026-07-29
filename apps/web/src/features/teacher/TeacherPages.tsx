@@ -24,7 +24,7 @@ import {
   Textarea,
 } from "../../components/ui";
 import { ApiRequestError } from "../../lib/apiClient";
-import type { AttendanceStatus, CompetencyRating } from "../../lib/domainTypes";
+import type { AttendanceStatus, ClassSession, CompetencyRating } from "../../lib/domainTypes";
 import { formatDate, formatDateTime, statusLabel } from "../../lib/format";
 import { teacherApi } from "./teacherApi";
 
@@ -40,6 +40,32 @@ const errorText = (error: unknown) =>
   error instanceof ApiRequestError
     ? error.message
     : "Không thể thực hiện thao tác. Vui lòng thử lại.";
+
+function vietnamDateKey(value: string | Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(typeof value === "string" ? new Date(value) : value);
+}
+
+function attendanceEditState(session: ClassSession) {
+  if (session.attendance_locked_at || session.status === "locked") {
+    return { editable: false, label: "Đã khóa" };
+  }
+  if (session.status === "cancelled") {
+    return { editable: false, label: "Đã hủy" };
+  }
+  const now = new Date();
+  if (now < new Date(session.starts_at)) {
+    return { editable: false, label: "Chưa đến giờ" };
+  }
+  if (vietnamDateKey(now) !== vietnamDateKey(session.starts_at)) {
+    return { editable: false, label: "Đã hết ngày" };
+  }
+  return { editable: true, label: "Đang mở" };
+}
 
 export function TeacherDashboardPage() {
   const classes = useQuery({ queryKey: ["teacher", "classes"], queryFn: teacherApi.classes });
@@ -466,6 +492,9 @@ export function AttendancePage() {
       void client.invalidateQueries({ queryKey: ["teacher", "attendance", sessionId] }),
   });
   const unrecorded = roster.data?.items.filter((i) => !i.attendance_id).length ?? 0;
+  const editState = roster.data
+    ? attendanceEditState(roster.data.session)
+    : { editable: false, label: "Đang tải" };
   return (
     <div>
       <PageHeader
@@ -498,10 +527,7 @@ export function AttendancePage() {
                 <StatCard label="Tổng" value={roster.data.summary.total} />
                 <StatCard label="Đã ghi" value={roster.data.summary.recorded} />
                 <StatCard label="Chưa ghi" value={roster.data.summary.unrecorded} />
-                <StatCard
-                  label="Trạng thái"
-                  value={roster.data.session.attendance_locked_at ? "Đã khóa" : "Đang mở"}
-                />
+                <StatCard label="Trạng thái" value={editState.label} />
               </div>
               {save.error && <ErrorBanner message={errorText(save.error)} />}
               {save.isSuccess && !save.isPending && (
@@ -525,7 +551,7 @@ export function AttendancePage() {
                       <Select
                         aria-label={`Trạng thái ${item.full_name}`}
                         label="Trạng thái"
-                        disabled={!!roster.data.session.attendance_locked_at}
+                        disabled={!editState.editable}
                         value={records[item.student_id]?.status ?? "present"}
                         onChange={(e) =>
                           setRecords((old) => ({
@@ -545,7 +571,7 @@ export function AttendancePage() {
                       </Select>
                       <Input
                         label="Ghi chú"
-                        disabled={!!roster.data.session.attendance_locked_at}
+                        disabled={!editState.editable}
                         value={records[item.student_id]?.note ?? ""}
                         onChange={(e) =>
                           setRecords((old) => ({
@@ -561,7 +587,7 @@ export function AttendancePage() {
               <div className="mt-4 flex flex-wrap justify-end gap-2">
                 <Button
                   variant="ghost"
-                  disabled={!!roster.data.session.attendance_locked_at}
+                  disabled={!editState.editable}
                   onClick={() =>
                     setRecords(
                       Object.fromEntries(
@@ -576,12 +602,12 @@ export function AttendancePage() {
                   Đánh dấu tất cả có mặt
                 </Button>
                 <Button
-                  disabled={!!roster.data.session.attendance_locked_at}
+                  disabled={!editState.editable}
                   loading={save.isPending}
                   onClick={() => save.mutate()}
                 >
-                  {roster.data.session.attendance_locked_at
-                    ? "Đã tự động khóa"
+                  {!editState.editable
+                    ? editState.label
                     : `Lưu điểm danh${unrecorded ? ` (${unrecorded} chưa ghi)` : ""}`}
                 </Button>
               </div>
@@ -608,6 +634,7 @@ export function AssessmentPage() {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [overall, setOverall] = useState("");
+  const [evidenceURL, setEvidenceURL] = useState("");
   const [ratingMap, setRatingMap] = useState<Record<string, CompetencyRating>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -619,11 +646,13 @@ export function AssessmentPage() {
     if (!draft) {
       setEditingId(null);
       setOverall("");
+      setEvidenceURL("");
       setComments({});
       return;
     }
     setEditingId(draft.id);
     setOverall(draft.overall_comment ?? "");
+    setEvidenceURL(draft.evidence_url ?? "");
     setRatingMap(
       Object.fromEntries(draft.items.map((item) => [item.competency_criterion_id, item.rating])),
     );
@@ -639,6 +668,7 @@ export function AssessmentPage() {
   const assessmentBody = {
     session_id: null,
     overall_comment: overall || null,
+    evidence_url: evidenceURL.trim() || null,
     items:
       detail.data?.competencies.map((c) => ({
         competency_criterion_id: c.id,
@@ -732,6 +762,13 @@ export function AssessmentPage() {
                   value={overall}
                   onChange={(e) => setOverall(e.target.value)}
                 />
+                <Input
+                  type="url"
+                  label="Liên kết minh chứng (tùy chọn)"
+                  placeholder="https://drive.google.com/..."
+                  value={evidenceURL}
+                  onChange={(e) => setEvidenceURL(e.target.value)}
+                />
                 <div className="flex justify-end">
                   <Button loading={create.isPending} onClick={() => create.mutate()}>
                     Lưu bản nháp
@@ -752,6 +789,16 @@ export function AssessmentPage() {
                     <p className="mt-2 text-sm text-gtext">
                       {a.overall_comment || "Không có nhận xét chung"}
                     </p>
+                    {a.evidence_url && (
+                      <a
+                        className="mt-2 inline-flex text-xs font-semibold text-gold-dark hover:underline"
+                        href={a.evidence_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Xem minh chứng ↗
+                      </a>
+                    )}
                     <p className="mt-2 text-xs text-gtext">
                       {
                         a.items.filter((i) => ["competent", "good", "excellent"].includes(i.rating))

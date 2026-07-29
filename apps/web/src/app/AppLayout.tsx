@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
@@ -6,6 +7,8 @@ import { Icon } from "../components/icons";
 import type { IconName } from "../components/icons";
 import { Badge, Button } from "../components/ui";
 import { useAuth } from "../features/auth/AuthContext";
+import { notificationApi } from "../features/notifications/notificationApi";
+import { formatDateTime } from "../lib/format";
 import type { Role } from "../lib/types";
 
 interface NavItem {
@@ -21,6 +24,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { to: "/admin/khoa-hoc", label: "Khóa học", icon: "book" },
     { to: "/admin/lop-hoc", label: "Lớp học", icon: "school" },
     { to: "/admin/lich-hoc", label: "Lịch học", icon: "calendar" },
+    { to: "/admin/van-hanh", label: "Vận hành & báo cáo", icon: "chart" },
   ],
   TEACHER: [
     { to: "/teacher", label: "Tổng quan", icon: "home" },
@@ -55,6 +59,17 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const notifications = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => notificationApi.list(),
+    refetchInterval: 60_000,
+  });
+  const markRead = useMutation({
+    mutationFn: (id: string) => notificationApi.markRead(id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
   if (!user) return null;
 
   const items = navItemsFor(user.roles);
@@ -172,12 +187,54 @@ export default function AppLayout() {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              className="hidden h-9 w-9 items-center justify-center rounded-xl text-gtext hover:bg-gbg2 sm:flex"
-              aria-label="Thông báo"
-            >
-              <Icon name="bell" className="h-[18px] w-[18px]" />
-            </button>
+            <div className="relative hidden sm:block">
+              <button
+                className="relative flex h-9 w-9 items-center justify-center rounded-xl text-gtext hover:bg-gbg2"
+                aria-label="Thông báo"
+                aria-expanded={notificationsOpen}
+                onClick={() => setNotificationsOpen((value) => !value)}
+              >
+                <Icon name="bell" className="h-[18px] w-[18px]" />
+                {!!notifications.data?.unread && (
+                  <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-error px-1 text-[9px] font-bold text-white">
+                    {Math.min(notifications.data.unread, 99)}
+                  </span>
+                )}
+              </button>
+              {notificationsOpen && (
+                <div className="absolute right-0 top-12 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-gborder bg-white shadow-elevated">
+                  <div className="border-b border-gborder px-4 py-3">
+                    <b className="text-sm text-navy">Thông báo</b>
+                    <p className="text-xs text-gtext">{notifications.data?.unread ?? 0} chưa đọc</p>
+                  </div>
+                  <div className="max-h-[26rem] overflow-y-auto">
+                    {notifications.data?.items.map((item) => (
+                      <button
+                        key={item.id}
+                        className={clsx(
+                          "block w-full border-b border-gborder/70 px-4 py-3 text-left hover:bg-gbg2",
+                          item.status === "unread" && "bg-gold/5",
+                        )}
+                        onClick={() => {
+                          if (item.status === "unread") markRead.mutate(item.id);
+                          setNotificationsOpen(false);
+                          if (item.action_url?.startsWith("/")) navigate(item.action_url);
+                        }}
+                      >
+                        <span className="block text-sm font-semibold text-navy">{item.title}</span>
+                        <span className="mt-1 block text-xs text-gtext">{item.message}</span>
+                        <span className="mt-1 block text-[10px] text-gtext">
+                          {formatDateTime(item.created_at)}
+                        </span>
+                      </button>
+                    ))}
+                    {!notifications.data?.items.length && (
+                      <p className="p-6 text-center text-sm text-gtext">Chưa có thông báo.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="hidden h-8 w-px bg-gborder sm:block" />
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-navy text-[11px] font-bold text-white">
               {initials}

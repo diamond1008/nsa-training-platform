@@ -21,7 +21,9 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/completions"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/notifications"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/config"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/database"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/docs"
@@ -29,6 +31,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/logging"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/middleware"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/progress"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/reports"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
@@ -89,6 +92,9 @@ func run() error {
 	go attendanceService.RunAutoLockWorker(ctx, log)
 	assessmentHandler := assessments.NewHandler(assessments.NewService(pool), log)
 	progressHandler := progress.NewHandler(progress.NewService(pool), log)
+	completionHandler := completions.NewHandler(completions.NewService(pool), log)
+	notificationHandler := notifications.NewHandler(notifications.NewService(pool), log)
+	reportHandler := reports.NewHandler(reports.NewService(pool), log)
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -115,6 +121,7 @@ func run() error {
 
 	// Business API (versioned).
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/certificates/{verificationCode}", completionHandler.Verify)
 		r.Route("/auth", func(r chi.Router) {
 			// Brute-force protection on credential endpoints (in-memory, per IP).
 			r.With(httprate.LimitByIP(10, time.Minute)).Post("/login", authHandler.Login)
@@ -131,12 +138,18 @@ func run() error {
 
 		mountAdminRoutes(
 			r, tokenService, studentHandler, teacherHandler, courseHandler,
-			classHandler, scheduleHandler, attendanceHandler,
+			classHandler, scheduleHandler, attendanceHandler, completionHandler, reportHandler,
 		)
 		mountRoleRoutes(
 			r, tokenService, classHandler, scheduleHandler, attendanceHandler,
-			assessmentHandler, progressHandler,
+			assessmentHandler, progressHandler, completionHandler,
 		)
+		r.Route("/notifications", func(r chi.Router) {
+			r.Use(auth.Authenticate(tokenService))
+			r.Get("/", notificationHandler.List)
+			r.Put("/{notificationID}/read", notificationHandler.MarkRead)
+			r.Delete("/{notificationID}", notificationHandler.Archive)
+		})
 	})
 
 	srv := &http.Server{
@@ -187,6 +200,8 @@ func mountAdminRoutes(
 	classHandler *classes.Handler,
 	scheduleHandler *schedules.Handler,
 	attendanceHandler *attendance.Handler,
+	completionHandler *completions.Handler,
+	reportHandler *reports.Handler,
 ) {
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -229,10 +244,12 @@ func mountAdminRoutes(
 			r.Post("/", classHandler.Create)
 			r.Get("/{classID}", classHandler.Get)
 			r.Put("/{classID}", classHandler.Update)
+			r.Get("/{classID}/operation-history", classHandler.OperationHistory)
 
 			r.Get("/{classID}/enrollments", classHandler.ListEnrollments)
 			r.Post("/{classID}/enrollments", classHandler.Enroll)
 			r.Put("/{classID}/enrollments/{enrollmentID}", classHandler.UpdateEnrollment)
+			r.Post("/{classID}/enrollments/{enrollmentID}/transfer", classHandler.TransferEnrollment)
 
 			r.Get("/{classID}/teacher-assignments", classHandler.ListAssignments)
 			r.Post("/{classID}/teacher-assignments", classHandler.AssignTeacher)
@@ -256,6 +273,15 @@ func mountAdminRoutes(
 		})
 
 		r.Put("/attendance/{attendanceID}", attendanceHandler.Correct)
+
+		r.Get("/completions", completionHandler.List)
+		r.Put("/completions/{classID}/{studentID}", completionHandler.Decide)
+		r.Get("/completions/{classID}/{studentID}/history", completionHandler.History)
+		r.Get("/certificates/{certificateID}/pdf", completionHandler.AdminPDF)
+		r.Post("/certificates/{certificateID}/revoke", completionHandler.Revoke)
+		r.Post("/certificates/{certificateID}/reissue", completionHandler.Reissue)
+		r.Get("/reports/summary", reportHandler.Summary)
+		r.Get("/reports/{reportKind}.csv", reportHandler.Export)
 	})
 }
 
@@ -268,6 +294,7 @@ func mountRoleRoutes(
 	attendanceHandler *attendance.Handler,
 	assessmentHandler *assessments.Handler,
 	progressHandler *progress.Handler,
+	completionHandler *completions.Handler,
 ) {
 	r.Route("/teacher", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -294,5 +321,7 @@ func mountRoleRoutes(
 		r.Get("/assessments", assessmentHandler.ListStudent)
 		r.Get("/assessments/{assessmentID}", assessmentHandler.GetStudent)
 		r.Get("/progress", progressHandler.Dashboard)
+		r.Get("/certificates", completionHandler.StudentList)
+		r.Get("/certificates/{certificateID}/pdf", completionHandler.StudentPDF)
 	})
 }

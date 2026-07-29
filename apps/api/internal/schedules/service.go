@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/notifications"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/audit"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/classhistory"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/dberror"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/pagination"
@@ -88,15 +90,16 @@ type LocationInput struct {
 }
 
 type SessionInput struct {
-	ClassID     string
-	ModuleID    *string
-	TeacherID   *string
-	LocationID  *string
-	Title       string
-	SessionType db.SessionType
-	StartsAt    time.Time
-	EndsAt      time.Time
-	Status      db.SessionStatus
+	ClassID      string
+	ModuleID     *string
+	TeacherID    *string
+	LocationID   *string
+	Title        string
+	SessionType  db.SessionType
+	StartsAt     time.Time
+	EndsAt       time.Time
+	Status       db.SessionStatus
+	ChangeReason string
 }
 
 type ListFilter struct {
@@ -241,6 +244,12 @@ func (s *Service) CreateSession(ctx context.Context, actorID string, input Sessi
 		return SessionView{}, fmt.Errorf("read created session: %w", err)
 	}
 	view := viewFromGet(row)
+	if err := classhistory.Write(ctx, q, actorID, created.ClassID, "session_created", "class_session", created.ID, "Tạo buổi học", view); err != nil {
+		return SessionView{}, err
+	}
+	if err := notifications.CreateForClass(ctx, q, created.ClassID, "Có lịch học mới", created.Title, "session_created", nil); err != nil {
+		return SessionView{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "class_session.create", "class_session", created.ID, nil, view); err != nil {
 		return SessionView{}, err
 	}
@@ -304,6 +313,22 @@ func (s *Service) UpdateSession(ctx context.Context, actorID, id string, input S
 		return SessionView{}, fmt.Errorf("read updated session: %w", err)
 	}
 	view := viewFromGet(updated)
+	reason := strings.TrimSpace(input.ChangeReason)
+	if reason == "" {
+		reason = "Cập nhật buổi học"
+	}
+	eventType := "session_updated"
+	if updated.Status == db.SessionStatusCancelled && existing.Status != db.SessionStatusCancelled {
+		eventType = "session_cancelled"
+	}
+	if err := classhistory.Write(ctx, q, actorID, updated.ClassID, eventType, "class_session", sessionID, reason, map[string]any{
+		"before": viewFromGet(existing), "after": view,
+	}); err != nil {
+		return SessionView{}, err
+	}
+	if err := notifications.CreateForClass(ctx, q, updated.ClassID, "Lịch học có thay đổi", updated.Title+": "+reason, eventType, nil); err != nil {
+		return SessionView{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "class_session.update", "class_session", sessionID, viewFromGet(existing), view); err != nil {
 		return SessionView{}, err
 	}

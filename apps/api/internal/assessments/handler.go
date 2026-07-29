@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,7 @@ const (
 	maxAssessmentItems = 200
 	maxOverallComment  = 2000
 	maxItemComment     = 1000
+	maxEvidenceURL     = 2000
 )
 
 type Handler struct {
@@ -33,6 +35,7 @@ func NewHandler(service *Service, log *slog.Logger) *Handler {
 type writeRequest struct {
 	SessionID      *string       `json:"session_id"`
 	OverallComment *string       `json:"overall_comment"`
+	EvidenceURL    *string       `json:"evidence_url"`
 	Items          []itemRequest `json:"items"`
 }
 
@@ -166,6 +169,11 @@ func (h *Handler) decodeWrite(w http.ResponseWriter, r *http.Request) (WriteInpu
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "overall_comment must not exceed 2000 characters")
 		return WriteInput{}, false
 	}
+	evidenceURL, ok := normalizeOptional(body.EvidenceURL, maxEvidenceURL)
+	if !ok || !validEvidenceURL(evidenceURL) {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "evidence_url must be an http(s) URL of at most 2000 characters")
+		return WriteInput{}, false
+	}
 	var sessionID *string
 	if body.SessionID != nil {
 		value := strings.TrimSpace(*body.SessionID)
@@ -202,7 +210,15 @@ func (h *Handler) decodeWrite(w http.ResponseWriter, r *http.Request) (WriteInpu
 		}
 		items = append(items, ItemInput{CriterionID: criterionID, Rating: rating, Comment: comment})
 	}
-	return WriteInput{SessionID: sessionID, OverallComment: overall, Items: items}, true
+	return WriteInput{SessionID: sessionID, OverallComment: overall, EvidenceURL: evidenceURL, Items: items}, true
+}
+
+func validEvidenceURL(value *string) bool {
+	if value == nil {
+		return true
+	}
+	parsed, err := url.ParseRequestURI(*value)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func competencyRating(value string) (db.CompetencyRating, bool) {

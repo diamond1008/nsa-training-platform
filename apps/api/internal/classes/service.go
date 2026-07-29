@@ -4,15 +4,18 @@ package classes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/audit"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/classhistory"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/dberror"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/pagination"
@@ -36,6 +39,9 @@ var (
 	ErrAssignmentNotFound  = errors.New("teacher assignment not found")
 	ErrDuplicateAssignment = errors.New("teacher already assigned")
 	ErrAssignmentInUse     = errors.New("teacher assignment is used by sessions")
+	ErrEnrollmentNotActive = errors.New("enrollment is not active")
+	ErrTransferSameClass   = errors.New("source and target classes are the same")
+	ErrTransferCourse      = errors.New("target class belongs to another course")
 )
 
 type View struct {
@@ -98,6 +104,24 @@ type TeacherClassView struct {
 	Competencies []CriterionView  `json:"competencies"`
 }
 
+type OperationHistoryView struct {
+	ID          string          `json:"id"`
+	ClassID     string          `json:"class_id"`
+	EventType   string          `json:"event_type"`
+	EntityType  string          `json:"entity_type"`
+	EntityID    *string         `json:"entity_id"`
+	Reason      *string         `json:"reason"`
+	Details     json.RawMessage `json:"details"`
+	ActorUserID *string         `json:"actor_user_id"`
+	ActorEmail  *string         `json:"actor_email"`
+	OccurredAt  string          `json:"occurred_at"`
+}
+
+type TransferView struct {
+	Source EnrollmentView `json:"source"`
+	Target EnrollmentView `json:"target"`
+}
+
 type WriteInput struct {
 	CourseID        string
 	ClassCode       string
@@ -106,6 +130,7 @@ type WriteInput struct {
 	EndDate         string
 	MaximumStudents int32
 	Status          db.ClassStatus
+	ChangeReason    string
 }
 
 type Service struct {
@@ -146,6 +171,9 @@ func (s *Service) Create(ctx context.Context, actorID string, input WriteInput) 
 		return View{}, fmt.Errorf("read created class: %w", err)
 	}
 	view := viewFromGet(row)
+	if err := classhistory.Write(ctx, q, actorID, created.ID, "class_created", "class", created.ID, "Khởi tạo lớp học", view); err != nil {
+		return View{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "class.create", "class", created.ID, nil, view); err != nil {
 		return View{}, err
 	}
@@ -168,6 +196,33 @@ func (s *Service) Get(ctx context.Context, id string) (View, error) {
 		return View{}, fmt.Errorf("get class: %w", err)
 	}
 	return viewFromGet(row), nil
+}
+
+func (s *Service) OperationHistory(ctx context.Context, id string) ([]OperationHistoryView, error) {
+	classID, err := data.UUID(id)
+	if err != nil {
+		return nil, ErrClassNotFound
+	}
+	if _, err := s.queries.GetAdminClass(ctx, classID); errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrClassNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("get class for operation history: %w", err)
+	}
+	rows, err := s.queries.ListClassOperationHistory(ctx, classID)
+	if err != nil {
+		return nil, fmt.Errorf("list class operation history: %w", err)
+	}
+	items := make([]OperationHistoryView, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, OperationHistoryView{
+			ID: data.UUIDString(row.ID), ClassID: data.UUIDString(row.ClassID),
+			EventType: row.EventType, EntityType: row.EntityType,
+			EntityID: data.UUIDPointer(row.EntityID), Reason: data.TextPointer(row.Reason),
+			Details: json.RawMessage(row.Details), ActorUserID: data.UUIDPointer(row.ActorUserID),
+			ActorEmail: data.TextPointer(row.ActorEmail), OccurredAt: row.OccurredAt.Time.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return items, nil
 }
 
 func (s *Service) List(ctx context.Context, search, status, courseIDValue string, page, perPage int) (pagination.Result[View], error) {
@@ -296,6 +351,15 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInp
 		return View{}, fmt.Errorf("read updated class: %w", err)
 	}
 	view := viewFromGet(updated)
+	reason := strings.TrimSpace(input.ChangeReason)
+	if reason == "" {
+		reason = "Cập nhật thông tin lớp"
+	}
+	if err := classhistory.Write(ctx, q, actorID, classID, "class_updated", "class", classID, reason, map[string]any{
+		"before": viewFromGet(existing), "after": view,
+	}); err != nil {
+		return View{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "class.update", "class", classID, viewFromGet(existing), view); err != nil {
 		return View{}, err
 	}
@@ -306,6 +370,10 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInp
 }
 
 func (s *Service) Enroll(ctx context.Context, actorID, classIDValue, studentIDValue string) (EnrollmentView, error) {
+	return s.EnrollWithReason(ctx, actorID, classIDValue, studentIDValue, "Ghi danh học viên")
+}
+
+func (s *Service) EnrollWithReason(ctx context.Context, actorID, classIDValue, studentIDValue, reason string) (EnrollmentView, error) {
 	classID, studentID, err := parsePair(classIDValue, studentIDValue)
 	if err != nil {
 		return EnrollmentView{}, ErrStudentNotFound
@@ -355,6 +423,9 @@ func (s *Service) Enroll(ctx context.Context, actorID, classIDValue, studentIDVa
 		return EnrollmentView{}, fmt.Errorf("read enrollment: %w", err)
 	}
 	view := enrollmentViewFromGet(row)
+	if err := classhistory.Write(ctx, q, actorID, classID, "student_enrolled", "class_enrollment", enrollment.ID, reason, view); err != nil {
+		return EnrollmentView{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "class_enrollment.create", "class_enrollment", enrollment.ID, nil, view); err != nil {
 		return EnrollmentView{}, err
 	}
@@ -386,6 +457,10 @@ func (s *Service) ListEnrollments(ctx context.Context, classIDValue string) ([]E
 }
 
 func (s *Service) UpdateEnrollment(ctx context.Context, actorID, classIDValue, enrollmentIDValue string, status db.EnrollmentStatus) (EnrollmentView, error) {
+	return s.UpdateEnrollmentWithReason(ctx, actorID, classIDValue, enrollmentIDValue, status, "Cập nhật trạng thái ghi danh")
+}
+
+func (s *Service) UpdateEnrollmentWithReason(ctx context.Context, actorID, classIDValue, enrollmentIDValue string, status db.EnrollmentStatus, reason string) (EnrollmentView, error) {
 	classID, enrollmentID, err := parsePair(classIDValue, enrollmentIDValue)
 	if err != nil {
 		return EnrollmentView{}, ErrEnrollmentNotFound
@@ -429,6 +504,12 @@ func (s *Service) UpdateEnrollment(ctx context.Context, actorID, classIDValue, e
 		return EnrollmentView{}, fmt.Errorf("read updated enrollment: %w", err)
 	}
 	view := enrollmentViewFromGet(updated)
+	if err := classhistory.Write(ctx, q, actorID, classID, "enrollment_status_changed", "class_enrollment", enrollmentID, reason, map[string]any{
+		"from_status": existing.Status, "to_status": updated.Status,
+		"student_id": data.UUIDString(existing.StudentID), "student_code": existing.StudentCode,
+	}); err != nil {
+		return EnrollmentView{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "class_enrollment.update", "class_enrollment", enrollmentID, enrollmentViewFromGet(existing), view); err != nil {
 		return EnrollmentView{}, err
 	}
@@ -438,7 +519,110 @@ func (s *Service) UpdateEnrollment(ctx context.Context, actorID, classIDValue, e
 	return view, nil
 }
 
+func (s *Service) TransferEnrollment(ctx context.Context, actorID, sourceClassIDValue, enrollmentIDValue, targetClassIDValue, reason string) (TransferView, error) {
+	sourceClassID, enrollmentID, err := parsePair(sourceClassIDValue, enrollmentIDValue)
+	if err != nil {
+		return TransferView{}, ErrEnrollmentNotFound
+	}
+	targetClassID, err := data.UUID(targetClassIDValue)
+	if err != nil {
+		return TransferView{}, ErrClassNotFound
+	}
+	if sourceClassID == targetClassID {
+		return TransferView{}, ErrTransferSameClass
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return TransferView{}, fmt.Errorf("begin enrollment transfer: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := s.queries.WithTx(tx)
+	source, err := q.GetClassEnrollmentForUpdate(ctx, db.GetClassEnrollmentForUpdateParams{ID: enrollmentID, ClassID: sourceClassID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TransferView{}, ErrEnrollmentNotFound
+	}
+	if err != nil {
+		return TransferView{}, fmt.Errorf("get source enrollment for transfer: %w", err)
+	}
+	if source.Status != db.EnrollmentStatusEnrolled {
+		return TransferView{}, ErrEnrollmentNotActive
+	}
+	sourceClass, err := q.GetAdminClass(ctx, sourceClassID)
+	if err != nil {
+		return TransferView{}, fmt.Errorf("get source class for transfer: %w", err)
+	}
+	targetClass, err := q.GetAdminClass(ctx, targetClassID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TransferView{}, ErrClassNotFound
+	}
+	if err != nil {
+		return TransferView{}, fmt.Errorf("get target class for transfer: %w", err)
+	}
+	if sourceClass.CourseID != targetClass.CourseID {
+		return TransferView{}, ErrTransferCourse
+	}
+	if !classAllowsRelations(targetClass.Status) {
+		return TransferView{}, ErrClassNotEnrollable
+	}
+	if _, err := q.GetEnrollmentByClassStudent(ctx, db.GetEnrollmentByClassStudentParams{
+		ClassID: targetClassID, StudentID: source.StudentID,
+	}); err == nil {
+		return TransferView{}, ErrDuplicateEnrollment
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return TransferView{}, fmt.Errorf("check target enrollment: %w", err)
+	}
+	actor, err := data.UUID(actorID)
+	if err != nil {
+		return TransferView{}, err
+	}
+	if _, err := q.UpdateClassEnrollmentStatus(ctx, db.UpdateClassEnrollmentStatusParams{
+		ID: enrollmentID, ClassID: sourceClassID, Status: db.EnrollmentStatusTransferred,
+	}); err != nil {
+		return TransferView{}, mapEnrollmentWriteError(err)
+	}
+	targetCreated, err := q.CreateClassEnrollment(ctx, db.CreateClassEnrollmentParams{
+		ClassID: targetClassID, StudentID: source.StudentID, CreatedBy: actor,
+	})
+	if err != nil {
+		return TransferView{}, mapEnrollmentWriteError(err)
+	}
+	sourceUpdated, err := q.GetClassEnrollment(ctx, db.GetClassEnrollmentParams{ID: enrollmentID, ClassID: sourceClassID})
+	if err != nil {
+		return TransferView{}, fmt.Errorf("read transferred source enrollment: %w", err)
+	}
+	targetRow, err := q.GetClassEnrollment(ctx, db.GetClassEnrollmentParams{ID: targetCreated.ID, ClassID: targetClassID})
+	if err != nil {
+		return TransferView{}, fmt.Errorf("read transfer target enrollment: %w", err)
+	}
+	result := TransferView{Source: enrollmentViewFromGet(sourceUpdated), Target: enrollmentViewFromGet(targetRow)}
+	details := map[string]any{
+		"student_id": data.UUIDString(source.StudentID), "student_code": source.StudentCode,
+		"source_class_id": sourceClassIDValue, "target_class_id": targetClassIDValue,
+		"source_class_code": sourceClass.ClassCode, "target_class_code": targetClass.ClassCode,
+	}
+	if err := classhistory.Write(ctx, q, actorID, sourceClassID, "student_transferred_out", "class_enrollment", enrollmentID, reason, details); err != nil {
+		return TransferView{}, err
+	}
+	if err := classhistory.Write(ctx, q, actorID, targetClassID, "student_transferred_in", "class_enrollment", targetCreated.ID, reason, details); err != nil {
+		return TransferView{}, err
+	}
+	if err := audit.Write(ctx, q, actorID, "class_enrollment.transfer_out", "class_enrollment", enrollmentID, nil, result.Source); err != nil {
+		return TransferView{}, err
+	}
+	if err := audit.Write(ctx, q, actorID, "class_enrollment.transfer_in", "class_enrollment", targetCreated.ID, nil, result.Target); err != nil {
+		return TransferView{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return TransferView{}, fmt.Errorf("commit enrollment transfer: %w", err)
+	}
+	return result, nil
+}
+
 func (s *Service) AssignTeacher(ctx context.Context, actorID, classIDValue, teacherIDValue, role string) (AssignmentView, error) {
+	return s.AssignTeacherWithReason(ctx, actorID, classIDValue, teacherIDValue, role, "Phân công giảng viên")
+}
+
+func (s *Service) AssignTeacherWithReason(ctx context.Context, actorID, classIDValue, teacherIDValue, role, reason string) (AssignmentView, error) {
 	classID, teacherID, err := parsePair(classIDValue, teacherIDValue)
 	if err != nil {
 		return AssignmentView{}, ErrTeacherNotFound
@@ -481,6 +665,9 @@ func (s *Service) AssignTeacher(ctx context.Context, actorID, classIDValue, teac
 		return AssignmentView{}, fmt.Errorf("read teacher assignment: %w", err)
 	}
 	view := assignmentViewFromGet(row)
+	if err := classhistory.Write(ctx, q, actorID, classID, "teacher_assigned", "teacher_assignment", assignment.ID, reason, view); err != nil {
+		return AssignmentView{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "teacher_assignment.create", "teacher_assignment", assignment.ID, nil, view); err != nil {
 		return AssignmentView{}, err
 	}
@@ -512,6 +699,10 @@ func (s *Service) ListAssignments(ctx context.Context, classIDValue string) ([]A
 }
 
 func (s *Service) UpdateAssignment(ctx context.Context, actorID, classIDValue, assignmentIDValue, role string) (AssignmentView, error) {
+	return s.UpdateAssignmentWithReason(ctx, actorID, classIDValue, assignmentIDValue, role, "Cập nhật vai trò giảng viên")
+}
+
+func (s *Service) UpdateAssignmentWithReason(ctx context.Context, actorID, classIDValue, assignmentIDValue, role, reason string) (AssignmentView, error) {
 	classID, assignmentID, err := parsePair(classIDValue, assignmentIDValue)
 	if err != nil {
 		return AssignmentView{}, ErrAssignmentNotFound
@@ -539,6 +730,11 @@ func (s *Service) UpdateAssignment(ctx context.Context, actorID, classIDValue, a
 		return AssignmentView{}, fmt.Errorf("read updated assignment: %w", err)
 	}
 	view := assignmentViewFromGet(updated)
+	if err := classhistory.Write(ctx, q, actorID, classID, "teacher_assignment_updated", "teacher_assignment", assignmentID, reason, map[string]any{
+		"before": assignmentViewFromGet(existing), "after": view,
+	}); err != nil {
+		return AssignmentView{}, err
+	}
 	if err := audit.Write(ctx, q, actorID, "teacher_assignment.update", "teacher_assignment", assignmentID, assignmentViewFromGet(existing), view); err != nil {
 		return AssignmentView{}, err
 	}
@@ -549,6 +745,10 @@ func (s *Service) UpdateAssignment(ctx context.Context, actorID, classIDValue, a
 }
 
 func (s *Service) DeleteAssignment(ctx context.Context, actorID, classIDValue, assignmentIDValue string) error {
+	return s.DeleteAssignmentWithReason(ctx, actorID, classIDValue, assignmentIDValue, "Gỡ phân công giảng viên")
+}
+
+func (s *Service) DeleteAssignmentWithReason(ctx context.Context, actorID, classIDValue, assignmentIDValue, reason string) error {
 	classID, assignmentID, err := parsePair(classIDValue, assignmentIDValue)
 	if err != nil {
 		return ErrAssignmentNotFound
@@ -572,6 +772,9 @@ func (s *Service) DeleteAssignment(ctx context.Context, actorID, classIDValue, a
 	}
 	if affected == 0 {
 		return ErrAssignmentNotFound
+	}
+	if err := classhistory.Write(ctx, q, actorID, classID, "teacher_removed", "teacher_assignment", assignmentID, reason, assignmentViewFromGet(existing)); err != nil {
+		return err
 	}
 	if err := audit.Write(ctx, q, actorID, "teacher_assignment.delete", "teacher_assignment", assignmentID, assignmentViewFromGet(existing), nil); err != nil {
 		return err

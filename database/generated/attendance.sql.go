@@ -37,9 +37,10 @@ SELECT
 FROM class_sessions cs
 JOIN class_enrollments ce
   ON ce.class_id = cs.class_id
-  AND ce.status = 'enrolled'
+  AND ce.enrolled_at <= cs.starts_at
+  AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
 LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
-WHERE cs.starts_at < $1
+WHERE cs.ends_at < $1
   AND cs.status IN ('scheduled', 'completed')
   AND cs.attendance_locked_at IS NULL
   AND COALESCE(
@@ -71,7 +72,7 @@ func (q *Queries) AutoFillExpiredAttendance(ctx context.Context, cutoff pgtype.T
 const autoLockExpiredAttendanceSessions = `-- name: AutoLockExpiredAttendanceSessions :execrows
 UPDATE class_sessions cs
 SET status = 'locked', attendance_locked_at = $1
-WHERE cs.starts_at < $1
+WHERE cs.ends_at < $1
   AND cs.status IN ('scheduled', 'completed')
   AND cs.attendance_locked_at IS NULL
   AND NOT EXISTS (
@@ -81,7 +82,8 @@ WHERE cs.starts_at < $1
       ON ar.class_session_id = cs.id
       AND ar.student_id = ce.student_id
     WHERE ce.class_id = cs.class_id
-      AND ce.status = 'enrolled'
+      AND ce.enrolled_at <= cs.starts_at
+      AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
       AND ar.id IS NULL
   )
 `
@@ -94,23 +96,26 @@ func (q *Queries) AutoLockExpiredAttendanceSessions(ctx context.Context, cutoff 
 	return result.RowsAffected(), nil
 }
 
-const checkActiveEnrollment = `-- name: CheckActiveEnrollment :one
+const checkEnrollmentForSession = `-- name: CheckEnrollmentForSession :one
 SELECT EXISTS(
   SELECT 1
-  FROM class_enrollments
-  WHERE class_id = $1
-    AND student_id = $2
-    AND status = 'enrolled'
+  FROM class_sessions cs
+  JOIN class_enrollments ce
+    ON ce.class_id = cs.class_id
+    AND ce.student_id = $1
+    AND ce.enrolled_at <= cs.starts_at
+    AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
+  WHERE cs.id = $2
 )
 `
 
-type CheckActiveEnrollmentParams struct {
-	ClassID   pgtype.UUID `json:"class_id"`
+type CheckEnrollmentForSessionParams struct {
 	StudentID pgtype.UUID `json:"student_id"`
+	SessionID pgtype.UUID `json:"session_id"`
 }
 
-func (q *Queries) CheckActiveEnrollment(ctx context.Context, arg CheckActiveEnrollmentParams) (bool, error) {
-	row := q.db.QueryRow(ctx, checkActiveEnrollment, arg.ClassID, arg.StudentID)
+func (q *Queries) CheckEnrollmentForSession(ctx context.Context, arg CheckEnrollmentForSessionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkEnrollmentForSession, arg.StudentID, arg.SessionID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -122,7 +127,8 @@ SELECT EXISTS(
   FROM class_sessions cs
   JOIN class_enrollments ce
     ON ce.class_id = cs.class_id
-    AND ce.status = 'enrolled'
+    AND ce.enrolled_at <= cs.starts_at
+    AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
   JOIN student_profiles sp ON sp.id = ce.student_id
   WHERE cs.id = $1
     AND sp.user_id = $2
@@ -344,7 +350,8 @@ SELECT
 FROM class_sessions cs
 JOIN class_enrollments ce
   ON ce.class_id = cs.class_id
-  AND ce.status = 'enrolled'
+  AND ce.enrolled_at <= cs.starts_at
+  AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
 JOIN student_profiles sp ON sp.id = ce.student_id
 LEFT JOIN attendance_records ar
   ON ar.class_session_id = cs.id
@@ -491,6 +498,7 @@ const listStudentAttendanceSummaries = `-- name: ListStudentAttendanceSummaries 
 SELECT
   ar.class_id, c.class_code, c.name AS class_name,
   cs.course_id, co.code AS course_code, co.name AS course_name,
+  co.minimum_attendance_pct,
   COUNT(*)::int AS recorded_sessions,
   COUNT(*) FILTER (WHERE ar.status = 'present')::int AS present_sessions,
   COUNT(*) FILTER (WHERE ar.status = 'absent')::int AS absent_sessions,
@@ -516,7 +524,7 @@ WHERE sp.user_id = $1
     $2::uuid IS NULL
     OR ar.class_id = $2::uuid
   )
-GROUP BY ar.class_id, c.class_code, c.name, cs.course_id, co.code, co.name
+GROUP BY ar.class_id, c.class_code, c.name, cs.course_id, co.code, co.name, co.minimum_attendance_pct
 ORDER BY c.class_code, ar.class_id
 `
 
@@ -526,18 +534,19 @@ type ListStudentAttendanceSummariesParams struct {
 }
 
 type ListStudentAttendanceSummariesRow struct {
-	ClassID          pgtype.UUID    `json:"class_id"`
-	ClassCode        string         `json:"class_code"`
-	ClassName        string         `json:"class_name"`
-	CourseID         pgtype.UUID    `json:"course_id"`
-	CourseCode       string         `json:"course_code"`
-	CourseName       string         `json:"course_name"`
-	RecordedSessions int32          `json:"recorded_sessions"`
-	PresentSessions  int32          `json:"present_sessions"`
-	AbsentSessions   int32          `json:"absent_sessions"`
-	LateSessions     int32          `json:"late_sessions"`
-	ExcusedSessions  int32          `json:"excused_sessions"`
-	AttendancePct    pgtype.Numeric `json:"attendance_pct"`
+	ClassID              pgtype.UUID    `json:"class_id"`
+	ClassCode            string         `json:"class_code"`
+	ClassName            string         `json:"class_name"`
+	CourseID             pgtype.UUID    `json:"course_id"`
+	CourseCode           string         `json:"course_code"`
+	CourseName           string         `json:"course_name"`
+	MinimumAttendancePct pgtype.Numeric `json:"minimum_attendance_pct"`
+	RecordedSessions     int32          `json:"recorded_sessions"`
+	PresentSessions      int32          `json:"present_sessions"`
+	AbsentSessions       int32          `json:"absent_sessions"`
+	LateSessions         int32          `json:"late_sessions"`
+	ExcusedSessions      int32          `json:"excused_sessions"`
+	AttendancePct        pgtype.Numeric `json:"attendance_pct"`
 }
 
 func (q *Queries) ListStudentAttendanceSummaries(ctx context.Context, arg ListStudentAttendanceSummariesParams) ([]ListStudentAttendanceSummariesRow, error) {
@@ -556,6 +565,7 @@ func (q *Queries) ListStudentAttendanceSummaries(ctx context.Context, arg ListSt
 			&i.CourseID,
 			&i.CourseCode,
 			&i.CourseName,
+			&i.MinimumAttendancePct,
 			&i.RecordedSessions,
 			&i.PresentSessions,
 			&i.AbsentSessions,

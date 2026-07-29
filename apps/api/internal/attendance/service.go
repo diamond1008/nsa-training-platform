@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/audit"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/classhistory"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/dberror"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/pagination"
@@ -123,18 +124,20 @@ type StudentHistoryView struct {
 }
 
 type StudentSummaryView struct {
-	ClassID          string  `json:"class_id"`
-	ClassCode        string  `json:"class_code"`
-	ClassName        string  `json:"class_name"`
-	CourseID         string  `json:"course_id"`
-	CourseCode       string  `json:"course_code"`
-	CourseName       string  `json:"course_name"`
-	RecordedSessions int32   `json:"recorded_sessions"`
-	PresentSessions  int32   `json:"present_sessions"`
-	AbsentSessions   int32   `json:"absent_sessions"`
-	LateSessions     int32   `json:"late_sessions"`
-	ExcusedSessions  int32   `json:"excused_sessions"`
-	AttendancePct    float64 `json:"attendance_pct"`
+	ClassID              string  `json:"class_id"`
+	ClassCode            string  `json:"class_code"`
+	ClassName            string  `json:"class_name"`
+	CourseID             string  `json:"course_id"`
+	CourseCode           string  `json:"course_code"`
+	CourseName           string  `json:"course_name"`
+	RecordedSessions     int32   `json:"recorded_sessions"`
+	PresentSessions      int32   `json:"present_sessions"`
+	AbsentSessions       int32   `json:"absent_sessions"`
+	LateSessions         int32   `json:"late_sessions"`
+	ExcusedSessions      int32   `json:"excused_sessions"`
+	AttendancePct        float64 `json:"attendance_pct"`
+	MinimumAttendancePct float64 `json:"minimum_attendance_pct"`
+	IsAtRisk             bool    `json:"is_at_risk"`
 }
 
 type sessionSnapshot struct {
@@ -201,6 +204,9 @@ func (s *Service) ReconcileExpiredAttendance(ctx context.Context) (int64, int64,
 	locked, err := s.queries.AutoLockExpiredAttendanceSessions(ctx, cutoff)
 	if err != nil {
 		return filled, 0, fmt.Errorf("auto-lock expired attendance: %w", err)
+	}
+	if _, err := s.queries.CreateAttendanceRiskNotifications(ctx); err != nil {
+		return filled, locked, fmt.Errorf("create attendance-risk notifications: %w", err)
 	}
 	return filled, locked, nil
 }
@@ -340,8 +346,8 @@ func (s *Service) RecordBatch(
 		}
 		seen[canonicalID] = struct{}{}
 
-		enrolled, err := q.CheckActiveEnrollment(ctx, db.CheckActiveEnrollmentParams{
-			ClassID: session.ClassID, StudentID: studentID,
+		enrolled, err := q.CheckEnrollmentForSession(ctx, db.CheckEnrollmentForSessionParams{
+			SessionID: session.ID, StudentID: studentID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("check attendance enrollment: %w", err)
@@ -414,6 +420,12 @@ func (s *Service) Correct(
 	); err != nil {
 		return RecordView{}, err
 	}
+	if err := classhistory.Write(
+		ctx, q, adminUserID, existing.ClassID, "attendance_corrected", "attendance_record",
+		id, input.Reason, map[string]any{"before": oldView, "after": newView},
+	); err != nil {
+		return RecordView{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return RecordView{}, fmt.Errorf("commit attendance correction: %w", err)
 	}
@@ -480,12 +492,16 @@ func (s *Service) StudentSummary(ctx context.Context, userID, classID string) ([
 	}
 	items := make([]StudentSummaryView, 0, len(rows))
 	for _, row := range rows {
+		attendancePct := data.NumericFloat(row.AttendancePct)
+		minimumPct := data.NumericFloat(row.MinimumAttendancePct)
 		items = append(items, StudentSummaryView{
 			ClassID: data.UUIDString(row.ClassID), ClassCode: row.ClassCode, ClassName: row.ClassName,
 			CourseID: data.UUIDString(row.CourseID), CourseCode: row.CourseCode, CourseName: row.CourseName,
 			RecordedSessions: row.RecordedSessions, PresentSessions: row.PresentSessions,
 			AbsentSessions: row.AbsentSessions, LateSessions: row.LateSessions,
-			ExcusedSessions: row.ExcusedSessions, AttendancePct: data.NumericFloat(row.AttendancePct),
+			ExcusedSessions: row.ExcusedSessions, AttendancePct: attendancePct,
+			MinimumAttendancePct: minimumPct,
+			IsAtRisk:             row.RecordedSessions > 0 && attendancePct < minimumPct,
 		})
 	}
 	return items, nil

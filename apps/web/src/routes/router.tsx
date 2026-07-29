@@ -6,6 +6,7 @@ import AppLayout from "../app/AppLayout";
 import { ForbiddenPage, NotFoundPage } from "../app/pages";
 import {
   AdminDashboardPage,
+  AdminOperationsPage,
   ClassDetailPage,
   ClassesPage,
   CoursesPage,
@@ -106,6 +107,14 @@ export const router = createBrowserRouter([
             element: (
               <RequireRole role="ADMIN">
                 <AdminDashboardPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/van-hanh",
+            element: (
+              <RequireRole role="ADMIN">
+                <AdminOperationsPage />
               </RequireRole>
             ),
           },

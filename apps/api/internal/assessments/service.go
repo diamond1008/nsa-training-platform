@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/notifications"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/audit"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/classhistory"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/dberror"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/pagination"
@@ -42,6 +44,7 @@ type ItemInput struct {
 type WriteInput struct {
 	SessionID      *string
 	OverallComment *string
+	EvidenceURL    *string
 	Items          []ItemInput
 }
 
@@ -78,6 +81,7 @@ type View struct {
 	AssessmentNo   int32      `json:"assessment_no"`
 	Status         string     `json:"status"`
 	OverallComment *string    `json:"overall_comment"`
+	EvidenceURL    *string    `json:"evidence_url"`
 	SubmittedAt    *string    `json:"submitted_at"`
 	LockedAt       *string    `json:"locked_at"`
 	Items          []ItemView `json:"items"`
@@ -104,6 +108,7 @@ type headerData struct {
 	AssessmentNo   int32
 	Status         db.AssessmentStatus
 	OverallComment pgtype.Text
+	EvidenceURL    pgtype.Text
 	SubmittedAt    pgtype.Timestamptz
 	LockedAt       pgtype.Timestamptz
 	CreatedAt      pgtype.Timestamptz
@@ -180,6 +185,7 @@ func (s *Service) Create(
 		ClassID: classID, CourseID: enrollment.CourseID, StudentID: studentID,
 		AssessedBy: teacher.ID, SessionID: sessionID, AssessmentNo: assessmentNo,
 		OverallComment: data.Text(input.OverallComment),
+		EvidenceUrl:    data.Text(input.EvidenceURL),
 	})
 	if err != nil {
 		return View{}, mapWriteError(err)
@@ -235,6 +241,7 @@ func (s *Service) Update(ctx context.Context, userID, assessmentIDValue string, 
 	}
 	if _, err := q.UpdateDraftAssessment(ctx, db.UpdateDraftAssessmentParams{
 		ID: assessmentID, SessionID: sessionID, OverallComment: data.Text(input.OverallComment),
+		EvidenceUrl: data.Text(input.EvidenceURL),
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return View{}, ErrAssessmentState
@@ -322,6 +329,23 @@ func (s *Service) transition(
 		return View{}, err
 	}
 	if err := audit.Write(ctx, q, userID, action, "student_assessment", assessmentID, oldView, view); err != nil {
+		return View{}, err
+	}
+	studentUserID, err := q.GetAssessmentStudentUserID(ctx, header.StudentID)
+	if err != nil {
+		return View{}, fmt.Errorf("load assessment notification recipient: %w", err)
+	}
+	actionURL := "/student/danh-gia"
+	if err := notifications.Create(ctx, q, studentUserID, "Kết quả đánh giá đã cập nhật", header.CourseName+" · "+header.ClassCode, "assessment", &actionURL); err != nil {
+		return View{}, err
+	}
+	if expected == db.AssessmentStatusSubmitted {
+		adminURL := "/admin/van-hanh"
+		if err := notifications.CreateForAdmins(ctx, q, "Có hồ sơ cần xem xét", header.StudentCode+" · "+header.ClassCode+" vừa khóa kết quả đánh giá", "pending_completion", &adminURL); err != nil {
+			return View{}, err
+		}
+	}
+	if err := classhistory.Write(ctx, q, userID, header.ClassID, action, "student_assessment", assessmentID, "Cập nhật kết quả đánh giá", view); err != nil {
 		return View{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -570,6 +594,7 @@ func buildView(ctx context.Context, q *db.Queries, header headerData) (View, err
 		SessionID: sessionID, SessionTitle: data.TextPointer(header.SessionTitle),
 		AssessmentNo: header.AssessmentNo, Status: string(header.Status),
 		OverallComment: data.TextPointer(header.OverallComment),
+		EvidenceURL:    data.TextPointer(header.EvidenceURL),
 		SubmittedAt:    data.TimeString(header.SubmittedAt), LockedAt: data.TimeString(header.LockedAt),
 		Items: items, CreatedAt: timeValue(header.CreatedAt), UpdatedAt: timeValue(header.UpdatedAt),
 	}, nil
@@ -678,7 +703,7 @@ func headerFromGet(row db.GetAssessmentHeaderRow) headerData {
 		StudentID: row.StudentID, StudentCode: row.StudentCode, StudentName: row.StudentName,
 		AssessedBy: row.AssessedBy, TeacherCode: row.TeacherCode, TeacherName: row.TeacherName,
 		SessionID: row.SessionID, SessionTitle: row.SessionTitle, AssessmentNo: row.AssessmentNo,
-		Status: row.Status, OverallComment: row.OverallComment, SubmittedAt: row.SubmittedAt,
+		Status: row.Status, OverallComment: row.OverallComment, EvidenceURL: row.EvidenceUrl, SubmittedAt: row.SubmittedAt,
 		LockedAt: row.LockedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }
@@ -690,7 +715,7 @@ func headerFromLocked(row db.GetAssessmentHeaderForUpdateRow) headerData {
 		StudentID: row.StudentID, StudentCode: row.StudentCode, StudentName: row.StudentName,
 		AssessedBy: row.AssessedBy, TeacherCode: row.TeacherCode, TeacherName: row.TeacherName,
 		SessionID: row.SessionID, SessionTitle: row.SessionTitle, AssessmentNo: row.AssessmentNo,
-		Status: row.Status, OverallComment: row.OverallComment, SubmittedAt: row.SubmittedAt,
+		Status: row.Status, OverallComment: row.OverallComment, EvidenceURL: row.EvidenceUrl, SubmittedAt: row.SubmittedAt,
 		LockedAt: row.LockedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }
@@ -702,7 +727,7 @@ func headerFromTeacher(row db.ListTeacherAssessmentHistoryRow) headerData {
 		StudentID: row.StudentID, StudentCode: row.StudentCode, StudentName: row.StudentName,
 		AssessedBy: row.AssessedBy, TeacherCode: row.TeacherCode, TeacherName: row.TeacherName,
 		SessionID: row.SessionID, SessionTitle: row.SessionTitle, AssessmentNo: row.AssessmentNo,
-		Status: row.Status, OverallComment: row.OverallComment, SubmittedAt: row.SubmittedAt,
+		Status: row.Status, OverallComment: row.OverallComment, EvidenceURL: row.EvidenceUrl, SubmittedAt: row.SubmittedAt,
 		LockedAt: row.LockedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }
@@ -714,7 +739,7 @@ func headerFromStudent(row db.ListStudentAssessmentHistoryRow) headerData {
 		StudentID: row.StudentID, StudentCode: row.StudentCode, StudentName: row.StudentName,
 		AssessedBy: row.AssessedBy, TeacherCode: row.TeacherCode, TeacherName: row.TeacherName,
 		SessionID: row.SessionID, SessionTitle: row.SessionTitle, AssessmentNo: row.AssessmentNo,
-		Status: row.Status, OverallComment: row.OverallComment, SubmittedAt: row.SubmittedAt,
+		Status: row.Status, OverallComment: row.OverallComment, EvidenceURL: row.EvidenceUrl, SubmittedAt: row.SubmittedAt,
 		LockedAt: row.LockedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }
@@ -726,7 +751,7 @@ func headerFromStudentGet(row db.GetStudentAssessmentHeaderRow) headerData {
 		StudentID: row.StudentID, StudentCode: row.StudentCode, StudentName: row.StudentName,
 		AssessedBy: row.AssessedBy, TeacherCode: row.TeacherCode, TeacherName: row.TeacherName,
 		SessionID: row.SessionID, SessionTitle: row.SessionTitle, AssessmentNo: row.AssessmentNo,
-		Status: row.Status, OverallComment: row.OverallComment, SubmittedAt: row.SubmittedAt,
+		Status: row.Status, OverallComment: row.OverallComment, EvidenceURL: row.EvidenceUrl, SubmittedAt: row.SubmittedAt,
 		LockedAt: row.LockedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }

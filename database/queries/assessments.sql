@@ -1,5 +1,8 @@
 -- Practical skill assessment lifecycle and role-scoped history.
 
+-- name: GetAssessmentStudentUserID :one
+SELECT user_id FROM student_profiles WHERE id=$1;
+
 -- name: GetAssessmentEnrollmentForUpdate :one
 SELECT
   ce.class_id, c.course_id, c.class_code, c.name AS class_name,
@@ -41,11 +44,11 @@ WHERE class_id = $1 AND student_id = $2;
 -- name: CreateStudentAssessment :one
 INSERT INTO student_assessments (
   class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment
+  assessment_no, status, overall_comment, evidence_url
 )
-VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
+VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8)
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at;
 
 -- name: GetAssessmentHeader :one
@@ -55,7 +58,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -72,7 +75,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -111,10 +114,10 @@ WHERE assessment_id = $1;
 
 -- name: UpdateDraftAssessment :one
 UPDATE student_assessments
-SET session_id = $2, overall_comment = $3
+SET session_id = $2, overall_comment = $3, evidence_url = $4
 WHERE id = $1 AND status = 'draft'
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at;
 
 -- name: CountMissingRequiredAssessmentItems :one
@@ -135,7 +138,7 @@ UPDATE student_assessments
 SET status = 'submitted', submitted_at = NOW()
 WHERE id = $1 AND status = 'draft'
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at;
 
 -- name: LockAssessment :one
@@ -143,7 +146,7 @@ UPDATE student_assessments
 SET status = 'locked', locked_at = NOW()
 WHERE id = $1 AND status = 'submitted'
 RETURNING id, class_id, course_id, student_id, assessed_by, session_id,
-  assessment_no, status, overall_comment, submitted_at, locked_at,
+  assessment_no, status, overall_comment, evidence_url, submitted_at, locked_at,
   created_at, updated_at;
 
 -- name: ListTeacherAssessmentHistory :many
@@ -153,7 +156,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -177,7 +180,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id
@@ -212,7 +215,7 @@ SELECT
   sa.student_id, sp.student_code, sp.full_name AS student_name,
   sa.assessed_by, tp.teacher_code, tp.full_name AS teacher_name,
   sa.session_id, cs.title AS session_title,
-  sa.assessment_no, sa.status, sa.overall_comment,
+  sa.assessment_no, sa.status, sa.overall_comment, sa.evidence_url,
   sa.submitted_at, sa.locked_at, sa.created_at, sa.updated_at
 FROM student_assessments sa
 JOIN classes c ON c.id = sa.class_id

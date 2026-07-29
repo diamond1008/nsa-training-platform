@@ -24,8 +24,10 @@ describe("Phase 9 shared data components", () => {
   });
 
   it("renders recorded and unrecorded classmates", () => {
+    const onCorrect = vi.fn();
     render(
       <AttendanceRoster
+        onCorrect={onCorrect}
         data={{
           session: {
             id: "session-1",
@@ -47,6 +49,7 @@ describe("Phase 9 shared data components", () => {
               student_code: "HV001",
               full_name: "Nguyễn An",
               enrollment_status: "enrolled",
+              attendance_id: "attendance-1",
               attendance_status: "present",
             },
             {
@@ -71,5 +74,7 @@ describe("Phase 9 shared data components", () => {
     expect(screen.getByText(/Nguyễn An/)).toBeInTheDocument();
     expect(screen.getByText("Có mặt", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByText("Chưa ghi nhận")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hiệu chỉnh" }));
+    expect(onCorrect).toHaveBeenCalledWith(expect.objectContaining({ student_id: "student-1" }));
   });
 });

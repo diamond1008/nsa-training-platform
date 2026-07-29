@@ -322,6 +322,57 @@ func TestIntegration_AcademicCoreLifecycle(t *testing.T) {
 	}
 }
 
+func TestIntegration_ClassTransferAndOperationHistory(t *testing.T) {
+	env := setupPhase4(t)
+	ctx := context.Background()
+	course := env.createCourse(t, "TRANSFER")
+	sourceClass := env.createClass(t, course.ID, "TRANSFER-SOURCE", 10)
+	targetClass := env.createClass(t, course.ID, "TRANSFER-TARGET", 10)
+	student := env.createStudent(t, "TRANSFER")
+
+	enrollment, err := env.classes.Enroll(ctx, env.actorID, sourceClass.ID, student.ID)
+	if err != nil {
+		t.Fatalf("enroll source class: %v", err)
+	}
+	result, err := env.classes.TransferEnrollment(
+		ctx, env.actorID, sourceClass.ID, enrollment.ID, targetClass.ID,
+		"Học viên đổi ca học",
+	)
+	if err != nil {
+		t.Fatalf("transfer enrollment: %v", err)
+	}
+	if result.Source.Status != "transferred" || result.Target.Status != "enrolled" {
+		t.Fatalf("unexpected transfer result: %#v", result)
+	}
+	if result.Source.StudentID != result.Target.StudentID {
+		t.Fatalf("transfer changed student: %#v", result)
+	}
+
+	sourceHistory, err := env.classes.OperationHistory(ctx, sourceClass.ID)
+	if err != nil {
+		t.Fatalf("source history: %v", err)
+	}
+	targetHistory, err := env.classes.OperationHistory(ctx, targetClass.ID)
+	if err != nil {
+		t.Fatalf("target history: %v", err)
+	}
+	if !containsOperation(sourceHistory, "student_transferred_out") {
+		t.Fatalf("source transfer event missing: %#v", sourceHistory)
+	}
+	if !containsOperation(targetHistory, "student_transferred_in") {
+		t.Fatalf("target transfer event missing: %#v", targetHistory)
+	}
+}
+
+func containsOperation(items []classmodule.OperationHistoryView, eventType string) bool {
+	for _, item := range items {
+		if item.EventType == eventType {
+			return true
+		}
+	}
+	return false
+}
+
 func TestIntegration_EnrollmentCapacityIsConcurrentSafe(t *testing.T) {
 	env := setupPhase4(t)
 	course := env.createCourse(t, "CON")

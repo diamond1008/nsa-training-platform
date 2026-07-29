@@ -1,6 +1,7 @@
-import { api } from "../../lib/apiClient";
+import { api, apiDownload } from "../../lib/apiClient";
 import type {
   ClassSession,
+  Certificate,
   Paginated,
   ProgressDashboard,
   StudentAssessment,
@@ -25,4 +26,6 @@ export const studentApi = {
     api<Paginated<StudentAssessment>>(`/student/assessments${toQuery(params)}`),
   progress: (classId?: string) =>
     api<ProgressDashboard>(`/student/progress${toQuery({ class_id: classId })}`),
+  certificates: () => api<Certificate[]>("/student/certificates"),
+  certificatePDF: (id: string) => apiDownload(`/student/certificates/${id}/pdf`),
 };

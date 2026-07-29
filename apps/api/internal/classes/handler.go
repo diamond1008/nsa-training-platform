@@ -33,27 +33,41 @@ type writeRequest struct {
 	EndDate         string `json:"end_date"`
 	MaximumStudents int32  `json:"maximum_students"`
 	Status          string `json:"status"`
+	ChangeReason    string `json:"change_reason"`
 }
 
 type enrollmentRequest struct {
 	StudentID string `json:"student_id"`
+	Reason    string `json:"reason"`
 }
 
 type enrollmentStatusRequest struct {
 	Status string `json:"status"`
+	Reason string `json:"reason"`
+}
+
+type enrollmentTransferRequest struct {
+	TargetClassID string `json:"target_class_id"`
+	Reason        string `json:"reason"`
 }
 
 type assignmentRequest struct {
 	TeacherID      string `json:"teacher_id"`
 	AssignmentRole string `json:"assignment_role"`
+	Reason         string `json:"reason"`
 }
 
 type assignmentUpdateRequest struct {
 	AssignmentRole string `json:"assignment_role"`
+	Reason         string `json:"reason"`
+}
+
+type reasonRequest struct {
+	Reason string `json:"reason"`
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	input, ok := h.decodeClass(w, r)
+	input, ok := h.decodeClass(w, r, false)
 	if !ok {
 		return
 	}
@@ -65,6 +79,15 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	view, err := h.service.Get(r.Context(), chi.URLParam(r, "classID"))
 	h.writeClass(w, r, view, err, false)
+}
+
+func (h *Handler) OperationHistory(w http.ResponseWriter, r *http.Request) {
+	items, err := h.service.OperationHistory(r.Context(), chi.URLParam(r, "classID"))
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, items)
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +140,7 @@ func (h *Handler) GetTeacherClass(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	input, ok := h.decodeClass(w, r)
+	input, ok := h.decodeClass(w, r, true)
 	if !ok {
 		return
 	}
@@ -137,7 +160,7 @@ func (h *Handler) Enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actorID, _ := auth.UserIDFrom(r.Context())
-	view, err := h.service.Enroll(r.Context(), actorID, chi.URLParam(r, "classID"), body.StudentID)
+	view, err := h.service.EnrollWithReason(r.Context(), actorID, chi.URLParam(r, "classID"), body.StudentID, defaultReason(body.Reason, "Ghi danh học viên"))
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -160,15 +183,36 @@ func (h *Handler) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
 		return
 	}
-	if !validEnrollmentStatus(body.Status) {
-		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid enrollment status")
+	body.Reason = strings.TrimSpace(body.Reason)
+	if !validEnrollmentStatus(body.Status) || !validRequiredReason(body.Reason) {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "A valid enrollment status and reason are required")
 		return
 	}
 	actorID, _ := auth.UserIDFrom(r.Context())
-	view, err := h.service.UpdateEnrollment(
+	view, err := h.service.UpdateEnrollmentWithReason(
 		r.Context(), actorID, chi.URLParam(r, "classID"), chi.URLParam(r, "enrollmentID"),
-		db.EnrollmentStatus(body.Status),
+		db.EnrollmentStatus(body.Status), body.Reason,
 	)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, view)
+}
+
+func (h *Handler) TransferEnrollment(w http.ResponseWriter, r *http.Request) {
+	var body enrollmentTransferRequest
+	if err := request.DecodeJSON(w, r, &body); err != nil {
+		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
+		return
+	}
+	body.TargetClassID, body.Reason = strings.TrimSpace(body.TargetClassID), strings.TrimSpace(body.Reason)
+	if _, err := data.UUID(body.TargetClassID); err != nil || !validRequiredReason(body.Reason) {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "target_class_id and a reason of at most 500 characters are required")
+		return
+	}
+	actorID, _ := auth.UserIDFrom(r.Context())
+	view, err := h.service.TransferEnrollment(r.Context(), actorID, chi.URLParam(r, "classID"), chi.URLParam(r, "enrollmentID"), body.TargetClassID, body.Reason)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -183,13 +227,15 @@ func (h *Handler) AssignTeacher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.AssignmentRole = strings.TrimSpace(body.AssignmentRole)
+	body.Reason = strings.TrimSpace(body.Reason)
 	if body.TeacherID == "" || body.AssignmentRole == "" || len(body.AssignmentRole) > 80 {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "teacher_id and a valid assignment_role are required")
 		return
 	}
 	actorID, _ := auth.UserIDFrom(r.Context())
-	view, err := h.service.AssignTeacher(
+	view, err := h.service.AssignTeacherWithReason(
 		r.Context(), actorID, chi.URLParam(r, "classID"), body.TeacherID, body.AssignmentRole,
+		defaultReason(body.Reason, "Phân công giảng viên"),
 	)
 	if err != nil {
 		h.writeError(w, r, err)
@@ -214,14 +260,15 @@ func (h *Handler) UpdateAssignment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.AssignmentRole = strings.TrimSpace(body.AssignmentRole)
-	if body.AssignmentRole == "" || len(body.AssignmentRole) > 80 {
+	body.Reason = strings.TrimSpace(body.Reason)
+	if body.AssignmentRole == "" || len(body.AssignmentRole) > 80 || !validRequiredReason(body.Reason) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "A valid assignment_role is required")
 		return
 	}
 	actorID, _ := auth.UserIDFrom(r.Context())
-	view, err := h.service.UpdateAssignment(
+	view, err := h.service.UpdateAssignmentWithReason(
 		r.Context(), actorID, chi.URLParam(r, "classID"), chi.URLParam(r, "assignmentID"),
-		body.AssignmentRole,
+		body.AssignmentRole, body.Reason,
 	)
 	if err != nil {
 		h.writeError(w, r, err)
@@ -231,9 +278,20 @@ func (h *Handler) UpdateAssignment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteAssignment(w http.ResponseWriter, r *http.Request) {
+	var body reasonRequest
+	if err := request.DecodeJSON(w, r, &body); err != nil {
+		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
+		return
+	}
+	body.Reason = strings.TrimSpace(body.Reason)
+	if !validRequiredReason(body.Reason) {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "A reason of at most 500 characters is required")
+		return
+	}
 	actorID, _ := auth.UserIDFrom(r.Context())
-	err := h.service.DeleteAssignment(
+	err := h.service.DeleteAssignmentWithReason(
 		r.Context(), actorID, chi.URLParam(r, "classID"), chi.URLParam(r, "assignmentID"),
+		body.Reason,
 	)
 	if err != nil {
 		h.writeError(w, r, err)
@@ -242,7 +300,7 @@ func (h *Handler) DeleteAssignment(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, map[string]string{"message": "Teacher assignment removed"})
 }
 
-func (h *Handler) decodeClass(w http.ResponseWriter, r *http.Request) (WriteInput, bool) {
+func (h *Handler) decodeClass(w http.ResponseWriter, r *http.Request, requireReason bool) (WriteInput, bool) {
 	var body writeRequest
 	if err := request.DecodeJSON(w, r, &body); err != nil {
 		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
@@ -250,11 +308,13 @@ func (h *Handler) decodeClass(w http.ResponseWriter, r *http.Request) (WriteInpu
 	}
 	body.CourseID, body.ClassCode, body.Name = strings.TrimSpace(body.CourseID), strings.TrimSpace(body.ClassCode), strings.TrimSpace(body.Name)
 	body.Status = strings.TrimSpace(body.Status)
+	body.ChangeReason = strings.TrimSpace(body.ChangeReason)
 	start, startErr := time.Parse("2006-01-02", body.StartDate)
 	end, endErr := time.Parse("2006-01-02", body.EndDate)
 	if body.CourseID == "" || body.ClassCode == "" || len(body.ClassCode) > 40 ||
 		body.Name == "" || len(body.Name) > 200 || startErr != nil || endErr != nil ||
-		end.Before(start) || body.MaximumStudents <= 0 || !validClassStatus(body.Status) {
+		end.Before(start) || body.MaximumStudents <= 0 || !validClassStatus(body.Status) ||
+		(requireReason && !validRequiredReason(body.ChangeReason)) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid course, code, name, dates, capacity, or status")
 		return WriteInput{}, false
 	}
@@ -262,7 +322,21 @@ func (h *Handler) decodeClass(w http.ResponseWriter, r *http.Request) (WriteInpu
 		CourseID: body.CourseID, ClassCode: body.ClassCode, Name: body.Name,
 		StartDate: body.StartDate, EndDate: body.EndDate,
 		MaximumStudents: body.MaximumStudents, Status: db.ClassStatus(body.Status),
+		ChangeReason: body.ChangeReason,
 	}, true
+}
+
+func validRequiredReason(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && len(value) <= 500
+}
+
+func defaultReason(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func validClassStatus(value string) bool {
@@ -331,6 +405,12 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Fail(w, http.StatusConflict, "TEACHER_INACTIVE", "Only active teachers can be assigned")
 	case errors.Is(err, ErrClassNotEnrollable):
 		response.Fail(w, http.StatusConflict, "CLASS_STATUS_INVALID", "Class status does not allow enrollment or assignment")
+	case errors.Is(err, ErrEnrollmentNotActive):
+		response.Fail(w, http.StatusConflict, "ENROLLMENT_NOT_ACTIVE", "Only an active enrollment can be transferred")
+	case errors.Is(err, ErrTransferSameClass):
+		response.Fail(w, http.StatusConflict, "TRANSFER_SAME_CLASS", "Target class must differ from source class")
+	case errors.Is(err, ErrTransferCourse):
+		response.Fail(w, http.StatusConflict, "TRANSFER_COURSE_MISMATCH", "Student can only transfer to another class of the same course")
 	default:
 		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
 	}

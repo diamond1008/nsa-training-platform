@@ -83,6 +83,24 @@ export interface Enrollment {
   ended_at?: string | null;
 }
 
+export interface EnrollmentTransfer {
+  source: Enrollment;
+  target: Enrollment;
+}
+
+export interface ClassOperationHistory {
+  id: string;
+  class_id: string;
+  event_type: string;
+  entity_type: string;
+  entity_id?: string | null;
+  reason?: string | null;
+  details: Record<string, unknown>;
+  actor_user_id?: string | null;
+  actor_email?: string | null;
+  occurred_at: string;
+}
+
 export interface TeacherAssignment {
   id: string;
   class_id: string;
@@ -152,6 +170,10 @@ export interface AttendanceRosterItem {
   attendance_id?: string | null;
   attendance_status?: AttendanceStatus | null;
   note?: string | null;
+  recorded_by?: string | null;
+  recorded_by_email?: string | null;
+  recorded_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface SessionAttendance {
@@ -195,6 +217,8 @@ export interface StudentAttendanceSummary {
   late_sessions: number;
   excused_sessions: number;
   attendance_pct: number;
+  minimum_attendance_pct: number;
+  is_at_risk: boolean;
 }
 
 export type CompetencyRating =
@@ -228,6 +252,7 @@ export interface StudentAssessment {
   assessment_no: number;
   status: string;
   overall_comment?: string | null;
+  evidence_url?: string | null;
   submitted_at?: string | null;
   locked_at?: string | null;
   items: AssessmentItem[];
@@ -259,4 +284,75 @@ export interface StudentProgress {
 export interface ProgressDashboard {
   items: StudentProgress[];
   summary: { classes: number; eligible_classes: number; average_progress_pct: number };
+}
+
+export interface CompletionCandidate {
+  class_id: string;
+  class_code: string;
+  class_name: string;
+  student_id: string;
+  student_code: string;
+  student_name: string;
+  course_code: string;
+  course_name: string;
+  completed_sessions: number;
+  total_sessions: number;
+  attendance_pct: number;
+  minimum_attendance_pct: number;
+  required_competencies_met: number;
+  required_competencies_total: number;
+  completed_assessments: number;
+  required_assessments: number;
+  is_eligible: boolean;
+  status: string;
+  review_note?: string | null;
+  reviewed_at?: string | null;
+}
+
+export interface Certificate {
+  id: string;
+  completion_id: string;
+  certificate_number: string;
+  verification_code: string;
+  class_code: string;
+  class_name: string;
+  course_code: string;
+  course_name: string;
+  student_code: string;
+  student_name: string;
+  issued_at: string;
+  is_current: boolean;
+  revoked_at?: string | null;
+  revoke_reason?: string | null;
+}
+
+export interface CompletionDecisionResult {
+  candidate: CompletionCandidate;
+  certificate?: Certificate | null;
+}
+
+export interface ReportSummary {
+  active_students: number;
+  open_classes: number;
+  upcoming_sessions: number;
+  at_risk_students: number;
+  approved_completions: number;
+  pending_notifications: number;
+}
+
+export interface NotificationItem {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  status: string;
+  action_url?: string | null;
+  read_at?: string | null;
+  created_at: string;
+}
+
+export interface NotificationList {
+  items: NotificationItem[];
+  meta: PaginationMeta;
+  unread: number;
 }

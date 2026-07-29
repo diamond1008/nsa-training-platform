@@ -2,8 +2,8 @@
 
 ## Current Phase
 
-- Phase 12 — Class and training schedule operations
-- Status: Phase 11 is complete and validated locally; Phase 12 is next
+- Phase 16 — Vocational-training operations complete
+- Status: Phases 12–16 are complete and validated locally; maintenance is next
 
 ## Completed
 
@@ -32,15 +32,42 @@
   - Student status transitions require a reason and record old/new state, actor, and timestamp in the same transaction as the profile/audit update.
   - ADMIN can view lifecycle history and import/export UTF-8 CSV with strict validation and per-row outcomes.
   - Concurrent integration coverage verifies generated code uniqueness and status-history behavior.
+- Phase 12 implementation:
+  - Migration `00004_class_operations_history.sql` adds an immutable per-class operational timeline with actor, reason, timestamp, entity, and JSON details.
+  - ADMIN can atomically transfer an active enrollment to another class of the same course, or mark it completed/withdrawn with a required reason while retaining source history.
+  - Class edits, enrollment changes, teacher assignment changes, session creation, rescheduling, and cancellation are written to operation history inside the same database transaction.
+  - The Admin class screen exposes transfer/completion/withdrawal actions, reason prompts, assignment removal reasons, and the full operation timeline.
+  - The Admin calendar exposes session details, attendance inspection, reasoned rescheduling/cancellation, and inline room/workshop create/update management.
+  - Existing PostgreSQL exclusion constraints continue to prevent non-cancelled overlap by class, assigned teacher, and training location.
+  - OpenAPI 0.8.0, DBML, frontend contracts, and integration coverage document and verify the workflows.
+- Phase 13 implementation:
+  - Attendance rosters use temporal enrollment membership (`enrolled_at`/`ended_at`) so transfers, withdrawals, and completions preserve past sessions without leaking future or earlier sessions.
+  - Automatic reconciliation fills missing historical-roster members as Absent and locks only sessions whose end time is before the current Vietnam-day boundary.
+  - Assigned Teachers can save or revise attendance only after the session starts and during the same `Asia/Ho_Chi_Minh` calendar day; the UI mirrors the server state with clear read-only labels.
+  - ADMIN can inspect every session and correct individual results through the calendar; every correction requires a reason and writes audit plus class-operation history transactionally.
+  - Student summaries now include the configured minimum attendance percentage and a deterministic absence-risk flag; the Student screen shows per-class warnings.
+  - Integration coverage verifies auto-fill/lock, role ownership, audited correction, historical access after transfer, and risk calculation.
+  - OpenAPI 0.9.0 and frontend domain contracts document the enhanced attendance summary.
+- Phase 14 implementation:
+  - Practical assessment drafts accept an optional validated HTTP(S) evidence URL; Teacher and Student screens expose the evidence safely.
+  - Submitted/locked assessment changes create Student notifications and immutable class-operation events.
+- Phase 15 implementation:
+  - ADMIN completion candidates combine session, attendance, required competency, and assessment requirements before approval.
+  - Approval/rejection history is immutable; approval completes enrollment and issues a sequence-backed `CC########` certificate.
+  - Current certificates download as Unicode PDF, have a public verification UUID, and support audited revocation/reissue.
+- Phase 16 implementation:
+  - Authenticated in-app notifications cover schedule changes, assessment results, attendance risk, and completion decisions.
+  - ADMIN operational metrics and UTF-8 CSV exports cover attendance, competencies, classes, and completions with formula-injection protection.
+  - Responsive Admin operations UI, Student certificate downloads, OpenAPI 1.0.0, DBML, and focused PDF/CSV/RBAC tests complete the scoped center-management MVP.
 
 ## In Progress
 
-- Nothing. Phase 11 is complete and awaiting its authorized commit.
+- Nothing. Phases 12–16 passed the full local quality gate and are committed on the current branch.
 
 ## Next
 
-- Implement Phase 12 class lifecycle/history, transfer/withdrawal operations, scheduling reasons, and operational conflict feedback.
-- Payments, tuition, debt tracking, and third-party payment integrations remain explicitly out of scope.
+- Maintenance, acceptance testing with real center data, and deployment preparation only.
+- Payments, tuition, debt tracking, third-party payment integrations, and category-based student-code prefixes remain explicitly out of scope.
 
 ## Architecture Decisions
 
@@ -52,6 +79,7 @@
 - Browser access tokens remain memory-only; the secure HttpOnly refresh cookie restores sessions after reload.
 - sqlc generated output remains committed under `database/generated`.
 - No Phase 9 schema migration is required.
+- Phase 12 intentionally keeps the existing `HV********` student-code policy; training-category prefixes are not part of this phase.
 - Production uses same-origin Caddy routing; only Caddy publishes ports and the migration container must finish before API startup.
 - Production startup rejects placeholder JWT secrets and wildcard/non-HTTPS CORS origins.
 - React Router 6 remains pinned until its Router 7 migration is tested; current moderate advisories are documented in `docs/SECURITY_REVIEW.md`.
@@ -78,8 +106,11 @@
 - `apps/api/internal/classes/{service,handler}.go` — Admin class workflows and Teacher assignment-scoped reads.
 - `apps/api/internal/students/{service,handler}.go` — generated codes, lifecycle transitions, profile fields, and CSV exchange.
 - `database/migrations/00002_student_profiles_lifecycle.sql` — Phase 11 schema and sequence.
+- `database/migrations/00004_class_operations_history.sql` — Phase 12 immutable operational timeline.
 - `database/queries/classes.sql` — Admin and Teacher class queries.
-- `docs/openapi.yaml` — external API contract, version 0.7.0.
+- `database/migrations/00005_completion_certificates_and_evidence.sql` — assessment evidence, immutable completion decisions, and certificates.
+- `apps/api/internal/{completions,notifications,reports}` — Phase 15–16 business modules.
+- `docs/openapi.yaml` — external API contract, version 1.0.0.
 - `.github/workflows/ci.yml` — API, web, migration, E2E, and image-build gates.
 - `compose.production.yaml` and `infra/caddy/Caddyfile` — production topology and TLS edge.
 - `apps/web/e2e/critical-path.spec.ts` and `database/seeds/e2e.sql` — deterministic role journeys.
@@ -87,19 +118,19 @@
 
 ## Known Issues / Deferred Work
 
-- Formal ADMIN course-completion approval/rejection is not exposed; progress reports computed Pending/Eligible status.
-- Attendance roster/finalization follows the current `enrolled` relationship; historical transfer/withdrawal policy is deferred.
+- Completion eligibility is deterministic; only ADMIN records approval/rejection, and rejected re-reviews revoke any current certificate.
+- Attendance rates intentionally count Present and Late, exclude Excused from the denominator, and flag risk only after at least one recorded session.
 - Rate limiting is in-memory; Testcontainers remains deferred in favor of `nsa_training_test`.
 - First GitHub-hosted CI run is pending because Phase 10 has not been pushed.
 - `npm audit --omit=dev` reports two moderate React Router 6 advisories; applicability and upgrade decision are documented.
 
 ## Database and API State
 
-- Latest migration: `00003_expand_student_code_format.sql`; clean up/down/up and integration-database application validated.
+- Latest migration: `00005_completion_certificates_and_evidence.sql`.
 - Teacher class reads are assignment scoped by authenticated Teacher user ID.
 - Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`.
-- Student self-service APIs remain `/api/v1/student/{schedule,attendance,assessments,progress}`.
-- OpenAPI version: 0.7.0.
+- Student self-service APIs include `/api/v1/student/{schedule,attendance,assessments,progress,certificates}`; public certificate verification is `/api/v1/certificates/{verificationCode}`.
+- OpenAPI version: 1.0.0.
 
 ## Web State
 
@@ -112,8 +143,8 @@
 
 - Current branch: `main`.
 - Phase 10/UI baseline commit: `27f8630 feat(platform): harden delivery and polish role experiences`.
-- Phase 11 is complete; inspect `git log -1` for its final commit hash after handoff.
-- Do not push without explicit permission.
+- Phases 12–16 are included in the latest local feature commit; do not push without explicit permission.
+
 ## Phase 10 Handoff (2026-07-28)
 
 - CI: `.github/workflows/ci.yml` gates Go format/vet/test/build, web typecheck/format/test/build/audit, Goose up/down/up, production image builds, and Playwright E2E.

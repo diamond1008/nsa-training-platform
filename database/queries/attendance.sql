@@ -31,7 +31,8 @@ SELECT
 FROM class_sessions cs
 JOIN class_enrollments ce
   ON ce.class_id = cs.class_id
-  AND ce.status = 'enrolled'
+  AND ce.enrolled_at <= cs.starts_at
+  AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
 JOIN student_profiles sp ON sp.id = ce.student_id
 LEFT JOIN attendance_records ar
   ON ar.class_session_id = cs.id
@@ -40,13 +41,16 @@ LEFT JOIN users recorder ON recorder.id = ar.recorded_by
 WHERE cs.id = $1
 ORDER BY sp.student_code, ce.student_id;
 
--- name: CheckActiveEnrollment :one
+-- name: CheckEnrollmentForSession :one
 SELECT EXISTS(
   SELECT 1
-  FROM class_enrollments
-  WHERE class_id = $1
-    AND student_id = $2
-    AND status = 'enrolled'
+  FROM class_sessions cs
+  JOIN class_enrollments ce
+    ON ce.class_id = cs.class_id
+    AND ce.student_id = sqlc.arg(student_id)
+    AND ce.enrolled_at <= cs.starts_at
+    AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
+  WHERE cs.id = sqlc.arg(session_id)
 );
 
 -- name: UpsertAttendanceRecord :one
@@ -68,7 +72,8 @@ SELECT EXISTS(
   FROM class_sessions cs
   JOIN class_enrollments ce
     ON ce.class_id = cs.class_id
-    AND ce.status = 'enrolled'
+    AND ce.enrolled_at <= cs.starts_at
+    AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
   JOIN student_profiles sp ON sp.id = ce.student_id
   WHERE cs.id = sqlc.arg(session_id)
     AND sp.user_id = sqlc.arg(user_id)
@@ -102,9 +107,10 @@ SELECT
 FROM class_sessions cs
 JOIN class_enrollments ce
   ON ce.class_id = cs.class_id
-  AND ce.status = 'enrolled'
+  AND ce.enrolled_at <= cs.starts_at
+  AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
 LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
-WHERE cs.starts_at < sqlc.arg(cutoff)
+WHERE cs.ends_at < sqlc.arg(cutoff)
   AND cs.status IN ('scheduled', 'completed')
   AND cs.attendance_locked_at IS NULL
   AND COALESCE(
@@ -125,7 +131,7 @@ ON CONFLICT (class_session_id, student_id) DO NOTHING;
 -- name: AutoLockExpiredAttendanceSessions :execrows
 UPDATE class_sessions cs
 SET status = 'locked', attendance_locked_at = sqlc.arg(cutoff)
-WHERE cs.starts_at < sqlc.arg(cutoff)
+WHERE cs.ends_at < sqlc.arg(cutoff)
   AND cs.status IN ('scheduled', 'completed')
   AND cs.attendance_locked_at IS NULL
   AND NOT EXISTS (
@@ -135,7 +141,8 @@ WHERE cs.starts_at < sqlc.arg(cutoff)
       ON ar.class_session_id = cs.id
       AND ar.student_id = ce.student_id
     WHERE ce.class_id = cs.class_id
-      AND ce.status = 'enrolled'
+      AND ce.enrolled_at <= cs.starts_at
+      AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
       AND ar.id IS NULL
   );
 
@@ -190,6 +197,7 @@ WHERE sp.user_id = sqlc.arg(user_id)
 SELECT
   ar.class_id, c.class_code, c.name AS class_name,
   cs.course_id, co.code AS course_code, co.name AS course_name,
+  co.minimum_attendance_pct,
   COUNT(*)::int AS recorded_sessions,
   COUNT(*) FILTER (WHERE ar.status = 'present')::int AS present_sessions,
   COUNT(*) FILTER (WHERE ar.status = 'absent')::int AS absent_sessions,
@@ -215,5 +223,5 @@ WHERE sp.user_id = sqlc.arg(user_id)
     sqlc.narg(class_id)::uuid IS NULL
     OR ar.class_id = sqlc.narg(class_id)::uuid
   )
-GROUP BY ar.class_id, c.class_code, c.name, cs.course_id, co.code, co.name
+GROUP BY ar.class_id, c.class_code, c.name, cs.course_id, co.code, co.name, co.minimum_attendance_pct
 ORDER BY c.class_code, ar.class_id;

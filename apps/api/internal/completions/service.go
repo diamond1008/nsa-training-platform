@@ -1,0 +1,387 @@
+// Package completions implements approval decisions and verifiable certificates.
+package completions
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/notifications"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/audit"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/classhistory"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/pagination"
+	db "github.com/diamond1008/nsa-training-platform/database/generated"
+)
+
+var (
+	ErrNotFound            = errors.New("completion candidate not found")
+	ErrNotEligible         = errors.New("completion requirements are not met")
+	ErrCertificateNotFound = errors.New("certificate not found")
+	ErrCertificateRevoked  = errors.New("certificate is revoked")
+)
+
+type CandidateView struct {
+	ClassID                   string  `json:"class_id"`
+	ClassCode                 string  `json:"class_code"`
+	ClassName                 string  `json:"class_name"`
+	StudentID                 string  `json:"student_id"`
+	StudentCode               string  `json:"student_code"`
+	StudentName               string  `json:"student_name"`
+	CourseCode                string  `json:"course_code"`
+	CourseName                string  `json:"course_name"`
+	CompletedSessions         int32   `json:"completed_sessions"`
+	TotalSessions             int32   `json:"total_sessions"`
+	AttendancePct             float64 `json:"attendance_pct"`
+	MinimumAttendancePct      float64 `json:"minimum_attendance_pct"`
+	RequiredCompetenciesMet   int32   `json:"required_competencies_met"`
+	RequiredCompetenciesTotal int32   `json:"required_competencies_total"`
+	CompletedAssessments      int32   `json:"completed_assessments"`
+	RequiredAssessments       int32   `json:"required_assessments"`
+	IsEligible                bool    `json:"is_eligible"`
+	Status                    string  `json:"status"`
+	ReviewNote                *string `json:"review_note"`
+	ReviewedAt                *string `json:"reviewed_at"`
+}
+
+type CertificateView struct {
+	ID                string  `json:"id"`
+	CompletionID      string  `json:"completion_id"`
+	CertificateNumber string  `json:"certificate_number"`
+	VerificationCode  string  `json:"verification_code"`
+	ClassCode         string  `json:"class_code"`
+	ClassName         string  `json:"class_name"`
+	CourseCode        string  `json:"course_code"`
+	CourseName        string  `json:"course_name"`
+	StudentCode       string  `json:"student_code"`
+	StudentName       string  `json:"student_name"`
+	IssuedAt          string  `json:"issued_at"`
+	IsCurrent         bool    `json:"is_current"`
+	RevokedAt         *string `json:"revoked_at"`
+	RevokeReason      *string `json:"revoke_reason"`
+}
+
+type DecisionHistoryView struct {
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	Note           string `json:"note"`
+	DecidedByEmail string `json:"decided_by_email"`
+	DecidedAt      string `json:"decided_at"`
+}
+type DecisionResult struct {
+	Candidate   CandidateView    `json:"candidate"`
+	Certificate *CertificateView `json:"certificate"`
+}
+
+type Service struct {
+	pool    *pgxpool.Pool
+	queries *db.Queries
+}
+
+func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool, queries: db.New(pool)} }
+
+func (s *Service) List(ctx context.Context, search string, page, perPage int) (pagination.Result[CandidateView], error) {
+	rows, err := s.queries.ListCompletionCandidates(ctx, db.ListCompletionCandidatesParams{Search: search, PageOffset: int32((page - 1) * perPage), PageLimit: int32(perPage)})
+	if err != nil {
+		return pagination.Result[CandidateView]{}, fmt.Errorf("list completion candidates: %w", err)
+	}
+	total, err := s.queries.CountCompletionCandidates(ctx, search)
+	if err != nil {
+		return pagination.Result[CandidateView]{}, fmt.Errorf("count completion candidates: %w", err)
+	}
+	items := make([]CandidateView, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, candidateFromList(row))
+	}
+	return pagination.New(items, page, perPage, total), nil
+}
+
+func (s *Service) Decide(ctx context.Context, actorID, classIDValue, studentIDValue, status, note string) (DecisionResult, error) {
+	classID, err := data.UUID(classIDValue)
+	if err != nil {
+		return DecisionResult{}, ErrNotFound
+	}
+	studentID, err := data.UUID(studentIDValue)
+	if err != nil {
+		return DecisionResult{}, ErrNotFound
+	}
+	actor, err := data.UUID(actorID)
+	if err != nil {
+		return DecisionResult{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return DecisionResult{}, fmt.Errorf("begin completion decision: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := s.queries.WithTx(tx)
+	row, err := q.GetCompletionCandidate(ctx, db.GetCompletionCandidateParams{ClassID: classID, StudentID: studentID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DecisionResult{}, ErrNotFound
+	}
+	if err != nil {
+		return DecisionResult{}, fmt.Errorf("get completion candidate: %w", err)
+	}
+	if status == "approved" && !row.IsEligible.Bool {
+		return DecisionResult{}, ErrNotEligible
+	}
+	decisionStatus := db.CompletionStatus(status)
+	completion, err := q.UpsertCourseCompletionDecision(ctx, db.UpsertCourseCompletionDecisionParams{ClassID: classID, StudentID: studentID, AttendancePct: row.AttendancePct, RequiredCompetenciesMet: row.RequiredCompetenciesMet, RequiredCompetenciesTotal: row.RequiredCompetenciesTotal, Status: decisionStatus, ReviewedBy: actor, ReviewNote: data.Text(&note)})
+	if err != nil {
+		return DecisionResult{}, fmt.Errorf("save completion decision: %w", err)
+	}
+	_, err = q.CreateCompletionDecisionHistory(ctx, db.CreateCompletionDecisionHistoryParams{CompletionID: completion.ID, Status: decisionStatus, AttendancePct: row.AttendancePct, RequiredCompetenciesMet: row.RequiredCompetenciesMet, RequiredCompetenciesTotal: row.RequiredCompetenciesTotal, Note: note, DecidedBy: actor})
+	if err != nil {
+		return DecisionResult{}, fmt.Errorf("save completion history: %w", err)
+	}
+	var certificate *CertificateView
+	if status == "approved" {
+		cert, certErr := q.GetCurrentCertificateByCompletion(ctx, completion.ID)
+		if errors.Is(certErr, pgx.ErrNoRows) {
+			created, e := q.CreateCertificate(ctx, db.CreateCertificateParams{CompletionID: completion.ID, IssuedBy: actor})
+			if e != nil {
+				return DecisionResult{}, fmt.Errorf("issue certificate: %w", e)
+			}
+			cert = created
+		} else if certErr != nil {
+			return DecisionResult{}, fmt.Errorf("get current certificate: %w", certErr)
+		}
+		detail, e := q.GetCertificateDetail(ctx, cert.ID)
+		if e != nil {
+			return DecisionResult{}, fmt.Errorf("load certificate: %w", e)
+		}
+		v := certificateFromDetail(detail)
+		certificate = &v
+		enrollmentID, e := q.GetEnrollmentByClassStudent(ctx, db.GetEnrollmentByClassStudentParams{ClassID: classID, StudentID: studentID})
+		if e == nil {
+			_, e = q.UpdateClassEnrollmentStatus(ctx, db.UpdateClassEnrollmentStatusParams{ID: enrollmentID, ClassID: classID, Status: db.EnrollmentStatusCompleted})
+		}
+		if e != nil {
+			return DecisionResult{}, fmt.Errorf("complete enrollment: %w", e)
+		}
+	} else {
+		// A rejected re-review must invalidate any previously issued certificate.
+		if _, certErr := q.GetCurrentCertificateByCompletion(ctx, completion.ID); certErr == nil {
+			if _, err := q.RevokeCurrentCertificate(ctx, db.RevokeCurrentCertificateParams{
+				CompletionID: completion.ID,
+				RevokedBy:    actor,
+				RevokeReason: data.Text(&note),
+			}); err != nil {
+				return DecisionResult{}, fmt.Errorf("revoke rejected certificate: %w", err)
+			}
+		} else if !errors.Is(certErr, pgx.ErrNoRows) {
+			return DecisionResult{}, fmt.Errorf("get certificate for rejection: %w", certErr)
+		}
+	}
+	actionURL := "/student/tien-do"
+	title := "Kết quả hoàn thành khóa học"
+	message := "Hồ sơ hoàn thành của bạn đã được duyệt: " + status
+	if err := notifications.Create(ctx, q, row.StudentUserID, title, message, "completion", &actionURL); err != nil {
+		return DecisionResult{}, err
+	}
+	if err := classhistory.Write(ctx, q, actorID, classID, "completion_"+status, "course_completion", completion.ID, note, map[string]any{"student_code": row.StudentCode, "status": status}); err != nil {
+		return DecisionResult{}, err
+	}
+	if err := audit.WriteWithReason(ctx, q, actorID, "completion."+status, "course_completion", completion.ID, nil, map[string]any{"status": status, "certificate": certificate}, note); err != nil {
+		return DecisionResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return DecisionResult{}, fmt.Errorf("commit completion decision: %w", err)
+	}
+	updated := candidateFromGet(row)
+	updated.Status = status
+	updated.ReviewNote = &note
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	updated.ReviewedAt = &now
+	return DecisionResult{Candidate: updated, Certificate: certificate}, nil
+}
+
+func (s *Service) History(ctx context.Context, classIDValue, studentIDValue string) ([]DecisionHistoryView, error) {
+	classID, e := data.UUID(classIDValue)
+	if e != nil {
+		return nil, ErrNotFound
+	}
+	studentID, e := data.UUID(studentIDValue)
+	if e != nil {
+		return nil, ErrNotFound
+	}
+	rows, e := s.queries.ListCompletionDecisionHistory(ctx, db.ListCompletionDecisionHistoryParams{ClassID: classID, StudentID: studentID})
+	if e != nil {
+		return nil, fmt.Errorf("list completion history: %w", e)
+	}
+	items := make([]DecisionHistoryView, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, DecisionHistoryView{ID: data.UUIDString(r.ID), Status: string(r.Status), Note: r.Note, DecidedByEmail: r.DecidedByEmail, DecidedAt: r.DecidedAt.Time.UTC().Format(time.RFC3339Nano)})
+	}
+	return items, nil
+}
+
+func (s *Service) StudentCertificates(ctx context.Context, userID string) ([]CertificateView, error) {
+	uid, e := data.UUID(userID)
+	if e != nil {
+		return nil, ErrCertificateNotFound
+	}
+	rows, e := s.queries.ListStudentCertificates(ctx, uid)
+	if e != nil {
+		return nil, fmt.Errorf("list certificates: %w", e)
+	}
+	items := make([]CertificateView, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, certificateFromStudent(r))
+	}
+	return items, nil
+}
+func (s *Service) StudentCertificate(ctx context.Context, userID, id string) (CertificateView, error) {
+	uid, e := data.UUID(userID)
+	if e != nil {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	cid, e := data.UUID(id)
+	if e != nil {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	r, e := s.queries.GetStudentCertificate(ctx, db.GetStudentCertificateParams{ID: cid, UserID: uid})
+	if errors.Is(e, pgx.ErrNoRows) {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	if e != nil {
+		return CertificateView{}, e
+	}
+	return certificateFromStudentGet(r), nil
+}
+func (s *Service) Certificate(ctx context.Context, id string) (CertificateView, error) {
+	cid, e := data.UUID(id)
+	if e != nil {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	r, e := s.queries.GetCertificateDetail(ctx, cid)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	if e != nil {
+		return CertificateView{}, e
+	}
+	return certificateFromDetail(r), nil
+}
+func (s *Service) Verify(ctx context.Context, code string) (CertificateView, error) {
+	id, e := data.UUID(code)
+	if e != nil {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	r, e := s.queries.GetCertificateByVerificationCode(ctx, id)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	if e != nil {
+		return CertificateView{}, e
+	}
+	return certificateFromVerify(r), nil
+}
+
+func (s *Service) RevokeOrReissue(ctx context.Context, actorID, id, reason string, reissue bool) (CertificateView, error) {
+	actor, e := data.UUID(actorID)
+	if e != nil {
+		return CertificateView{}, e
+	}
+	cid, e := data.UUID(id)
+	if e != nil {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	tx, e := s.pool.Begin(ctx)
+	if e != nil {
+		return CertificateView{}, e
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := s.queries.WithTx(tx)
+	detail, e := q.GetCertificateDetail(ctx, cid)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	if e != nil {
+		return CertificateView{}, e
+	}
+	if !detail.IsCurrent {
+		return CertificateView{}, ErrCertificateRevoked
+	}
+	if _, e = q.RevokeCurrentCertificate(ctx, db.RevokeCurrentCertificateParams{CompletionID: detail.CompletionID, RevokedBy: actor, RevokeReason: data.Text(&reason)}); e != nil {
+		return CertificateView{}, fmt.Errorf("revoke certificate: %w", e)
+	}
+	var result CertificateView
+	if reissue {
+		created, e := q.CreateCertificate(ctx, db.CreateCertificateParams{CompletionID: detail.CompletionID, IssuedBy: actor})
+		if e != nil {
+			return CertificateView{}, fmt.Errorf("reissue certificate: %w", e)
+		}
+		newDetail, e := q.GetCertificateDetail(ctx, created.ID)
+		if e != nil {
+			return CertificateView{}, e
+		}
+		result = certificateFromDetail(newDetail)
+	} else {
+		updated, e := q.GetCertificateDetail(ctx, cid)
+		if e != nil {
+			return CertificateView{}, e
+		}
+		result = certificateFromDetail(updated)
+	}
+	action := "certificate.revoke"
+	if reissue {
+		action = "certificate.reissue"
+	}
+	if e := audit.WriteWithReason(ctx, q, actorID, action, "certificate", cid, certificateFromDetail(detail), result, reason); e != nil {
+		return CertificateView{}, e
+	}
+	if e := classhistory.Write(ctx, q, actorID, detail.ClassID, action, "certificate", cid, reason, result); e != nil {
+		return CertificateView{}, e
+	}
+	if e := tx.Commit(ctx); e != nil {
+		return CertificateView{}, e
+	}
+	return result, nil
+}
+
+func candidateStatus(p db.NullCompletionStatus, eligible bool) string {
+	if p.Valid {
+		return string(p.CompletionStatus)
+	}
+	if eligible {
+		return "eligible"
+	}
+	return "pending"
+}
+func candidateFromList(r db.ListCompletionCandidatesRow) CandidateView {
+	return CandidateView{ClassID: data.UUIDString(r.ClassID), ClassCode: r.ClassCode, ClassName: r.ClassName, StudentID: data.UUIDString(r.StudentID), StudentCode: r.StudentCode, StudentName: r.StudentName, CourseCode: r.CourseCode, CourseName: r.CourseName, CompletedSessions: r.CompletedSessions, TotalSessions: r.TotalSessions, AttendancePct: data.NumericFloat(r.AttendancePct), MinimumAttendancePct: data.NumericFloat(r.MinimumAttendancePct), RequiredCompetenciesMet: r.RequiredCompetenciesMet, RequiredCompetenciesTotal: r.RequiredCompetenciesTotal, CompletedAssessments: r.CompletedAssessments, RequiredAssessments: r.RequiredAssessments, IsEligible: r.IsEligible.Bool, Status: candidateStatus(r.PersistedStatus, r.IsEligible.Bool), ReviewNote: data.TextPointer(r.ReviewNote), ReviewedAt: data.TimeString(r.ReviewedAt)}
+}
+func candidateFromGet(r db.GetCompletionCandidateRow) CandidateView {
+	return CandidateView{ClassID: data.UUIDString(r.ClassID), ClassCode: r.ClassCode, ClassName: r.ClassName, StudentID: data.UUIDString(r.StudentID), StudentCode: r.StudentCode, StudentName: r.StudentName, CourseCode: r.CourseCode, CourseName: r.CourseName, CompletedSessions: r.CompletedSessions, TotalSessions: r.TotalSessions, AttendancePct: data.NumericFloat(r.AttendancePct), MinimumAttendancePct: data.NumericFloat(r.MinimumAttendancePct), RequiredCompetenciesMet: r.RequiredCompetenciesMet, RequiredCompetenciesTotal: r.RequiredCompetenciesTotal, CompletedAssessments: r.CompletedAssessments, RequiredAssessments: r.RequiredAssessments, IsEligible: r.IsEligible.Bool, Status: candidateStatus(r.PersistedStatus, r.IsEligible.Bool), ReviewNote: data.TextPointer(r.ReviewNote), ReviewedAt: data.TimeString(r.ReviewedAt)}
+}
+
+type certificateData struct {
+	ID, CompletionID, VerificationCode                                     pgtype.UUID
+	CertificateNumber                                                      string
+	IssuedAt, RevokedAt                                                    pgtype.Timestamptz
+	RevokeReason                                                           pgtype.Text
+	IsCurrent                                                              bool
+	ClassCode, ClassName, CourseCode, CourseName, StudentCode, StudentName string
+}
+
+func certificateView(r certificateData) CertificateView {
+	return CertificateView{ID: data.UUIDString(r.ID), CompletionID: data.UUIDString(r.CompletionID), CertificateNumber: r.CertificateNumber, VerificationCode: data.UUIDString(r.VerificationCode), ClassCode: r.ClassCode, ClassName: r.ClassName, CourseCode: r.CourseCode, CourseName: r.CourseName, StudentCode: r.StudentCode, StudentName: r.StudentName, IssuedAt: r.IssuedAt.Time.UTC().Format(time.RFC3339Nano), IsCurrent: r.IsCurrent, RevokedAt: data.TimeString(r.RevokedAt), RevokeReason: data.TextPointer(r.RevokeReason)}
+}
+func certificateFromDetail(r db.GetCertificateDetailRow) CertificateView {
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+}
+func certificateFromVerify(r db.GetCertificateByVerificationCodeRow) CertificateView {
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+}
+func certificateFromStudent(r db.ListStudentCertificatesRow) CertificateView {
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+}
+func certificateFromStudentGet(r db.GetStudentCertificateRow) CertificateView {
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+}

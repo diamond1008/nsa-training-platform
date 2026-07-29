@@ -35,15 +35,16 @@ type locationRequest struct {
 }
 
 type sessionRequest struct {
-	ClassID     string  `json:"class_id"`
-	ModuleID    *string `json:"module_id"`
-	TeacherID   *string `json:"teacher_id"`
-	LocationID  *string `json:"location_id"`
-	Title       string  `json:"title"`
-	SessionType string  `json:"session_type"`
-	StartsAt    string  `json:"starts_at"`
-	EndsAt      string  `json:"ends_at"`
-	Status      string  `json:"status"`
+	ClassID      string  `json:"class_id"`
+	ModuleID     *string `json:"module_id"`
+	TeacherID    *string `json:"teacher_id"`
+	LocationID   *string `json:"location_id"`
+	Title        string  `json:"title"`
+	SessionType  string  `json:"session_type"`
+	StartsAt     string  `json:"starts_at"`
+	EndsAt       string  `json:"ends_at"`
+	Status       string  `json:"status"`
+	ChangeReason string  `json:"change_reason"`
 }
 
 func (h *Handler) CreateLocation(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +108,7 @@ func (h *Handler) UpdateLocation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
-	input, ok := h.decodeSession(w, r)
+	input, ok := h.decodeSession(w, r, false)
 	if !ok {
 		return
 	}
@@ -143,7 +144,7 @@ func (h *Handler) ListAdminSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateSession(w http.ResponseWriter, r *http.Request) {
-	input, ok := h.decodeSession(w, r)
+	input, ok := h.decodeSession(w, r, true)
 	if !ok {
 		return
 	}
@@ -215,7 +216,7 @@ func (h *Handler) decodeLocation(w http.ResponseWriter, r *http.Request, create 
 	}, true
 }
 
-func (h *Handler) decodeSession(w http.ResponseWriter, r *http.Request) (SessionInput, bool) {
+func (h *Handler) decodeSession(w http.ResponseWriter, r *http.Request, requireReason bool) (SessionInput, bool) {
 	var body sessionRequest
 	if err := request.DecodeJSON(w, r, &body); err != nil {
 		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
@@ -225,8 +226,10 @@ func (h *Handler) decodeSession(w http.ResponseWriter, r *http.Request) (Session
 	body.Title = strings.TrimSpace(body.Title)
 	body.SessionType = strings.TrimSpace(body.SessionType)
 	body.Status = strings.TrimSpace(body.Status)
+	body.ChangeReason = strings.TrimSpace(body.ChangeReason)
 	if body.ClassID == "" || body.Title == "" || len(body.Title) > 200 ||
-		!validSessionType(body.SessionType) || !validSessionStatus(body.Status) {
+		!validSessionType(body.SessionType) || !validSessionStatus(body.Status) ||
+		(requireReason && (body.ChangeReason == "" || len(body.ChangeReason) > 500)) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid class, title, session_type, or status")
 		return SessionInput{}, false
 	}
@@ -255,6 +258,7 @@ func (h *Handler) decodeSession(w http.ResponseWriter, r *http.Request) (Session
 		LocationID: body.LocationID, Title: body.Title,
 		SessionType: db.SessionType(body.SessionType),
 		StartsAt:    startsAt, EndsAt: endsAt, Status: db.SessionStatus(body.Status),
+		ChangeReason: body.ChangeReason,
 	}, true
 }
 

@@ -101,8 +101,8 @@ func setupAttendance(t *testing.T) *attendanceEnv {
 	}
 	for _, studentID := range []string{env.studentA, env.studentB} {
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO class_enrollments (class_id, student_id, created_by)
-			 VALUES ($1, $2, $3)`,
+			`INSERT INTO class_enrollments (class_id, student_id, created_by, enrolled_at)
+			 VALUES ($1, $2, $3, NOW() - INTERVAL '30 days')`,
 			classID, studentID, env.adminUserID,
 		); err != nil {
 			t.Fatalf("enroll student: %v", err)
@@ -282,6 +282,16 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	}}); !errors.Is(err, attendancemodule.ErrSessionLocked) {
 		t.Fatalf("record after lock error = %v", err)
 	}
+	if _, err := env.pool.Exec(ctx,
+		`UPDATE class_enrollments
+		 SET status = 'transferred', ended_at = NOW()
+		 WHERE student_id = $1`, env.studentB); err != nil {
+		t.Fatalf("transfer student after historical session: %v", err)
+	}
+	historicalView, err := env.service.GetStudentSession(ctx, env.studentUserB, env.sessionID)
+	if err != nil || len(historicalView.Items) != 2 {
+		t.Fatalf("transferred student historical roster = %+v, err=%v", historicalView, err)
+	}
 
 	corrected, err := env.service.Correct(ctx, env.adminUserID, recordsA[0].ID, attendancemodule.CorrectionInput{
 		Status: db.AttendanceStatusAbsent, Reason: "Verified against the signed paper register",
@@ -304,6 +314,14 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	if err != nil || reason != "Verified against the signed paper register" {
 		t.Fatalf("correction audit reason=%q err=%v", reason, err)
 	}
+	var correctionEvents int
+	if err := env.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM class_operation_history
+		 WHERE event_type = 'attendance_corrected' AND entity_id = $1`,
+		recordsA[0].ID,
+	).Scan(&correctionEvents); err != nil || correctionEvents != 1 {
+		t.Fatalf("attendance correction history count=%d err=%v", correctionEvents, err)
+	}
 
 	historyA, err := env.service.StudentHistory(ctx, env.studentUserA, "", 1, 20)
 	if err != nil {
@@ -325,6 +343,7 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 		t.Fatalf("student B summary: %v", err)
 	}
 	if len(summaryB) != 1 || summaryB[0].AttendancePct != 0 ||
+		summaryB[0].MinimumAttendancePct != 80 || !summaryB[0].IsAtRisk ||
 		summaryB[0].AbsentSessions != 1 || summaryB[0].PresentSessions != 0 {
 		t.Fatalf("student B summary = %+v", summaryB)
 	}

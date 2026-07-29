@@ -119,6 +119,53 @@ func (q *Queries) CreateClassEnrollment(ctx context.Context, arg CreateClassEnro
 	return i, err
 }
 
+const createClassOperationEvent = `-- name: CreateClassOperationEvent :one
+INSERT INTO class_operation_history (
+  class_id, event_type, entity_type, entity_id, reason, details, actor_user_id
+)
+VALUES (
+  $1, $2, $3, $4,
+  $5, $6, $7
+)
+RETURNING id, class_id, event_type, entity_type, entity_id, reason,
+  details, actor_user_id, occurred_at
+`
+
+type CreateClassOperationEventParams struct {
+	ClassID     pgtype.UUID `json:"class_id"`
+	EventType   string      `json:"event_type"`
+	EntityType  string      `json:"entity_type"`
+	EntityID    pgtype.UUID `json:"entity_id"`
+	Reason      pgtype.Text `json:"reason"`
+	Details     []byte      `json:"details"`
+	ActorUserID pgtype.UUID `json:"actor_user_id"`
+}
+
+func (q *Queries) CreateClassOperationEvent(ctx context.Context, arg CreateClassOperationEventParams) (ClassOperationHistory, error) {
+	row := q.db.QueryRow(ctx, createClassOperationEvent,
+		arg.ClassID,
+		arg.EventType,
+		arg.EntityType,
+		arg.EntityID,
+		arg.Reason,
+		arg.Details,
+		arg.ActorUserID,
+	)
+	var i ClassOperationHistory
+	err := row.Scan(
+		&i.ID,
+		&i.ClassID,
+		&i.EventType,
+		&i.EntityType,
+		&i.EntityID,
+		&i.Reason,
+		&i.Details,
+		&i.ActorUserID,
+		&i.OccurredAt,
+	)
+	return i, err
+}
+
 const createTeacherAssignment = `-- name: CreateTeacherAssignment :one
 INSERT INTO teacher_assignments (
   class_id, teacher_id, assignment_role, assigned_by
@@ -256,6 +303,55 @@ type GetClassEnrollmentRow struct {
 func (q *Queries) GetClassEnrollment(ctx context.Context, arg GetClassEnrollmentParams) (GetClassEnrollmentRow, error) {
 	row := q.db.QueryRow(ctx, getClassEnrollment, arg.ID, arg.ClassID)
 	var i GetClassEnrollmentRow
+	err := row.Scan(
+		&i.ID,
+		&i.ClassID,
+		&i.StudentID,
+		&i.StudentCode,
+		&i.FullName,
+		&i.Status,
+		&i.EnrolledAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getClassEnrollmentForUpdate = `-- name: GetClassEnrollmentForUpdate :one
+SELECT
+  ce.id, ce.class_id, ce.student_id, sp.student_code, sp.full_name,
+  ce.status, ce.enrolled_at, ce.ended_at, ce.created_by,
+  ce.created_at, ce.updated_at
+FROM class_enrollments ce
+JOIN student_profiles sp ON sp.id = ce.student_id
+WHERE ce.id = $1 AND ce.class_id = $2
+FOR UPDATE OF ce
+`
+
+type GetClassEnrollmentForUpdateParams struct {
+	ID      pgtype.UUID `json:"id"`
+	ClassID pgtype.UUID `json:"class_id"`
+}
+
+type GetClassEnrollmentForUpdateRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	ClassID     pgtype.UUID        `json:"class_id"`
+	StudentID   pgtype.UUID        `json:"student_id"`
+	StudentCode string             `json:"student_code"`
+	FullName    string             `json:"full_name"`
+	Status      EnrollmentStatus   `json:"status"`
+	EnrolledAt  pgtype.Timestamptz `json:"enrolled_at"`
+	EndedAt     pgtype.Timestamptz `json:"ended_at"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetClassEnrollmentForUpdate(ctx context.Context, arg GetClassEnrollmentForUpdateParams) (GetClassEnrollmentForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getClassEnrollmentForUpdate, arg.ID, arg.ClassID)
+	var i GetClassEnrollmentForUpdateRow
 	err := row.Scan(
 		&i.ID,
 		&i.ClassID,
@@ -473,6 +569,61 @@ func (q *Queries) ListClassEnrollments(ctx context.Context, classID pgtype.UUID)
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClassOperationHistory = `-- name: ListClassOperationHistory :many
+SELECT
+  coh.id, coh.class_id, coh.event_type, coh.entity_type, coh.entity_id,
+  coh.reason, coh.details, coh.actor_user_id, u.email AS actor_email,
+  coh.occurred_at
+FROM class_operation_history coh
+LEFT JOIN users u ON u.id = coh.actor_user_id
+WHERE coh.class_id = $1
+ORDER BY coh.occurred_at DESC, coh.id DESC
+`
+
+type ListClassOperationHistoryRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	ClassID     pgtype.UUID        `json:"class_id"`
+	EventType   string             `json:"event_type"`
+	EntityType  string             `json:"entity_type"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	Reason      pgtype.Text        `json:"reason"`
+	Details     []byte             `json:"details"`
+	ActorUserID pgtype.UUID        `json:"actor_user_id"`
+	ActorEmail  pgtype.Text        `json:"actor_email"`
+	OccurredAt  pgtype.Timestamptz `json:"occurred_at"`
+}
+
+func (q *Queries) ListClassOperationHistory(ctx context.Context, classID pgtype.UUID) ([]ListClassOperationHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listClassOperationHistory, classID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListClassOperationHistoryRow{}
+	for rows.Next() {
+		var i ListClassOperationHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClassID,
+			&i.EventType,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Reason,
+			&i.Details,
+			&i.ActorUserID,
+			&i.ActorEmail,
+			&i.OccurredAt,
 		); err != nil {
 			return nil, err
 		}

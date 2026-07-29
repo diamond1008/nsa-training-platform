@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 12 — Class and training schedule operations (planned next)**
+**Current phase: Phase 16 complete — scoped vocational-training management MVP**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -22,11 +22,11 @@ Training management platform for an automotive vocational training center. It ma
 | 9 | Feature screens | ✅ Completed (commit 8982788) |
 | 10 | Quality, CI, deployment readiness | ✅ Completed locally; first GitHub Actions run pending |
 | 11 | Student profiles and lifecycle | ✅ Completed locally |
-| 12 | Class and training schedule operations | ⏭️ Next |
-| 13 | Attendance governance | Planned |
-| 14 | Practical competency assessment | Planned |
-| 15 | Course completion and certificates | Planned |
-| 16 | Reports, notifications, and production hardening | Planned |
+| 12 | Class and training schedule operations | ✅ Completed locally |
+| 13 | Attendance governance | ✅ Completed locally |
+| 14 | Practical competency assessment | ✅ Completed locally |
+| 15 | Course completion and certificates | ✅ Completed locally |
+| 16 | Reports, notifications, and production hardening | ✅ Completed locally |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 
@@ -170,17 +170,20 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Student lifecycle profiles:** gender, address, emergency contact, enrollment date, and Pending/Active/Suspended/Completed/Withdrawn states are managed from the Admin workspace
 - **Lifecycle history:** every initial state and subsequent status transition is stored immutably with actor, timestamp, and a required reason; Admin can inspect the timeline from the student form
 - **Student CSV exchange:** filtered UTF-8/Excel-safe export plus size-limited import with generated codes, strict headers/validation, and per-row success/error reporting
-- **Class relationships:** capacity-safe student enrollment with lifecycle status, active-account checks and duplicate prevention; teacher assignment with role update/removal and relationship validation
+- **Class operations:** capacity-safe enrollment plus atomic same-course transfers, withdrawal/completion transitions, active-account checks, duplicate prevention, and teacher assignment management
+- **Class operation history:** enrollment, transfer, assignment, class, and schedule changes retain actor, timestamp, reason, entity, and structured before/after details in an immutable per-class timeline
 - **Administration safeguards:** every Phase 4 route requires `ADMIN`; list endpoints use search/status filters and bounded pagination; important writes create audit logs in the same transaction
-- **Scheduling (`/api/v1/admin/sessions`):** create/list/detail/update class sessions with optional module, assigned teacher, and training location; locked sessions are immutable
+- **Scheduling (`/api/v1/admin/sessions`):** create/list/detail/update/cancel class sessions with optional module, assigned teacher, and training location; changes require a reason and locked sessions are immutable
 - **Conflict protection:** PostgreSQL exclusion constraints prevent overlapping non-cancelled sessions for a class, teacher, or location; API returns distinct conflict codes
-- **Training locations (`/api/v1/admin/locations`):** create/list/detail/update workshops and rooms, including capacity and active state
+- **Training locations (`/api/v1/admin/locations`):** create/list/detail/update workshops and rooms, including capacity and active state; Admin manages them alongside the calendar
 - **Role schedules:** `GET /api/v1/teacher/schedule` returns the authenticated teacher's assigned sessions; `GET /api/v1/student/schedule` returns only active-enrollment sessions
 - **Timezone contract:** API accepts RFC3339 offsets, stores/returns UTC, and evaluates class date boundaries in `Asia/Ho_Chi_Minh`
-- **Teacher attendance:** assigned teachers can view their class rosters and save or revise transactional Present/Absent/Late/Excused batches during the Vietnamese calendar day
-- **Automatic attendance lock:** at 00:00 Asia/Ho_Chi_Minh, unrecorded active students are saved as Absent and the session is locked; teachers then have read-only access while administrators retain audited correction access
-- **Attendance corrections:** ADMIN can correct an existing record even after finalization; the required reason and old/new values are written to the audit log in the same transaction
-- **Attendance visibility:** administrators can inspect every session, assigned teachers can inspect their classes, and enrolled students can view classmates' statuses without staff notes or recorder metadata; personal history and summaries remain available
+- **Teacher attendance:** assigned teachers can view their class rosters and save or revise transactional Present/Absent/Late/Excused batches only after the session starts and during its Vietnamese calendar day
+- **Automatic attendance lock:** at 00:00 Asia/Ho_Chi_Minh, unrecorded historical-roster students are saved as Absent and completed sessions are locked; cross-midnight sessions remain writable until the next valid boundary
+- **Attendance corrections:** ADMIN can correct an existing record even after locking; the required reason and old/new values are written to both the audit log and class operation timeline in the same transaction
+- **Attendance visibility:** administrators can inspect and correct every session, assigned teachers can inspect their classes, and students can view classmates' statuses without staff notes or recorder metadata
+- **Historical roster integrity:** transfer, withdrawal, or completion never removes a student from sessions held while the enrollment was active and never adds a later enrollment to an earlier session
+- **Attendance risk:** Student summaries compare the Present/Late rate against each course's configured threshold and display clear absence-risk warnings
 - **Practical assessments:** assigned teachers create and replace drafts containing competency ratings/comments, submit only after every required criterion is rated, then lock immutable results; assessment numbers retain history over time
 - **Assessment integrity:** student enrollment, teacher assignment/ownership, optional session class/course, and every competency's course are validated transactionally and backed by composite PostgreSQL constraints
 - **Student assessment history:** authenticated students see only their own submitted/locked assessments through `/api/v1/student/assessments`
@@ -190,7 +193,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **React SPA foundation (`apps/web`):** React 18, TypeScript, Vite, React Router, TanStack Query, React Hook Form, Zod, Tailwind CSS, and shared NSA design tokens/components
 - **Frontend authentication:** login, silent cookie-based refresh, in-memory access tokens, deduplicated 401 refresh/retry, logout, forced password change, and role-aware home redirects
 - **Authenticated shells:** responsive Admin, Teacher, and Student navigation with route guards, 403/404 handling, and shared loading/error/empty patterns
-- **Admin feature screens:** searchable/paginated student, teacher, course, and class management; class enrollment and teacher assignment; session scheduling forms
+- **Admin feature screens:** searchable/paginated student, teacher, course, and class management; class transfer/withdrawal/completion and operation timeline; teacher assignment; room/workshop management; session creation, rescheduling, cancellation, and attendance inspection from the calendar
 - **Teacher feature screens:** assigned-class workspaces, rosters, Google Calendar-style weekly teaching schedule with direct attendance navigation, batch attendance, and practical skill assessment history/lifecycle
 - **Student feature screens:** dashboard, enrolled courses, weekly class calendar with personal and class attendance status, attendance history/summary, assessment results, and deterministic progress views
 - **Teacher class API:** assignment-scoped class list/detail endpoints provide roster and competency data without exposing unassigned classes
@@ -320,14 +323,23 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 ## Current Limitations
 
-- Attendance roster/automatic locking follows the current `enrolled` relationship. A later enrollment-history policy may be needed if transfers or withdrawals must retroactively affect old session rosters.
-- Progress exposes deterministic Pending/Eligible status; formal ADMIN approval/rejection of `course_completions` is not exposed in Phase 7.
+- Attendance percentages count Present and Late as attended and exclude Excused records from the denominator; the configured course threshold drives the risk warning.
+- Progress exposes deterministic Pending/Eligible status; ADMIN can approve/reject eligible completions with immutable decision history and verifiable PDF certificates.
 - The latest submitted or locked rating for each required competency supersedes its earlier rating when progress is calculated.
 - Rate limiting is in-memory per instance (fine for the single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
 - Phase 9 forms use the backend's validation and standard error envelopes; richer client-side field schemas can be expanded as workflows evolve.
 - Playwright integration and production image builds run in CI; locally they require Docker Desktop.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.
+
+## Completed vocational-training scope (Phases 11–16)
+
+- Student lifecycle profiles and generated `HV********` codes; no tuition/payment workflow.
+- Class operations: enrollments, transfers, teacher assignments, locations, schedule changes, and immutable operation history.
+- Same-day Teacher attendance with automatic Vietnam-midnight locking, ADMIN corrections, temporal rosters, and attendance-risk alerts.
+- Practical competency assessments with draft/submitted/locked lifecycle and optional HTTP(S) evidence links.
+- ADMIN completion decisions, immutable decision history, `CC########` certificates, PDF download, revocation/reissue, and public verification codes.
+- Role dashboards, responsive calendars, in-app notifications, operational summary, and CSV exports for attendance, competencies, classes, and completions.
 
 ## Documentation
 

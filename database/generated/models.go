@@ -623,6 +623,20 @@ type AuditLog struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type Certificate struct {
+	ID                pgtype.UUID        `json:"id"`
+	CompletionID      pgtype.UUID        `json:"completion_id"`
+	CertificateNumber string             `json:"certificate_number"`
+	VerificationCode  pgtype.UUID        `json:"verification_code"`
+	IssuedBy          pgtype.UUID        `json:"issued_by"`
+	IssuedAt          pgtype.Timestamptz `json:"issued_at"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+	RevokedBy         pgtype.UUID        `json:"revoked_by"`
+	RevokeReason      pgtype.Text        `json:"revoke_reason"`
+	IsCurrent         bool               `json:"is_current"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
 type Class struct {
 	ID              pgtype.UUID        `json:"id"`
 	CourseID        pgtype.UUID        `json:"course_id"`
@@ -646,6 +660,18 @@ type ClassEnrollment struct {
 	CreatedBy  pgtype.UUID        `json:"created_by"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ClassOperationHistory struct {
+	ID          pgtype.UUID        `json:"id"`
+	ClassID     pgtype.UUID        `json:"class_id"`
+	EventType   string             `json:"event_type"`
+	EntityType  string             `json:"entity_type"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	Reason      pgtype.Text        `json:"reason"`
+	Details     []byte             `json:"details"`
+	ActorUserID pgtype.UUID        `json:"actor_user_id"`
+	OccurredAt  pgtype.Timestamptz `json:"occurred_at"`
 }
 
 type ClassSession struct {
@@ -677,6 +703,18 @@ type CompetencyCriterium struct {
 	SequenceNo  int32              `json:"sequence_no"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CompletionDecisionHistory struct {
+	ID                        pgtype.UUID        `json:"id"`
+	CompletionID              pgtype.UUID        `json:"completion_id"`
+	Status                    CompletionStatus   `json:"status"`
+	AttendancePct             pgtype.Numeric     `json:"attendance_pct"`
+	RequiredCompetenciesMet   int32              `json:"required_competencies_met"`
+	RequiredCompetenciesTotal int32              `json:"required_competencies_total"`
+	Note                      string             `json:"note"`
+	DecidedBy                 pgtype.UUID        `json:"decided_by"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
 }
 
 type Course struct {
@@ -764,6 +802,7 @@ type StudentAssessment struct {
 	LockedAt       pgtype.Timestamptz `json:"locked_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	EvidenceUrl    pgtype.Text        `json:"evidence_url"`
 }
 
 type StudentProfile struct {

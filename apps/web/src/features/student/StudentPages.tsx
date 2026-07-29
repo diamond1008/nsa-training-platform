@@ -376,6 +376,26 @@ export function StudentAttendancePage() {
     queryFn: () => studentApi.attendance({ page, per_page: 10, class_id: classId }),
   });
   const selected = summary.data?.items.find((s) => s.class_id === classId);
+  const summaryItems = summary.data?.items ?? [];
+  const totals = summaryItems.reduce(
+    (result, item) => ({
+      present: result.present + item.present_sessions,
+      late: result.late + item.late_sessions,
+      absent: result.absent + item.absent_sessions,
+      excused: result.excused + item.excused_sessions,
+      recorded: result.recorded + item.recorded_sessions,
+    }),
+    { present: 0, late: 0, absent: 0, excused: 0, recorded: 0 },
+  );
+  const aggregateDenominator = totals.recorded - totals.excused;
+  const displayAttendancePct =
+    selected?.attendance_pct ??
+    (aggregateDenominator > 0 ? (100 * (totals.present + totals.late)) / aggregateDenominator : 0);
+  const atRisk = selected
+    ? selected.is_at_risk
+      ? [selected]
+      : []
+    : summaryItems.filter((s) => s.is_at_risk);
   return (
     <div>
       <PageHeader
@@ -401,33 +421,27 @@ export function StudentAttendancePage() {
       </div>
       <QueryState loading={summary.isLoading} error={summary.error}>
         {summary.data && (
-          <div className="mb-5 grid gap-3 sm:grid-cols-4">
-            <StatCard
-              label="Chuyên cần"
-              value={`${(selected?.attendance_pct ?? summary.data.items[0]?.attendance_pct ?? 0).toFixed(0)}%`}
-            />
-            <StatCard
-              label="Có mặt"
-              value={
-                selected?.present_sessions ??
-                summary.data.items.reduce((n, i) => n + i.present_sessions, 0)
-              }
-            />
-            <StatCard
-              label="Đi trễ"
-              value={
-                selected?.late_sessions ??
-                summary.data.items.reduce((n, i) => n + i.late_sessions, 0)
-              }
-            />
-            <StatCard
-              label="Vắng"
-              value={
-                selected?.absent_sessions ??
-                summary.data.items.reduce((n, i) => n + i.absent_sessions, 0)
-              }
-            />
-          </div>
+          <>
+            {atRisk.length > 0 ? (
+              <div className="mb-4 rounded-2xl border border-error/20 bg-error-bg p-4 text-sm text-error">
+                <b>Cảnh báo chuyên cần</b>
+                <p className="mt-1">
+                  {atRisk
+                    .map(
+                      (item) =>
+                        `${item.class_code}: ${item.attendance_pct.toFixed(0)}% / yêu cầu ${item.minimum_attendance_pct.toFixed(0)}%`,
+                    )
+                    .join(" · ")}
+                </p>
+              </div>
+            ) : null}
+            <div className="mb-5 grid gap-3 sm:grid-cols-4">
+              <StatCard label="Chuyên cần" value={`${displayAttendancePct.toFixed(0)}%`} />
+              <StatCard label="Có mặt" value={selected?.present_sessions ?? totals.present} />
+              <StatCard label="Đi trễ" value={selected?.late_sessions ?? totals.late} />
+              <StatCard label="Vắng" value={selected?.absent_sessions ?? totals.absent} />
+            </div>
+          </>
         )}
       </QueryState>
       <QueryState
@@ -495,6 +509,16 @@ export function StudentAssessmentsPage() {
                   <b>Nhận xét chung:</b> {a.overall_comment}
                 </div>
               )}
+              {a.evidence_url && (
+                <a
+                  className="mt-3 inline-flex text-sm font-semibold text-gold-dark hover:underline"
+                  href={a.evidence_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Xem minh chứng đánh giá ↗
+                </a>
+              )}
             </Card>
           ))}
         </div>
@@ -508,6 +532,19 @@ export function StudentProgressPage() {
     queryKey: ["student", "progress"],
     queryFn: () => studentApi.progress(),
   });
+  const certificates = useQuery({
+    queryKey: ["student", "certificates"],
+    queryFn: () => studentApi.certificates(),
+  });
+  const downloadCertificate = async (id: string, number: string) => {
+    const blob = await studentApi.certificatePDF(id);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${number}.pdf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
   return (
     <div>
       <PageHeader
@@ -569,6 +606,43 @@ export function StudentProgressPage() {
           ))}
         </div>
       </QueryState>
+      {!!certificates.data?.length && (
+        <section className="mt-6">
+          <SectionHeader
+            title="Chứng nhận của tôi"
+            subtitle="Tải bản PDF hoặc dùng mã xác thực để đối chiếu."
+          />
+          <div className="grid gap-4 md:grid-cols-2">
+            {certificates.data.map((certificate) => (
+              <Card key={certificate.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-gold-dark">
+                      {certificate.certificate_number}
+                    </p>
+                    <h3 className="mt-1 font-bold text-navy">{certificate.course_name}</h3>
+                    <p className="text-sm text-gtext">{certificate.class_code}</p>
+                  </div>
+                  <StatusBadge value={certificate.is_current ? "active" : "revoked"} />
+                </div>
+                <p className="mt-4 break-all rounded-lg bg-gbg2 p-3 text-xs text-gtext">
+                  Mã xác thực: {certificate.verification_code}
+                </p>
+                {certificate.is_current && (
+                  <Button
+                    className="mt-4"
+                    onClick={() =>
+                      void downloadCertificate(certificate.id, certificate.certificate_number)
+                    }
+                  >
+                    Tải chứng nhận PDF
+                  </Button>
+                )}
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

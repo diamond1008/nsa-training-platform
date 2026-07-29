@@ -210,6 +210,22 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 	if first.StartsAt != "2026-09-01T01:00:00Z" {
 		t.Errorf("UTC starts_at = %s, want 2026-09-01T01:00:00Z", first.StartsAt)
 	}
+	first, err = env.schedules.UpdateSession(ctx, env.actorID, first.ID, schedulemodule.SessionInput{
+		ClassID: classA.ID, TeacherID: stringPointer(teacherA.ID), LocationID: stringPointer(locationA.ID),
+		Title: "Engine workshop - adjusted", SessionType: db.SessionTypeWorkshop,
+		StartsAt: starts, EndsAt: ends, Status: db.SessionStatusScheduled,
+		ChangeReason: "Cập nhật nội dung buổi thực hành",
+	})
+	if err != nil {
+		t.Fatalf("update first session: %v", err)
+	}
+	history, err := env.classes.OperationHistory(ctx, classA.ID)
+	if err != nil {
+		t.Fatalf("list class operation history: %v", err)
+	}
+	if !containsOperationEvent(history, "session_updated") {
+		t.Fatal("class operation history does not contain session_updated")
+	}
 
 	_, err = env.schedules.CreateSession(ctx, env.actorID, schedulemodule.SessionInput{
 		ClassID: classA.ID, Title: "Same class overlap", SessionType: db.SessionTypeTheory,
@@ -338,6 +354,15 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 	if !errors.Is(err, schedulemodule.ErrSessionLocked) {
 		t.Fatalf("locked session update error = %v", err)
 	}
+}
+
+func containsOperationEvent(items []classmodule.OperationHistoryView, eventType string) bool {
+	for _, item := range items {
+		if item.EventType == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 func mustTime(t *testing.T, value string) time.Time {

@@ -14,7 +14,9 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/attendance"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/completions"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/reports"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
@@ -36,6 +38,8 @@ func TestAllAdminRoutesRequireAdmin(t *testing.T) {
 			classes.NewHandler(nil, log),
 			schedules.NewHandler(nil, log),
 			attendance.NewHandler(nil, log),
+			completions.NewHandler(nil, log),
+			reports.NewHandler(nil, log),
 		)
 	})
 	teacherToken, _, err := tokens.Issue(
@@ -91,6 +95,14 @@ func TestAllAdminRoutesRequireAdmin(t *testing.T) {
 		{http.MethodPut, "/api/v1/admin/sessions/" + id},
 		{http.MethodGet, "/api/v1/admin/sessions/" + id + "/attendance"},
 		{http.MethodPut, "/api/v1/admin/attendance/" + id},
+		{http.MethodGet, "/api/v1/admin/completions"},
+		{http.MethodPut, "/api/v1/admin/completions/" + id + "/" + id},
+		{http.MethodGet, "/api/v1/admin/completions/" + id + "/" + id + "/history"},
+		{http.MethodGet, "/api/v1/admin/certificates/" + id + "/pdf"},
+		{http.MethodPost, "/api/v1/admin/certificates/" + id + "/revoke"},
+		{http.MethodPost, "/api/v1/admin/certificates/" + id + "/reissue"},
+		{http.MethodGet, "/api/v1/admin/reports/summary"},
+		{http.MethodGet, "/api/v1/admin/reports/attendance.csv"},
 	}
 
 	for _, route := range routes {

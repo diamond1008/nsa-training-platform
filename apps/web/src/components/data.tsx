@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import clsx from "clsx";
 
 import { ApiRequestError } from "../lib/apiClient";
-import type { SessionAttendance } from "../lib/domainTypes";
+import type { AttendanceRosterItem, SessionAttendance } from "../lib/domainTypes";
 import { statusLabel } from "../lib/format";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
@@ -283,7 +283,13 @@ export function QuickAction({
   );
 }
 
-export function AttendanceRoster({ data }: { data: SessionAttendance }) {
+export function AttendanceRoster({
+  data,
+  onCorrect,
+}: {
+  data: SessionAttendance;
+  onCorrect?: (item: AttendanceRosterItem) => void;
+}) {
   const locked = !!data.session.attendance_locked_at;
   return (
     <div className="space-y-4">
@@ -328,11 +334,18 @@ export function AttendanceRoster({ data }: { data: SessionAttendance }) {
                 {item.note && <p className="mt-1 text-xs text-gtext">{item.note}</p>}
               </div>
             </div>
-            {item.attendance_status ? (
-              <StatusBadge value={item.attendance_status} />
-            ) : (
-              <Badge tone="gray">Chưa ghi nhận</Badge>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              {item.attendance_status ? (
+                <StatusBadge value={item.attendance_status} />
+              ) : (
+                <Badge tone="gray">Chưa ghi nhận</Badge>
+              )}
+              {onCorrect && item.attendance_id ? (
+                <Button variant="ghost" onClick={() => onCorrect(item)}>
+                  Hiệu chỉnh
+                </Button>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>
