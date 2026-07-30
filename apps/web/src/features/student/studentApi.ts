@@ -8,6 +8,7 @@ import type {
   StudentAttendanceHistoryItem,
   StudentAttendanceSummary,
   SessionAttendance,
+  CourseTestResults,
 } from "../../lib/domainTypes";
 import { toQuery } from "../../lib/format";
 
@@ -24,6 +25,7 @@ export const studentApi = {
     ),
   assessments: (params: { page?: number; per_page?: number; class_id?: string } = {}) =>
     api<Paginated<StudentAssessment>>(`/student/assessments${toQuery(params)}`),
+  testResults: () => api<CourseTestResults[]>("/student/test-results"),
   progress: (classId?: string) =>
     api<ProgressDashboard>(`/student/progress${toQuery({ class_id: classId })}`),
   certificates: () => api<Certificate[]>("/student/certificates"),

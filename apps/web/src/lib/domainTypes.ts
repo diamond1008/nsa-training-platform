@@ -266,6 +266,7 @@ export interface StudentProgress {
   enrollment_status: string;
   course_code: string;
   course_name: string;
+  course_id: string;
   sessions: { completed: number; required: number; percent: number };
   attendance: {
     records: number;
@@ -277,6 +278,9 @@ export interface StudentProgress {
   };
   competencies: { met: number; required: number; percent: number; requirement_met: boolean };
   assessments: { completed: number; required: number; percent: number; requirement_met: boolean };
+  tests: { passed: number; required: number; percent: number; requirement_met: boolean };
+  final_exam: { score?: number | null; required_score: number; requirement_met: boolean };
+  failure_reasons: string[];
   overall_progress_pct: number;
   completion_status: string;
 }
@@ -303,10 +307,64 @@ export interface CompletionCandidate {
   required_competencies_total: number;
   completed_assessments: number;
   required_assessments: number;
+  required_tests_passed: number;
+  required_tests_total: number;
+  final_exam_score?: number | null;
+  final_exam_passed: boolean;
+  failure_reasons: string[];
+  current_certificate_id?: string | null;
+  current_certificate_number?: string | null;
   is_eligible: boolean;
   status: string;
   review_note?: string | null;
   reviewed_at?: string | null;
+}
+
+export type CourseTestKind = "class_test" | "final_exam";
+
+export interface CourseTest {
+  id: string;
+  course_id: string;
+  code: string;
+  title: string;
+  kind: CourseTestKind;
+  pass_score: number;
+  is_required: boolean;
+  sequence_no: number;
+  is_active: boolean;
+}
+
+export interface TestAttempt {
+  id: string;
+  test_id: string;
+  class_id: string;
+  class_code: string;
+  test_code: string;
+  test_title: string;
+  kind: CourseTestKind;
+  attempt_no: number;
+  score: number;
+  pass_score: number;
+  passed: boolean;
+  is_required: boolean;
+  note?: string | null;
+  recorded_by_email: string;
+  taken_at: string;
+}
+
+export interface TestResult {
+  test: CourseTest;
+  attempts: TestAttempt[];
+  passed: boolean;
+  best_score?: number | null;
+}
+
+export interface CourseTestResults {
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  student_id: string;
+  tests: TestResult[];
 }
 
 export interface Certificate {

@@ -470,12 +470,53 @@ export function StudentAssessmentsPage() {
     queryKey: ["student", "assessments"],
     queryFn: () => studentApi.assessments({ page: 1, per_page: 100 }),
   });
+  const scores = useQuery({
+    queryKey: ["student", "test-results"],
+    queryFn: studentApi.testResults,
+  });
   return (
     <div>
       <PageHeader
-        title="Kết quả kỹ năng"
-        subtitle="Các đánh giá đã gửi hoặc khóa bởi giảng viên."
+        title="Kết quả học tập"
+        subtitle="Điểm kiểm tra, thi kết thúc khóa và đánh giá kỹ năng của bạn."
       />
+      <QueryState loading={scores.isLoading} error={scores.error}>
+        <div className="mb-6 space-y-4">
+          {scores.data?.map((course) => (
+            <Card key={course.course_id}>
+              <SectionHeader
+                title={`${course.course_code} · ${course.course_name}`}
+                subtitle="Hệ thống dùng kết quả cao nhất của từng bài để xét hoàn thành."
+              />
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {course.tests.map((result) => (
+                  <div key={result.test.id} className="rounded-xl border border-gborder p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <b>
+                          {result.test.code} · {result.test.title}
+                        </b>
+                        <p className="mt-1 text-xs text-gtext">
+                          {result.test.kind === "final_exam"
+                            ? "Thi kết thúc · yêu cầu trên 5"
+                            : `Điểm đạt từ ${result.test.pass_score}`}
+                        </p>
+                      </div>
+                      <StatusBadge value={result.passed ? "passed" : "pending"} />
+                    </div>
+                    <p className="mt-4 text-2xl font-bold text-navy">
+                      {result.best_score == null ? "—" : result.best_score.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gtext">
+                      Điểm cao nhất · {result.attempts.length} lần ghi nhận
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ))}
+        </div>
+      </QueryState>
       <QueryState loading={query.isLoading} error={query.error} empty={!query.data?.items.length}>
         <div className="space-y-4">
           {query.data?.items.map((a) => (
@@ -596,11 +637,28 @@ export function StudentProgressPage() {
                   value={item.assessments.percent}
                   label={`Đánh giá ${item.assessments.completed}/${item.assessments.required}`}
                 />
+                <ProgressBar
+                  value={item.tests.percent}
+                  label={`Bài kiểm tra bắt buộc ${item.tests.passed}/${item.tests.required}`}
+                />
+                <ProgressBar
+                  value={
+                    item.final_exam.score == null
+                      ? 0
+                      : Math.min(100, (item.final_exam.score / 10) * 100)
+                  }
+                  label={`Thi kết thúc: ${item.final_exam.score == null ? "chưa có điểm" : `${item.final_exam.score.toFixed(2)} · yêu cầu > 5`}`}
+                />
               </div>
-              {item.completion_status !== "eligible" && (
-                <p className="mt-4 rounded-lg bg-gold/10 p-3 text-sm text-gold-dark">
-                  Bạn cần hoàn thành tất cả yêu cầu trước khi đủ điều kiện kết thúc khóa học.
-                </p>
+              {!!item.failure_reasons.length && (
+                <div className="mt-4 rounded-lg bg-gold/10 p-3 text-sm text-gold-dark">
+                  <b>Điều kiện còn thiếu:</b>
+                  <ul className="mt-1 list-disc pl-5">
+                    {item.failure_reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </Card>
           ))}

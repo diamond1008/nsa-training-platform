@@ -7,7 +7,7 @@ openapi: 3.1.0
 
 info:
   title: NSA Training Platform API
-  version: "1.0.0"
+  version: "1.1.0"
   description: |
     REST/JSON API for the NSA Training Platform (modular monolith).
     Base path: `/api/v1`. All timestamps are UTC (RFC 3339).
@@ -611,6 +611,45 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CompetencyResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses/{courseID}/tests:
+    parameters:
+      - { name: courseID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      summary: List configured in-class tests and the final exam
+      operationId: listAdminCourseTests
+      responses:
+        "200": { description: Course tests, content: { application/json: { schema: { $ref: "#/components/schemas/CourseTestListResponse" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [admin]
+      summary: Configure a course test
+      operationId: createAdminCourseTest
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CourseTestRequest" } } }
+      responses:
+        "201": { description: Test created, content: { application/json: { schema: { $ref: "#/components/schemas/CourseTestResponse" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/courses/{courseID}/tests/{testID}:
+    put:
+      tags: [admin]
+      summary: Replace a configured course test
+      operationId: updateAdminCourseTest
+      parameters:
+        - { name: courseID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: testID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CourseTestRequest" } } }
+      responses:
+        "200": { description: Test updated, content: { application/json: { schema: { $ref: "#/components/schemas/CourseTestResponse" } } } }
         "400": { $ref: "#/components/responses/ValidationError" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -1283,6 +1322,65 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /api/v1/teacher/classes/{classID}/students/{studentID}/test-results:
+    get:
+      tags: [teacher]
+      summary: List course tests and all score attempts for an assigned student
+      operationId: listTeacherStudentTestResults
+      parameters:
+        - { name: classID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: studentID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Student test results, content: { application/json: { schema: { $ref: "#/components/schemas/CourseTestResultsResponse" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/teacher/classes/{classID}/students/{studentID}/tests/{testID}/attempts:
+    post:
+      tags: [teacher]
+      summary: Record a new score attempt for an actively enrolled student
+      operationId: createTeacherStudentTestAttempt
+      parameters:
+        - { name: classID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: studentID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: testID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptCreateRequest" } } }
+      responses:
+        "201": { description: Score recorded, content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptResponse" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/teacher/test-attempts/{attemptID}:
+    put:
+      tags: [teacher]
+      summary: Correct a score with an immutable reason trail
+      operationId: correctTeacherTestAttempt
+      parameters:
+        - { name: attemptID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptCorrectionRequest" } } }
+      responses:
+        "200": { description: Score corrected, content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptResponse" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/teacher/test-attempts/{attemptID}/history:
+    get:
+      tags: [teacher]
+      summary: List score correction history
+      operationId: listTeacherTestAttemptHistory
+      parameters:
+        - { name: attemptID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Immutable score history, content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptHistoryListResponse" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/student/schedule:
     get:
       tags: [student]
@@ -1410,11 +1508,11 @@ paths:
       tags: [student]
       summary: Get the authenticated student's learning progress dashboard
       description: |
-        Progress is calculated deterministically from completed/locked sessions,
-        attendance against the course threshold, latest submitted/locked rating
-        for each required competency, and submitted/locked assessments linked
-        to non-cancelled assessment sessions. `completion_status` is Eligible
-        only when every configured rule is met.
+        Completion eligibility is calculated per student/course and survives
+        same-course class transfers. It requires attendance of at least 80%,
+        every active mandatory in-class test passed, and one active final exam
+        with a best score strictly greater than 5. Session, competency, and
+        practical-assessment metrics remain visible as learning-progress context.
       operationId: getStudentProgress
       parameters:
         - name: class_id
@@ -1427,6 +1525,20 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProgressDashboardResponse" }
         "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/student/test-results:
+    get:
+      tags: [student]
+      summary: List the authenticated student's scores grouped by course
+      operationId: listStudentTestResults
+      responses:
+        "200":
+          description: Own test results, including attempts retained across same-course transfers
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentCourseTestResultsResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
@@ -1443,6 +1555,32 @@ paths:
         "200": { description: Completion candidates, content: { application/json: { schema: { $ref: "#/components/schemas/CompletionCandidateListResponse" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/admin/test-attempts/{attemptID}:
+    put:
+      tags: [admin]
+      summary: Administratively correct any score with a required reason
+      operationId: correctAdminTestAttempt
+      parameters:
+        - { name: attemptID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptCorrectionRequest" } } }
+      responses:
+        "200": { description: Score corrected, content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptResponse" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/test-attempts/{attemptID}/history:
+    get:
+      tags: [admin]
+      summary: List immutable score correction history
+      operationId: listAdminTestAttemptHistory
+      parameters:
+        - { name: attemptID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Score correction history, content: { application/json: { schema: { $ref: "#/components/schemas/TestAttemptHistoryListResponse" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/admin/completions/{classID}/{studentID}:
     put:
@@ -2005,7 +2143,7 @@ components:
         name: { type: string, maxLength: 200 }
         description: { type: [string, "null"] }
         total_sessions: { type: integer, minimum: 1 }
-        minimum_attendance_pct: { type: number, minimum: 0, maximum: 100 }
+        minimum_attendance_pct: { type: number, const: 80 }
         status: { $ref: "#/components/schemas/CourseStatus" }
     Course:
       type: object
@@ -2724,6 +2862,128 @@ components:
               items: { $ref: "#/components/schemas/StudentAssessment" }
             meta: { $ref: "#/components/schemas/PaginationMeta" }
         message: { type: string }
+    CourseTestKind:
+      type: string
+      enum: [class_test, final_exam]
+    CourseTestRequest:
+      type: object
+      additionalProperties: false
+      required: [code, title, kind, pass_score, is_required, sequence_no, is_active]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 40 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        kind: { $ref: "#/components/schemas/CourseTestKind" }
+        pass_score: { type: number, minimum: 0, maximum: 10, description: "Final exam must use 5 and passing is strictly greater than 5." }
+        is_required: { type: boolean }
+        sequence_no: { type: integer, minimum: 1 }
+        is_active: { type: boolean }
+    CourseTest:
+      allOf:
+        - type: object
+          required: [id, course_id]
+          properties:
+            id: { type: string, format: uuid }
+            course_id: { type: string, format: uuid }
+        - { $ref: "#/components/schemas/CourseTestRequest" }
+    CourseTestResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/CourseTest" }
+        message: { type: string }
+    CourseTestListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/CourseTest" } }
+        message: { type: string }
+    TestAttemptCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [score]
+      properties:
+        score: { type: number, minimum: 0, maximum: 10 }
+        note: { type: [string, "null"], maxLength: 1000 }
+        taken_at: { type: [string, "null"], format: date-time }
+    TestAttemptCorrectionRequest:
+      allOf:
+        - { $ref: "#/components/schemas/TestAttemptCreateRequest" }
+        - type: object
+          required: [reason]
+          properties:
+            reason: { type: string, minLength: 1, maxLength: 1000 }
+    TestAttempt:
+      type: object
+      required: [id, test_id, class_id, class_code, test_code, test_title, kind, attempt_no, score, pass_score, passed, is_required, recorded_by_email, taken_at]
+      properties:
+        id: { type: string, format: uuid }
+        test_id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        test_code: { type: string }
+        test_title: { type: string }
+        kind: { $ref: "#/components/schemas/CourseTestKind" }
+        attempt_no: { type: integer, minimum: 1 }
+        score: { type: number, minimum: 0, maximum: 10 }
+        pass_score: { type: number }
+        passed: { type: boolean }
+        is_required: { type: boolean }
+        note: { type: [string, "null"] }
+        recorded_by_email: { type: string }
+        taken_at: { type: string, format: date-time }
+    TestResult:
+      type: object
+      required: [test, attempts, passed]
+      properties:
+        test: { $ref: "#/components/schemas/CourseTest" }
+        attempts: { type: array, items: { $ref: "#/components/schemas/TestAttempt" } }
+        passed: { type: boolean }
+        best_score: { type: [number, "null"] }
+    CourseTestResults:
+      type: object
+      required: [course_id, course_code, course_name, student_id, tests]
+      properties:
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        student_id: { type: string, format: uuid }
+        tests: { type: array, items: { $ref: "#/components/schemas/TestResult" } }
+    CourseTestResultsResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/CourseTestResults" }
+        message: { type: string }
+    StudentCourseTestResultsResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/CourseTestResults" } }
+        message: { type: string }
+    TestAttemptResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { $ref: "#/components/schemas/TestAttempt" }
+        message: { type: string }
+    TestAttemptHistory:
+      type: object
+      required: [id, old_score, new_score, reason, changed_by_email, changed_at]
+      properties:
+        id: { type: string, format: uuid }
+        old_score: { type: number }
+        new_score: { type: number }
+        old_note: { type: [string, "null"] }
+        new_note: { type: [string, "null"] }
+        reason: { type: string }
+        changed_by_email: { type: string }
+        changed_at: { type: string, format: date-time }
+    TestAttemptHistoryListResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/TestAttemptHistory" } }
+        message: { type: string }
     SessionProgressComponent:
       type: object
       required: [completed, required, percent]
@@ -2758,9 +3018,24 @@ components:
         required: { type: integer, minimum: 0 }
         percent: { type: number, minimum: 0, maximum: 100 }
         requirement_met: { type: boolean }
+    TestProgressComponent:
+      type: object
+      required: [passed, required, percent, requirement_met]
+      properties:
+        passed: { type: integer, minimum: 0 }
+        required: { type: integer, minimum: 0 }
+        percent: { type: number, minimum: 0, maximum: 100 }
+        requirement_met: { type: boolean }
+    FinalExamProgressComponent:
+      type: object
+      required: [required_score, requirement_met]
+      properties:
+        score: { type: [number, "null"], minimum: 0, maximum: 10 }
+        required_score: { type: number, const: 5 }
+        requirement_met: { type: boolean, description: "True only when score is strictly greater than 5." }
     StudentProgress:
       type: object
-      required: [class_id, class_code, class_name, class_status, enrollment_status, course_id, course_code, course_name, sessions, attendance, competencies, assessments, overall_progress_pct, completion_status]
+      required: [class_id, class_code, class_name, class_status, enrollment_status, course_id, course_code, course_name, sessions, attendance, competencies, assessments, tests, final_exam, failure_reasons, overall_progress_pct, completion_status]
       properties:
         class_id: { type: string, format: uuid }
         class_code: { type: string }
@@ -2774,6 +3049,9 @@ components:
         attendance: { $ref: "#/components/schemas/AttendanceProgressComponent" }
         competencies: { $ref: "#/components/schemas/CompetencyProgressComponent" }
         assessments: { $ref: "#/components/schemas/AssessmentProgressComponent" }
+        tests: { $ref: "#/components/schemas/TestProgressComponent" }
+        final_exam: { $ref: "#/components/schemas/FinalExamProgressComponent" }
+        failure_reasons: { type: array, items: { type: string } }
         overall_progress_pct: { type: number, minimum: 0, maximum: 100 }
         completion_status: { $ref: "#/components/schemas/CompletionStatus" }
     ProgressDashboardSummary:
@@ -2800,7 +3078,7 @@ components:
 
     CompletionCandidate:
       type: object
-      required: [class_id, class_code, class_name, student_id, student_code, student_name, course_code, course_name, completed_sessions, total_sessions, attendance_pct, minimum_attendance_pct, required_competencies_met, required_competencies_total, completed_assessments, required_assessments, is_eligible, status]
+      required: [class_id, class_code, class_name, student_id, student_code, student_name, course_code, course_name, completed_sessions, total_sessions, attendance_pct, minimum_attendance_pct, required_competencies_met, required_competencies_total, completed_assessments, required_assessments, required_tests_passed, required_tests_total, final_exam_passed, failure_reasons, is_eligible, status]
       properties:
         class_id: { type: string, format: uuid }
         class_code: { type: string }
@@ -2818,6 +3096,13 @@ components:
         required_competencies_total: { type: integer }
         completed_assessments: { type: integer }
         required_assessments: { type: integer }
+        required_tests_passed: { type: integer }
+        required_tests_total: { type: integer }
+        final_exam_score: { type: [number, "null"], minimum: 0, maximum: 10 }
+        final_exam_passed: { type: boolean }
+        failure_reasons: { type: array, items: { type: string } }
+        current_certificate_id: { type: [string, "null"], format: uuid }
+        current_certificate_number: { type: [string, "null"] }
         is_eligible: { type: boolean }
         status: { type: string, enum: [pending, eligible, approved, rejected] }
         review_note: { type: [string, "null"] }

@@ -278,6 +278,48 @@ func (ns NullCourseStatus) Value() (driver.Value, error) {
 	return string(ns.CourseStatus), nil
 }
 
+type CourseTestKind string
+
+const (
+	CourseTestKindClassTest CourseTestKind = "class_test"
+	CourseTestKindFinalExam CourseTestKind = "final_exam"
+)
+
+func (e *CourseTestKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CourseTestKind(s)
+	case string:
+		*e = CourseTestKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CourseTestKind: %T", src)
+	}
+	return nil
+}
+
+type NullCourseTestKind struct {
+	CourseTestKind CourseTestKind `json:"course_test_kind"`
+	Valid          bool           `json:"valid"` // Valid is true if CourseTestKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCourseTestKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.CourseTestKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CourseTestKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCourseTestKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CourseTestKind), nil
+}
+
 type EnrollmentStatus string
 
 const (
@@ -715,6 +757,9 @@ type CompletionDecisionHistory struct {
 	Note                      string             `json:"note"`
 	DecidedBy                 pgtype.UUID        `json:"decided_by"`
 	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	RequiredTestsPassed       int32              `json:"required_tests_passed"`
+	RequiredTestsTotal        int32              `json:"required_tests_total"`
+	FinalExamScore            pgtype.Numeric     `json:"final_exam_score"`
 }
 
 type Course struct {
@@ -742,6 +787,10 @@ type CourseCompletion struct {
 	ReviewNote                pgtype.Text        `json:"review_note"`
 	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt                 pgtype.Timestamptz `json:"updated_at"`
+	CourseID                  pgtype.UUID        `json:"course_id"`
+	RequiredTestsPassed       int32              `json:"required_tests_passed"`
+	RequiredTestsTotal        int32              `json:"required_tests_total"`
+	FinalExamScore            pgtype.Numeric     `json:"final_exam_score"`
 }
 
 type CourseModule struct {
@@ -754,6 +803,20 @@ type CourseModule struct {
 	Description     pgtype.Text        `json:"description"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CourseTest struct {
+	ID         pgtype.UUID        `json:"id"`
+	CourseID   pgtype.UUID        `json:"course_id"`
+	Code       string             `json:"code"`
+	Title      string             `json:"title"`
+	Kind       CourseTestKind     `json:"kind"`
+	PassScore  pgtype.Numeric     `json:"pass_score"`
+	IsRequired bool               `json:"is_required"`
+	SequenceNo int32              `json:"sequence_no"`
+	IsActive   bool               `json:"is_active"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Notification struct {
@@ -832,6 +895,21 @@ type StudentStatusHistory struct {
 	ChangedAt  pgtype.Timestamptz `json:"changed_at"`
 }
 
+type StudentTestAttempt struct {
+	ID         pgtype.UUID        `json:"id"`
+	TestID     pgtype.UUID        `json:"test_id"`
+	CourseID   pgtype.UUID        `json:"course_id"`
+	ClassID    pgtype.UUID        `json:"class_id"`
+	StudentID  pgtype.UUID        `json:"student_id"`
+	AttemptNo  int32              `json:"attempt_no"`
+	Score      pgtype.Numeric     `json:"score"`
+	Note       pgtype.Text        `json:"note"`
+	RecordedBy pgtype.UUID        `json:"recorded_by"`
+	TakenAt    pgtype.Timestamptz `json:"taken_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type TeacherAssignment struct {
 	ID             pgtype.UUID        `json:"id"`
 	ClassID        pgtype.UUID        `json:"class_id"`
@@ -853,6 +931,18 @@ type TeacherProfile struct {
 	Status         TeacherStatus      `json:"status"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type TestAttemptHistory struct {
+	ID        pgtype.UUID        `json:"id"`
+	AttemptID pgtype.UUID        `json:"attempt_id"`
+	OldScore  pgtype.Numeric     `json:"old_score"`
+	NewScore  pgtype.Numeric     `json:"new_score"`
+	OldNote   pgtype.Text        `json:"old_note"`
+	NewNote   pgtype.Text        `json:"new_note"`
+	Reason    string             `json:"reason"`
+	ChangedBy pgtype.UUID        `json:"changed_by"`
+	ChangedAt pgtype.Timestamptz `json:"changed_at"`
 }
 
 type TrainingLocation struct {

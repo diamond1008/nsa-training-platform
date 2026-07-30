@@ -34,6 +34,7 @@ import type {
   ClassSession,
   CompletionCandidate,
   Course,
+  CourseTest,
   Enrollment,
   EnrollmentTransfer,
   Paginated,
@@ -75,6 +76,29 @@ export function AdminOperationsPage() {
       void queryClient.invalidateQueries({ queryKey: ["admin", "reports", "summary"] });
     },
   });
+  const certificateAction = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "revoke" | "reissue" }) => {
+      const reason = window.prompt(
+        action === "reissue"
+          ? "Hãy sửa thông tin nguồn trước. Nhập lý do thu hồi và cấp lại chứng nhận:"
+          : "Nhập lý do thu hồi chứng nhận:",
+      );
+      if (!reason?.trim()) throw new Error("Cần nhập lý do");
+      return action === "reissue"
+        ? adminApi.reissueCertificate(id, reason.trim())
+        : adminApi.revokeCertificate(id, reason.trim());
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin", "completions"] }),
+  });
+  const downloadCertificate = async (id: string, number: string) => {
+    const blob = await adminApi.certificatePDF(id);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${number}.pdf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
   const exportReport = useMutation({
     mutationFn: (kind: "attendance" | "competencies" | "classes" | "completions") =>
       adminApi.exportReport(kind).then((blob) => ({ blob, kind })),
@@ -130,8 +154,11 @@ export function AdminOperationsPage() {
       <section className="mt-6">
         <SectionHeader
           title="Duyệt hoàn thành khóa học"
-          subtitle="Hệ thống chỉ cho duyệt khi đủ buổi học, chuyên cần, năng lực và đánh giá bắt buộc."
+          subtitle="Chỉ được duyệt khi chuyên cần đạt 80%, đạt toàn bộ bài kiểm tra bắt buộc và điểm thi kết thúc trên 5."
         />
+        {certificateAction.error && (
+          <ErrorBanner message={mutationMessage(certificateAction.error)} />
+        )}
         <QueryState
           loading={candidates.isLoading}
           error={candidates.error}
@@ -163,18 +190,73 @@ export function AdminOperationsPage() {
                       <span>
                         Đánh giá: {item.completed_assessments}/{item.required_assessments}
                       </span>
+                      <span>
+                        Kiểm tra bắt buộc: {item.required_tests_passed}/{item.required_tests_total}
+                      </span>
+                      <span>
+                        Thi kết thúc:{" "}
+                        {item.final_exam_score == null
+                          ? "Chưa có"
+                          : item.final_exam_score.toFixed(2)}
+                      </span>
                     </div>
+                    {!!item.failure_reasons.length && (
+                      <p className="mt-2 text-xs font-medium text-error">
+                        {item.failure_reasons.join(" · ")}
+                      </p>
+                    )}
                   </div>
-                  <Button
-                    variant={item.is_eligible ? "accent" : "soft"}
-                    onClick={() => {
-                      setSelected(item);
-                      setDecision(item.is_eligible ? "approved" : "rejected");
-                      setNote("");
-                    }}
-                  >
-                    Xem xét hồ sơ
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {item.current_certificate_id && item.current_certificate_number && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            void downloadCertificate(
+                              item.current_certificate_id!,
+                              item.current_certificate_number!,
+                            )
+                          }
+                        >
+                          Tải {item.current_certificate_number}
+                        </Button>
+                        <Button
+                          variant="soft"
+                          loading={certificateAction.isPending}
+                          onClick={() =>
+                            certificateAction.mutate({
+                              id: item.current_certificate_id!,
+                              action: "reissue",
+                            })
+                          }
+                        >
+                          Sửa nguồn & cấp lại
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          loading={certificateAction.isPending}
+                          onClick={() =>
+                            certificateAction.mutate({
+                              id: item.current_certificate_id!,
+                              action: "revoke",
+                            })
+                          }
+                        >
+                          Thu hồi
+                        </Button>
+                      </>
+                    )}
+                    <Button
+                      variant={item.is_eligible ? "accent" : "soft"}
+                      onClick={() => {
+                        setSelected(item);
+                        setDecision(item.is_eligible ? "approved" : "rejected");
+                        setNote("");
+                      }}
+                    >
+                      Xem xét hồ sơ
+                    </Button>
+                  </div>
                 </div>
               </Card>
             ))}
@@ -194,7 +276,9 @@ export function AdminOperationsPage() {
               </p>
             </div>
             {!selected.is_eligible && (
-              <ErrorBanner message="Hồ sơ chưa đủ điều kiện nên không thể phê duyệt." />
+              <ErrorBanner
+                message={`Hồ sơ chưa đủ điều kiện: ${selected.failure_reasons.join("; ")}`}
+              />
             )}
             {decide.error && <ErrorBanner message={mutationMessage(decide.error)} />}
             <Select
@@ -888,6 +972,7 @@ export function CoursesPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [editing, setEditing] = useState<Course | null>(null);
+  const [testsCourse, setTestsCourse] = useState<Course | null>(null);
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["admin", "courses", page, search, status],
@@ -941,15 +1026,20 @@ export function CoursesPage() {
             {
               header: "",
               cell: (c) => (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setEditing(c);
-                    setOpen(true);
-                  }}
-                >
-                  Chỉnh sửa
-                </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button variant="soft" onClick={() => setTestsCourse(c)}>
+                    Bài kiểm tra
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setEditing(c);
+                      setOpen(true);
+                    }}
+                  >
+                    Chỉnh sửa
+                  </Button>
+                </div>
               ),
             },
           ]}
@@ -967,6 +1057,13 @@ export function CoursesPage() {
           error={mutation.error}
           onSubmit={(body) => mutation.mutate({ id: editing?.id, body })}
         />
+      </Modal>
+      <Modal
+        open={!!testsCourse}
+        title={`Bài kiểm tra · ${testsCourse?.code ?? ""}`}
+        onClose={() => setTestsCourse(null)}
+      >
+        {testsCourse && <CourseTestsPanel course={testsCourse} />}
       </Modal>
     </div>
   );
@@ -988,7 +1085,7 @@ function CourseForm({
     name: initial?.name ?? "",
     description: initial?.description ?? "",
     total_sessions: initial?.total_sessions ?? 1,
-    minimum_attendance_pct: initial?.minimum_attendance_pct ?? 80,
+    minimum_attendance_pct: 80,
     status: initial?.status ?? "draft",
   });
   const update = (k: string, v: string | number) => setForm((o) => ({ ...o, [k]: v }));
@@ -1030,13 +1127,10 @@ function CourseForm({
           onChange={(e) => update("total_sessions", Number(e.target.value))}
         />
         <Input
-          required
-          min={0}
-          max={100}
-          label="Chuyên cần tối thiểu (%)"
+          disabled
+          label="Chuyên cần tối thiểu (%) · cố định"
           type="number"
           value={form.minimum_attendance_pct}
-          onChange={(e) => update("minimum_attendance_pct", Number(e.target.value))}
         />
         <Select
           label="Trạng thái"
@@ -1054,6 +1148,162 @@ function CourseForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+function CourseTestsPanel({ course }: { course: Course }) {
+  const client = useQueryClient();
+  const [editing, setEditing] = useState<CourseTest | null>(null);
+  const [form, setForm] = useState({
+    code: "KT01",
+    title: "",
+    kind: "class_test",
+    pass_score: 5,
+    is_required: true,
+    sequence_no: 1,
+    is_active: true,
+  });
+  const query = useQuery({
+    queryKey: ["admin", "course-tests", course.id],
+    queryFn: () => adminApi.courseTests(course.id),
+  });
+  const mutation = useMutation({
+    mutationFn: () =>
+      editing
+        ? adminApi.updateCourseTest(course.id, editing.id, form)
+        : adminApi.createCourseTest(course.id, form),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["admin", "course-tests", course.id] });
+      setEditing(null);
+      setForm({
+        code: `KT${String((query.data?.length ?? 0) + 2).padStart(2, "0")}`,
+        title: "",
+        kind: "class_test",
+        pass_score: 5,
+        is_required: true,
+        sequence_no: (query.data?.length ?? 0) + 2,
+        is_active: true,
+      });
+    },
+  });
+  const selectTest = (test: CourseTest) => {
+    setEditing(test);
+    setForm({
+      code: test.code,
+      title: test.title,
+      kind: test.kind,
+      pass_score: test.pass_score,
+      is_required: test.is_required,
+      sequence_no: test.sequence_no,
+      is_active: test.is_active,
+    });
+  };
+  const update = (key: string, value: string | number | boolean) =>
+    setForm((old) => {
+      const next = { ...old, [key]: value };
+      if (key === "kind" && value === "final_exam") {
+        next.pass_score = 5;
+        next.is_required = true;
+      }
+      return next;
+    });
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl bg-gbg2 p-4 text-sm text-gtext">
+        Mọi bài kiểm tra bắt buộc phải đạt. Thi kết thúc khóa chỉ đạt khi điểm lớn hơn 5.
+      </div>
+      <QueryState loading={query.isLoading} error={query.error}>
+        <div className="space-y-2">
+          {query.data?.map((test) => (
+            <button
+              key={test.id}
+              type="button"
+              className="flex w-full items-center justify-between rounded-xl border border-gborder p-3 text-left hover:border-gold"
+              onClick={() => selectTest(test)}
+            >
+              <span>
+                <b>
+                  {test.code} · {test.title}
+                </b>
+                <span className="mt-1 block text-xs text-gtext">
+                  {test.kind === "final_exam"
+                    ? "Thi kết thúc khóa · yêu cầu > 5"
+                    : `Kiểm tra trong lớp · đạt từ ${test.pass_score}`}
+                </span>
+              </span>
+              <StatusBadge value={test.is_active ? "active" : "inactive"} />
+            </button>
+          ))}
+        </div>
+      </QueryState>
+      <form
+        className="space-y-4 border-t border-gborder pt-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          mutation.mutate();
+        }}
+      >
+        <h3 className="font-bold text-navy">
+          {editing ? "Cập nhật bài kiểm tra" : "Thêm bài kiểm tra"}
+        </h3>
+        {mutation.error && <ErrorBanner message={mutationMessage(mutation.error)} />}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input
+            required
+            label="Mã"
+            value={form.code}
+            onChange={(e) => update("code", e.target.value)}
+          />
+          <Input
+            required
+            label="Tên bài"
+            value={form.title}
+            onChange={(e) => update("title", e.target.value)}
+          />
+          <Select label="Loại" value={form.kind} onChange={(e) => update("kind", e.target.value)}>
+            <option value="class_test">Kiểm tra trong lớp</option>
+            <option value="final_exam">Thi kết thúc khóa</option>
+          </Select>
+          <Input
+            required
+            min={0}
+            max={10}
+            step={0.01}
+            disabled={form.kind === "final_exam"}
+            type="number"
+            label={form.kind === "final_exam" ? "Mốc điểm · phải trên 5" : "Điểm đạt từ"}
+            value={form.pass_score}
+            onChange={(e) => update("pass_score", Number(e.target.value))}
+          />
+          <Input
+            required
+            min={1}
+            type="number"
+            label="Thứ tự"
+            value={form.sequence_no}
+            onChange={(e) => update("sequence_no", Number(e.target.value))}
+          />
+          <Select
+            label="Trạng thái"
+            value={form.is_active ? "active" : "inactive"}
+            onChange={(e) => update("is_active", e.target.value === "active")}
+          >
+            <option value="active">Đang dùng</option>
+            <option value="inactive">Ngừng dùng</option>
+          </Select>
+        </div>
+        <div className="flex justify-end gap-2">
+          {editing && (
+            <Button variant="ghost" type="button" onClick={() => setEditing(null)}>
+              Hủy sửa
+            </Button>
+          )}
+          <Button type="submit" loading={mutation.isPending}>
+            Lưu bài kiểm tra
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 

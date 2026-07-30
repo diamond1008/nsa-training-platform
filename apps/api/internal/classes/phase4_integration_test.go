@@ -212,7 +212,7 @@ func TestIntegration_AcademicCoreLifecycle(t *testing.T) {
 	}
 	course, err = env.courses.Update(ctx, env.actorID, course.ID, coursemodule.CourseInput{
 		Code: course.Code, Name: "Updated Course", TotalSessions: 24,
-		MinimumAttendancePct: 85, Status: db.CourseStatusActive,
+		MinimumAttendancePct: 80, Status: db.CourseStatusActive,
 	})
 	if err != nil || course.TotalSessions != 24 {
 		t.Fatalf("update course: view=%+v err=%v", course, err)

@@ -45,6 +45,19 @@ type AssessmentComponent struct {
 	RequirementMet bool    `json:"requirement_met"`
 }
 
+type TestComponent struct {
+	Passed         int32   `json:"passed"`
+	Required       int32   `json:"required"`
+	Percent        float64 `json:"percent"`
+	RequirementMet bool    `json:"requirement_met"`
+}
+
+type FinalExamComponent struct {
+	Score          *float64 `json:"score"`
+	RequiredScore  float64  `json:"required_score"`
+	RequirementMet bool     `json:"requirement_met"`
+}
+
 type View struct {
 	ClassID            string              `json:"class_id"`
 	ClassCode          string              `json:"class_code"`
@@ -58,6 +71,9 @@ type View struct {
 	Attendance         AttendanceComponent `json:"attendance"`
 	Competencies       CompetencyComponent `json:"competencies"`
 	Assessments        AssessmentComponent `json:"assessments"`
+	Tests              TestComponent       `json:"tests"`
+	FinalExam          FinalExamComponent  `json:"final_exam"`
+	FailureReasons     []string            `json:"failure_reasons"`
 	OverallProgressPct float64             `json:"overall_progress_pct"`
 	CompletionStatus   string              `json:"completion_status"`
 }
@@ -126,23 +142,39 @@ func calculate(row db.ListStudentProgressInputsRow) View {
 	competenciesMet := row.CompetenciesMet >= row.RequiredCompetencies
 	assessmentPct := optionalRatioPct(row.CompletedAssessments, row.RequiredAssessments)
 	assessmentsMet := row.CompletedAssessments >= row.RequiredAssessments
-	sessionsMet := row.CompletedSessions >= row.TotalSessions
+	testPct := optionalRatioPct(row.TestsPassed, row.RequiredTests)
+	testsMet := row.TestsPassed >= row.RequiredTests
+	finalScore := numericPointer(row.FinalExamScore)
+	finalMet := row.FinalExamCount == 1 && finalScore != nil && *finalScore > 5
+	finalProgress := 0.0
+	if finalScore != nil {
+		finalProgress = thresholdProgress(*finalScore, 5.01)
+	}
 
-	components := []float64{sessionPct, thresholdProgress(attendancePct, minimumAttendance)}
-	if row.RequiredCompetencies > 0 {
-		components = append(components, competencyPct)
-	}
-	if row.RequiredAssessments > 0 {
-		components = append(components, assessmentPct)
-	}
+	components := []float64{thresholdProgress(attendancePct, minimumAttendance), testPct, finalProgress}
 	total := 0.0
 	for _, component := range components {
 		total += component
 	}
 	overall := round2(total / float64(len(components)))
 	completionStatus := db.CompletionStatusPending
-	if sessionsMet && attendanceMet && competenciesMet && assessmentsMet {
+	if attendanceMet && testsMet && finalMet {
 		completionStatus = db.CompletionStatusEligible
+	}
+	if row.PersistedCompletionStatus.Valid {
+		completionStatus = row.PersistedCompletionStatus.CompletionStatus
+	}
+	failureReasons := make([]string, 0, 3)
+	if !attendanceMet {
+		failureReasons = append(failureReasons, fmt.Sprintf("Chuyên cần %.2f%%, yêu cầu tối thiểu %.0f%%", attendancePct, minimumAttendance))
+	}
+	if !testsMet {
+		failureReasons = append(failureReasons, fmt.Sprintf("Còn %d bài kiểm tra bắt buộc chưa đạt", row.RequiredTests-row.TestsPassed))
+	}
+	if finalScore == nil {
+		failureReasons = append(failureReasons, "Chưa có điểm thi kết thúc khóa")
+	} else if !finalMet {
+		failureReasons = append(failureReasons, fmt.Sprintf("Điểm thi kết thúc %.2f, yêu cầu trên 5", *finalScore))
 	}
 
 	return View{
@@ -165,8 +197,18 @@ func calculate(row db.ListStudentProgressInputsRow) View {
 			Completed: row.CompletedAssessments, Required: row.RequiredAssessments,
 			Percent: assessmentPct, RequirementMet: assessmentsMet,
 		},
-		OverallProgressPct: overall, CompletionStatus: string(completionStatus),
+		Tests:          TestComponent{Passed: row.TestsPassed, Required: row.RequiredTests, Percent: testPct, RequirementMet: testsMet},
+		FinalExam:      FinalExamComponent{Score: finalScore, RequiredScore: 5, RequirementMet: finalMet},
+		FailureReasons: failureReasons, OverallProgressPct: overall, CompletionStatus: string(completionStatus),
 	}
+}
+
+func numericPointer(value pgtype.Numeric) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	v := data.NumericFloat(value)
+	return &v
 }
 
 func ratioPct(numerator, denominator int32) float64 {

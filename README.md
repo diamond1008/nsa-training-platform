@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 16 complete — scoped vocational-training management MVP**
+**Current phase: Phase 17 complete locally — formal vocational course results and completion rules**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -27,6 +27,7 @@ Training management platform for an automotive vocational training center. It ma
 | 14 | Practical competency assessment | ✅ Completed locally |
 | 15 | Course completion and certificates | ✅ Completed locally |
 | 16 | Reports, notifications, and production hardening | ✅ Completed locally |
+| 17 | Tests, final exam, transfer-safe completion rules | ✅ Completed and validated locally |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 
@@ -36,7 +37,7 @@ NSA Training Platform is an internal vocational-training operations system, not 
 
 ```text
 Create student → Assign class → Schedule training → Record attendance
-→ Assess practical skills → Approve completion → Issue certificate
+→ Record mandatory tests → Record final exam → Approve completion → Issue certificate
 ```
 
 ### Phase 11 — Student profiles and lifecycle
@@ -82,6 +83,27 @@ Create student → Assign class → Schedule training → Record attendance
 - Build operational dashboards and exportable attendance, competency, class, and completion reports.
 - Notify users about schedule changes, absence risk, pending work, and course completion.
 - Complete server-side filtering/pagination, audit coverage, recovery procedures, authorization tests, and deployment checks.
+
+### Phase 17 — Formal results and completion rules
+
+- Fix the attendance requirement at **80% for every course**.
+- Let ADMIN configure required in-class tests and exactly one active final exam per course.
+- Let an assigned TEACHER record repeated attempts and correct a score only with a reason; every correction is kept in immutable history and notifies the student.
+- Determine course completion from exactly three formal rules: attendance `>= 80%`, all active mandatory in-class tests passed, and the best active final-exam score strictly `> 5.0`.
+- Aggregate attendance and score attempts by **student + course**, so a same-course class transfer preserves and counts all earlier results and produces only one course completion/certificate.
+- Keep session, practical competency, and assessment metrics visible for learning-progress context; they no longer add undocumented blockers to formal completion.
+- Preserve every ended/archived class, student profile, score attempt, decision, and revoked certificate. Returning students keep their profile/code and receive a new enrollment.
+- Correct a certificate with wrong information by fixing the source student/course data, revoking the current certificate with a reason, then reissuing a new immutable certificate. Issued documents are never edited in place.
+
+#### Formal completion decision table
+
+| Rule | Pass condition |
+| --- | --- |
+| Attendance | Present + Late rate, excluding Excused from the denominator, is at least 80% |
+| Mandatory in-class tests | Best attempt for every active required test is at least its configured pass score |
+| Final exam | Exactly one active final exam exists and its best attempt is strictly greater than 5.0 |
+
+ADMIN remains the only role allowed to approve/reject completion and issue, revoke, or reissue certificates.
 
 ### Explicitly Out of Scope
 
@@ -156,7 +178,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 ## Implemented Features
 
 - **Local infrastructure:** PostgreSQL 16 via Docker Compose with health check and persistent named volume (`make db-up`)
-- **Migrations:** Goose v3 with baseline schema v1.2 as `00001_baseline_schema.sql` — 20 tables, 13 enum types, exclusion constraints (no overlapping sessions per class/teacher/location), concurrency-safe capacity triggers; up/down verified on a clean database
+- **Migrations:** Goose v3 through `00006_tests_scores_and_completion_rules.sql`; the latest migration adds course tests, score attempts, immutable score corrections, course-scoped completion snapshots, and the fixed 80% rule
 - **Seeds:** roles (ADMIN/TEACHER/STUDENT) ship in the baseline; DEV-ONLY demo accounts via `make db-seed`
 - **API docs:** OpenAPI 3.1 at `docs/openapi.yaml` — served by the API at `/docs` + `/openapi.yaml`, or via container (`make swagger` → http://localhost:8081)
 - **ERD:** `database/schema.dbml` for dbdiagram.io
@@ -187,15 +209,17 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Practical assessments:** assigned teachers create and replace drafts containing competency ratings/comments, submit only after every required criterion is rated, then lock immutable results; assessment numbers retain history over time
 - **Assessment integrity:** student enrollment, teacher assignment/ownership, optional session class/course, and every competency's course are validated transactionally and backed by composite PostgreSQL constraints
 - **Student assessment history:** authenticated students see only their own submitted/locked assessments through `/api/v1/student/assessments`
-- **Progress dashboard:** `/api/v1/student/progress` combines completed sessions, the configured attendance threshold, latest required-competency ratings, and scheduled assessment-session completion into deterministic per-class progress and Pending/Eligible status
-- **Configurable completion rules:** course `total_sessions` and `minimum_attendance_pct`, criterion `is_required`, and non-cancelled class sessions of type `assessment` define the requirements without a Phase 7 schema migration
+- **Test and exam results:** ADMIN configures course tests; assigned teachers record repeat attempts and reasoned corrections; students see their own attempts and best scores
+- **Progress dashboard:** `/api/v1/student/progress` aggregates by student/course, shows attendance, required-test and final-exam status plus explicit missing conditions, while retaining sessions, competencies, and practical assessments as context
+- **Formal completion rules:** attendance is fixed at 80%; all mandatory in-class tests must pass; final-exam best score must be strictly above 5.0
+- **Transfer-safe outcomes:** same-course transfers preserve historical attendance/scores and continue toward one completion and one current certificate for the course
 - **sqlc:** type-safe queries generated from `database/queries/*.sql` into `database/generated` (committed; own Go module linked via `replace`)
 - **React SPA foundation (`apps/web`):** React 18, TypeScript, Vite, React Router, TanStack Query, React Hook Form, Zod, Tailwind CSS, and shared NSA design tokens/components
 - **Frontend authentication:** login, silent cookie-based refresh, in-memory access tokens, deduplicated 401 refresh/retry, logout, forced password change, and role-aware home redirects
 - **Authenticated shells:** responsive Admin, Teacher, and Student navigation with route guards, 403/404 handling, and shared loading/error/empty patterns
 - **Admin feature screens:** searchable/paginated student, teacher, course, and class management; class transfer/withdrawal/completion and operation timeline; teacher assignment; room/workshop management; session creation, rescheduling, cancellation, and attendance inspection from the calendar
-- **Teacher feature screens:** assigned-class workspaces, rosters, Google Calendar-style weekly teaching schedule with direct attendance navigation, batch attendance, and practical skill assessment history/lifecycle
-- **Student feature screens:** dashboard, enrolled courses, weekly class calendar with personal and class attendance status, attendance history/summary, assessment results, and deterministic progress views
+- **Teacher feature screens:** assigned-class workspaces, rosters, Google Calendar-style weekly teaching schedule, batch attendance, practical skill assessments, and repeat test/final-exam score entry with audited corrections
+- **Student feature screens:** dashboard, enrolled courses, weekly calendar, attendance history/summary, test/final-exam attempts, assessment results, explicit completion blockers, and certificates
 - **Teacher class API:** assignment-scoped class list/detail endpoints provide roster and competency data without exposing unassigned classes
 - **Web delivery:** multi-stage Node/Caddy Docker image, SPA route fallback, security headers, health check, and root `.dockerignore` rules that exclude nested frontend artifacts
 
@@ -323,8 +347,8 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 ## Current Limitations
 
-- Attendance percentages count Present and Late as attended and exclude Excused records from the denominator; the configured course threshold drives the risk warning.
-- Progress exposes deterministic Pending/Eligible status; ADMIN can approve/reject eligible completions with immutable decision history and verifiable PDF certificates.
+- Attendance percentages count Present and Late as attended and exclude Excused records from the denominator; the formal threshold is fixed at 80%.
+- Progress exposes deterministic Pending/Eligible status from attendance, required tests, and final exam; ADMIN records the final approval/rejection with immutable history and verifiable PDF certificates.
 - The latest submitted or locked rating for each required competency supersedes its earlier rating when progress is calculated.
 - Rate limiting is in-memory per instance (fine for the single-instance MVP).
 - Swagger UI page loads its assets from a CDN; use `make swagger` (container) for fully offline docs.
@@ -332,7 +356,7 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 - Playwright integration and production image builds run in CI; locally they require Docker Desktop.
 - Out of MVP scope (by design): admission/enrollment pipeline (handled by the existing public website), payments, real-time chat, mobile apps, microservices, Redis/Kafka, AI features.
 
-## Completed vocational-training scope (Phases 11–16)
+## Completed vocational-training scope (Phases 11–17)
 
 - Student lifecycle profiles and generated `HV********` codes; no tuition/payment workflow.
 - Class operations: enrollments, transfers, teacher assignments, locations, schedule changes, and immutable operation history.
@@ -340,6 +364,7 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 - Practical competency assessments with draft/submitted/locked lifecycle and optional HTTP(S) evidence links.
 - ADMIN completion decisions, immutable decision history, `CC########` certificates, PDF download, revocation/reissue, and public verification codes.
 - Role dashboards, responsive calendars, in-app notifications, operational summary, and CSV exports for attendance, competencies, classes, and completions.
+- Required in-class tests, a strict `> 5.0` final exam, repeat attempts, reasoned score corrections, and transfer-safe course completion.
 
 ## Documentation
 

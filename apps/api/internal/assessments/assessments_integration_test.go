@@ -79,7 +79,7 @@ func setupPhase7(t *testing.T) *phase7Env {
 	env.studentB = env.insertStudent(t, env.studentUserB, "B")
 	env.outsider = env.insertStudent(t, outsiderUser, "OUT")
 
-	courseID := env.insertCourse(t, "MAIN", 2, 75)
+	courseID := env.insertCourse(t, "MAIN", 2, 80)
 	foreignCourseID := env.insertCourse(t, "FOREIGN", 1, 80)
 	env.criterionA = env.insertCriterion(t, courseID, "BRAKE", 1)
 	env.criterionB = env.insertCriterion(t, courseID, "ENGINE", 2)
@@ -263,6 +263,8 @@ func (e *phase7Env) cleanup(t *testing.T) {
 		     )
 		   )`, []any{codePattern}},
 		{`DELETE FROM student_assessments WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
+		{`DELETE FROM student_test_attempts WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
+		{`DELETE FROM course_tests WHERE course_id IN (SELECT id FROM courses WHERE code LIKE $1)`, []any{codePattern}},
 		{`DELETE FROM course_completions WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
 		{`DELETE FROM attendance_records WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
 		{`DELETE FROM class_sessions WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
@@ -357,6 +359,24 @@ func TestIntegration_AssessmentHistoryAuthorizationAndProgress(t *testing.T) {
 		t.Fatalf("locked update error = %v", err)
 	}
 
+	// Phase 17 formal eligibility additionally requires one active final exam
+	// with a best score strictly greater than five.
+	var courseID, finalTestID string
+	if err := env.pool.QueryRow(ctx, `SELECT course_id FROM classes WHERE id=$1`, env.classID).Scan(&courseID); err != nil {
+		t.Fatalf("load course for final exam: %v", err)
+	}
+	if err := env.pool.QueryRow(ctx, `
+		INSERT INTO course_tests (course_id,code,title,kind,pass_score,is_required,sequence_no,is_active)
+		VALUES ($1,$2,'Final exam','final_exam',5,TRUE,99,TRUE) RETURNING id`,
+		courseID, env.prefix+"-FINAL").Scan(&finalTestID); err != nil {
+		t.Fatalf("insert final exam: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx, `
+		INSERT INTO student_test_attempts (test_id,course_id,class_id,student_id,attempt_no,score,recorded_by)
+		VALUES ($1,$2,$3,$4,1,6,$5)`, finalTestID, courseID, env.classID, env.studentA, env.teacherUser); err != nil {
+		t.Fatalf("insert passing final exam attempt: %v", err)
+	}
+
 	eligible, err := env.progress.Dashboard(ctx, env.studentUserA, env.classID)
 	if err != nil {
 		t.Fatalf("eligible progress: %v", err)
@@ -426,9 +446,11 @@ func TestIntegration_AssessmentHistoryAuthorizationAndProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("degraded progress: %v", err)
 	}
-	if len(degraded.Items) != 1 || degraded.Items[0].CompletionStatus != "pending" ||
+	// A later practical rating remains visible but no longer introduces an
+	// undocumented formal completion blocker in Phase 17.
+	if len(degraded.Items) != 1 || degraded.Items[0].CompletionStatus != "eligible" ||
 		degraded.Items[0].Competencies.Met != 1 || degraded.Items[0].Competencies.Percent != 50 ||
-		degraded.Items[0].OverallProgressPct != 87.5 {
+		degraded.Items[0].OverallProgressPct != 100 {
 		t.Fatalf("degraded progress = %+v", degraded)
 	}
 	repeated, err := env.progress.Dashboard(ctx, env.studentUserA, env.classID)

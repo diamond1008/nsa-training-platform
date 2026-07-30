@@ -7,6 +7,8 @@ import type {
   TeacherClassDetail,
   TrainingClass,
   CompetencyRating,
+  CourseTestResults,
+  TestAttempt,
 } from "../../lib/domainTypes";
 import { toQuery } from "../../lib/format";
 
@@ -62,4 +64,13 @@ export const teacherApi = {
     api<StudentAssessment>(`/teacher/assessments/${id}/submit`, { method: "POST" }),
   lockAssessment: (id: string) =>
     api<StudentAssessment>(`/teacher/assessments/${id}/lock`, { method: "POST" }),
+  testResults: (classId: string, studentId: string) =>
+    api<CourseTestResults>(`/teacher/classes/${classId}/students/${studentId}/test-results`),
+  recordTestAttempt: (classId: string, studentId: string, testId: string, body: unknown) =>
+    api<TestAttempt>(`/teacher/classes/${classId}/students/${studentId}/tests/${testId}/attempts`, {
+      method: "POST",
+      body,
+    }),
+  correctTestAttempt: (attemptId: string, body: unknown) =>
+    api<TestAttempt>(`/teacher/test-attempts/${attemptId}`, { method: "PUT", body }),
 };

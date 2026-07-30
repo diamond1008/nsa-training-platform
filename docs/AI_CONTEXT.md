@@ -2,8 +2,8 @@
 
 ## Current Phase
 
-- Phase 16 — Vocational-training operations complete
-- Status: Phases 12–16 are complete and validated locally; maintenance is next
+- Phase 17 — Formal results and transfer-safe completion rules
+- Status: implementation and local validation complete; Goose up/down/up and the DB integration suite pass
 
 ## Completed
 
@@ -59,14 +59,23 @@
   - Authenticated in-app notifications cover schedule changes, assessment results, attendance risk, and completion decisions.
   - ADMIN operational metrics and UTF-8 CSV exports cover attendance, competencies, classes, and completions with formula-injection protection.
   - Responsive Admin operations UI, Student certificate downloads, OpenAPI 1.0.0, DBML, and focused PDF/CSV/RBAC tests complete the scoped center-management MVP.
+- Phase 17 implementation:
+  - Migration `00006_tests_scores_and_completion_rules.sql` fixes every course attendance threshold at 80%, adds configured course tests, repeat score attempts, immutable correction history, and course-scoped completion snapshots.
+  - ADMIN configures mandatory in-class tests and one active final exam. The final exam has a fixed threshold of 5 and passes only when the best score is strictly greater than 5.
+  - Assigned Teachers record repeat attempts and may correct scores only with a reason. ADMIN can correct any score. Corrections are audited, retained in class history, and notify the Student.
+  - Student progress and completion candidates aggregate attendance and score attempts by student/course across every same-course enrollment; class transfers therefore preserve earlier results and still lead to one course completion/certificate.
+  - Formal eligibility is exactly attendance `>= 80%`, every active mandatory in-class test passed, and one active final exam with best score `> 5.0`. Session, competency, and assessment metrics remain informational.
+  - Admin, Teacher, and Student screens expose course-test configuration, score entry/correction, own results, exact missing completion conditions, and completion-report score columns.
+  - Ended classes, returning-student profiles/codes, historical attempts, decisions, and revoked certificates are retained. Wrong certificate information is corrected at the source, followed by reasoned revoke/reissue rather than in-place document edits.
 
 ## In Progress
 
-- Nothing. Phases 12–16 passed the full local quality gate and are committed on the current branch.
+- Phase 17 is implemented and validated but remains uncommitted pending explicit user approval.
 
 ## Next
 
-- Maintenance, acceptance testing with real center data, and deployment preparation only.
+- Phase 17 acceptance with representative transferred students, score attempts, and certificate correction/reissue.
+- After acceptance: maintenance, real center-data rehearsal, and deployment preparation only.
 - Payments, tuition, debt tracking, third-party payment integrations, and category-based student-code prefixes remain explicitly out of scope.
 
 ## Architecture Decisions
@@ -79,6 +88,9 @@
 - Browser access tokens remain memory-only; the secure HttpOnly refresh cookie restores sessions after reload.
 - sqlc generated output remains committed under `database/generated`.
 - No Phase 9 schema migration is required.
+- Formal completion policy is intentionally fixed: attendance 80%, all mandatory in-class tests, final exam strictly above 5. ADMIN cannot override an ineligible approval.
+- Completion uniqueness and calculation are per student/course, not student/class; same-course transfer history remains counted.
+- Classes and education records are retained rather than hard-deleted. Returning Students keep their existing profile and generated code and receive a new enrollment.
 - Phase 12 intentionally keeps the existing `HV********` student-code policy; training-category prefixes are not part of this phase.
 - Production uses same-origin Caddy routing; only Caddy publishes ports and the migration container must finish before API startup.
 - Production startup rejects placeholder JWT secrets and wildcard/non-HTTPS CORS origins.
@@ -109,6 +121,9 @@
 - `database/migrations/00004_class_operations_history.sql` — Phase 12 immutable operational timeline.
 - `database/queries/classes.sql` — Admin and Teacher class queries.
 - `database/migrations/00005_completion_certificates_and_evidence.sql` — assessment evidence, immutable completion decisions, and certificates.
+- `database/migrations/00006_tests_scores_and_completion_rules.sql` — tests, attempts, corrections, fixed attendance, and course-scoped completion.
+- `database/queries/{tests,completions,progress}.sql` — score workflows and transfer-safe formal eligibility.
+- `apps/api/internal/testscores` — ADMIN/Teacher/Student score configuration and attempt workflows.
 - `apps/api/internal/{completions,notifications,reports}` — Phase 15–16 business modules.
 - `docs/openapi.yaml` — external API contract, version 1.0.0.
 - `.github/workflows/ci.yml` — API, web, migration, E2E, and image-build gates.
@@ -118,7 +133,7 @@
 
 ## Known Issues / Deferred Work
 
-- Completion eligibility is deterministic; only ADMIN records approval/rejection, and rejected re-reviews revoke any current certificate.
+- Completion eligibility is deterministic from attendance >=80%, all required tests, and final exam >5; only ADMIN records approval/rejection, and rejected re-reviews revoke any current certificate.
 - Attendance rates intentionally count Present and Late, exclude Excused from the denominator, and flag risk only after at least one recorded session.
 - Rate limiting is in-memory; Testcontainers remains deferred in favor of `nsa_training_test`.
 - First GitHub-hosted CI run is pending because Phase 10 has not been pushed.
@@ -126,24 +141,24 @@
 
 ## Database and API State
 
-- Latest migration: `00005_completion_certificates_and_evidence.sql`.
+- Latest migration: `00006_tests_scores_and_completion_rules.sql`; local Goose up/down/up passes on both development and test databases.
 - Teacher class reads are assignment scoped by authenticated Teacher user ID.
-- Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`.
-- Student self-service APIs include `/api/v1/student/{schedule,attendance,assessments,progress,certificates}`; public certificate verification is `/api/v1/certificates/{verificationCode}`.
-- OpenAPI version: 1.0.0.
+- Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`; test results/attempts use the adjacent `/test-results` and `/tests/{testID}/attempts` routes.
+- Student self-service APIs include `/api/v1/student/{schedule,attendance,assessments,test-results,progress,certificates}`; public certificate verification is `/api/v1/certificates/{verificationCode}`.
+- OpenAPI version: 1.1.0, including all Phase 17 routes and result schemas.
 
 ## Web State
 
 - Routes: `/login`, `/doi-mat-khau`, `/admin/*`, `/teacher/*`, `/student/*`, `/403`, and fallback 404.
 - All sidebar routes render connected feature screens rather than placeholders.
 - Role-specific dashboards, responsive navigation, mobile card tables, improved forms/modals/feedback, and week/month calendars with mobile agendas are implemented.
-- Validation: Go vet/tests, ESLint/typecheck/Prettier, 20/20 Vitest tests, web build, Goose up/down/up, API/web/migrate image builds, Caddy validation, 3/3 Playwright paths, and 200-request load smoke pass.
+- Phase 17 validation: sqlc generation, Go format/vet/unit tests, Goose up/down/up, DB integration (including same-course transfer score retention), ESLint, Prettier, 20/20 Vitest tests, TypeScript, Vite production build, and OpenAPI lint pass. Full browser E2E and image builds were not rerun in this turn.
 
 ## Git State
 
 - Current branch: `main`.
 - Phase 10/UI baseline commit: `27f8630 feat(platform): harden delivery and polish role experiences`.
-- Phases 12–16 are included in the latest local feature commit; do not push without explicit permission.
+- Phase 17 changes are uncommitted; do not commit or push without explicit permission.
 
 ## Phase 10 Handoff (2026-07-28)
 

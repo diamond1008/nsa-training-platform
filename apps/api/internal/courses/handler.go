@@ -178,8 +178,8 @@ func (h *Handler) decodeCourse(w http.ResponseWriter, r *http.Request) (CourseIn
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "code and name are required and exceed allowed length")
 		return CourseInput{}, false
 	}
-	if body.TotalSessions <= 0 || body.MinimumAttendancePct < 0 || body.MinimumAttendancePct > 100 || !validCourseStatus(body.Status) {
-		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid sessions, attendance percentage, or status")
+	if body.TotalSessions <= 0 || body.MinimumAttendancePct != 80 || !validCourseStatus(body.Status) {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "total_sessions must be positive, minimum_attendance_pct must be 80, and status must be valid")
 		return CourseInput{}, false
 	}
 	return CourseInput{

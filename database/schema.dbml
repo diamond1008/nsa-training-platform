@@ -25,6 +25,7 @@ Enum assessment_status { draft submitted locked }
 Enum competency_rating { not_assessed needs_improvement competent good excellent }
 Enum completion_status { pending eligible approved rejected }
 Enum notification_status { unread read archived }
+Enum course_test_kind { class_test final_exam }
 
 // ------------------------------ IDENTITY ------------------------------
 
@@ -110,7 +111,7 @@ Table courses {
   status course_status [not null, default: 'draft']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
-  note: 'CHECK total_sessions > 0; CHECK minimum_attendance_pct 0-100.'
+  note: 'CHECK total_sessions > 0; minimum_attendance_pct is fixed at 80.'
 }
 
 Table course_modules {
@@ -309,23 +310,77 @@ Table assessment_items {
 Ref: assessment_items.assessment_id > student_assessments.id
 Ref: assessment_items.competency_criterion_id > competency_criteria.id
 
+// ------------------------------ TEST SCORES ------------------------------
+
+Table course_tests {
+  id uuid [pk, default: `gen_random_uuid()`]
+  course_id uuid [not null, ref: > courses.id]
+  code varchar(40) [not null]
+  title varchar(200) [not null]
+  kind course_test_kind [not null]
+  pass_score numeric(4,2) [not null, default: 5]
+  is_required boolean [not null, default: true]
+  sequence_no int [not null]
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes {
+    (course_id, code) [unique]
+    (course_id, sequence_no) [unique]
+  }
+  note: 'One active final exam per course. Final exam is required and passes only above 5.'
+}
+
+Table student_test_attempts {
+  id uuid [pk, default: `gen_random_uuid()`]
+  test_id uuid [not null, ref: > course_tests.id]
+  course_id uuid [not null, ref: > courses.id]
+  class_id uuid [not null, ref: > classes.id]
+  student_id uuid [not null, ref: > student_profiles.id]
+  attempt_no int [not null]
+  score numeric(4,2) [not null]
+  note varchar(1000)
+  recorded_by uuid [not null, ref: > users.id]
+  taken_at timestamptz [not null, default: `now()`]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  indexes { (test_id, student_id, attempt_no) [unique] }
+}
+
+Table test_attempt_history {
+  id uuid [pk, default: `gen_random_uuid()`]
+  attempt_id uuid [not null, ref: > student_test_attempts.id]
+  old_score numeric(4,2) [not null]
+  new_score numeric(4,2) [not null]
+  old_note varchar(1000)
+  new_note varchar(1000)
+  reason varchar(1000) [not null]
+  changed_by uuid [not null, ref: > users.id]
+  changed_at timestamptz [not null, default: `now()`]
+  note: 'Immutable correction trail for teacher and ADMIN score changes.'
+}
+
 // ------------------------------ COMPLETION ------------------------------
 
 Table course_completions {
   id uuid [pk, default: `gen_random_uuid()`]
   class_id uuid [not null]
+  course_id uuid [not null, ref: > courses.id]
   student_id uuid [not null]
   attendance_pct numeric(5,2) [not null, default: 0]
   required_competencies_met int [not null, default: 0]
   required_competencies_total int [not null, default: 0]
+  required_tests_passed int [not null, default: 0]
+  required_tests_total int [not null, default: 0]
+  final_exam_score numeric(4,2)
   status completion_status [not null, default: 'pending']
   reviewed_by uuid [ref: > users.id]
   reviewed_at timestamptz
   review_note text
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
-  indexes { (class_id, student_id) [unique] }
-  note: 'approved/rejected require reviewed_by + reviewed_at.'
+  indexes { (student_id, course_id) [unique] }
+  note: 'One completion per student/course, so same-course transfers retain accumulated results.'
 }
 
 Ref: course_completions.student_id > student_profiles.id
@@ -338,6 +393,9 @@ Table completion_decision_history {
   attendance_pct numeric(5,2) [not null]
   required_competencies_met int [not null]
   required_competencies_total int [not null]
+  required_tests_passed int [not null, default: 0]
+  required_tests_total int [not null, default: 0]
+  final_exam_score numeric(4,2)
   note varchar(1000) [not null]
   decided_by uuid [not null, ref: > users.id]
   decided_at timestamptz [not null, default: `now()`]

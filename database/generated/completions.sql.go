@@ -12,11 +12,8 @@ import (
 )
 
 const countCompletionCandidates = `-- name: CountCompletionCandidates :one
-SELECT COUNT(*)
-FROM class_enrollments ce
-JOIN classes c ON c.id = ce.class_id
-JOIN student_profiles sp ON sp.id = ce.student_id
-LEFT JOIN course_completions cp ON cp.class_id = ce.class_id AND cp.student_id = ce.student_id
+SELECT COUNT(DISTINCT (ce.student_id,c.course_id))
+FROM class_enrollments ce JOIN classes c ON c.id=ce.class_id JOIN student_profiles sp ON sp.id=ce.student_id
 WHERE ce.status IN ('enrolled','completed')
   AND ($1::text = '' OR sp.student_code ILIKE '%' || $1 || '%' OR sp.full_name ILIKE '%' || $1 || '%' OR c.class_code ILIKE '%' || $1 || '%')
 `
@@ -57,8 +54,8 @@ func (q *Queries) CreateCertificate(ctx context.Context, arg CreateCertificatePa
 }
 
 const createCompletionDecisionHistory = `-- name: CreateCompletionDecisionHistory :one
-INSERT INTO completion_decision_history (completion_id, status, attendance_pct, required_competencies_met, required_competencies_total, note, decided_by)
-VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, completion_id, status, attendance_pct, required_competencies_met, required_competencies_total, note, decided_by, decided_at
+INSERT INTO completion_decision_history (completion_id,status,attendance_pct,required_competencies_met,required_competencies_total,required_tests_passed,required_tests_total,final_exam_score,note,decided_by)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, completion_id, status, attendance_pct, required_competencies_met, required_competencies_total, note, decided_by, decided_at, required_tests_passed, required_tests_total, final_exam_score
 `
 
 type CreateCompletionDecisionHistoryParams struct {
@@ -67,6 +64,9 @@ type CreateCompletionDecisionHistoryParams struct {
 	AttendancePct             pgtype.Numeric   `json:"attendance_pct"`
 	RequiredCompetenciesMet   int32            `json:"required_competencies_met"`
 	RequiredCompetenciesTotal int32            `json:"required_competencies_total"`
+	RequiredTestsPassed       int32            `json:"required_tests_passed"`
+	RequiredTestsTotal        int32            `json:"required_tests_total"`
+	FinalExamScore            pgtype.Numeric   `json:"final_exam_score"`
 	Note                      string           `json:"note"`
 	DecidedBy                 pgtype.UUID      `json:"decided_by"`
 }
@@ -78,6 +78,9 @@ func (q *Queries) CreateCompletionDecisionHistory(ctx context.Context, arg Creat
 		arg.AttendancePct,
 		arg.RequiredCompetenciesMet,
 		arg.RequiredCompetenciesTotal,
+		arg.RequiredTestsPassed,
+		arg.RequiredTestsTotal,
+		arg.FinalExamScore,
 		arg.Note,
 		arg.DecidedBy,
 	)
@@ -92,6 +95,9 @@ func (q *Queries) CreateCompletionDecisionHistory(ctx context.Context, arg Creat
 		&i.Note,
 		&i.DecidedBy,
 		&i.DecidedAt,
+		&i.RequiredTestsPassed,
+		&i.RequiredTestsTotal,
+		&i.FinalExamScore,
 	)
 	return i, err
 }
@@ -212,34 +218,40 @@ func (q *Queries) GetCertificateDetail(ctx context.Context, id pgtype.UUID) (Get
 
 const getCompletionCandidate = `-- name: GetCompletionCandidate :one
 WITH latest_ratings AS (
-  SELECT DISTINCT ON (sa.class_id, sa.student_id, ai.competency_criterion_id)
-    sa.class_id, sa.student_id, ai.competency_criterion_id, ai.rating
-  FROM student_assessments sa JOIN assessment_items ai ON ai.assessment_id = sa.id
+  SELECT DISTINCT ON (sa.student_id,sa.course_id,ai.competency_criterion_id)
+    sa.student_id,sa.course_id,ai.competency_criterion_id,ai.rating
+  FROM student_assessments sa JOIN assessment_items ai ON ai.assessment_id=sa.id
   WHERE sa.status IN ('submitted', 'locked')
-  ORDER BY sa.class_id, sa.student_id, ai.competency_criterion_id, sa.assessment_no DESC, sa.id DESC
+  ORDER BY sa.student_id,sa.course_id,ai.competency_criterion_id,sa.updated_at DESC,sa.id DESC
 ), metrics AS (
   SELECT ce.class_id, c.class_code, c.name AS class_name, c.status AS class_status,
     ce.student_id, sp.student_code, sp.full_name AS student_name, sp.user_id AS student_user_id,
     c.course_id, co.code AS course_code, co.name AS course_name, co.total_sessions, co.minimum_attendance_pct,
-    (SELECT COUNT(*)::int FROM class_sessions cs WHERE cs.class_id=c.id AND cs.status IN ('completed','locked')) AS completed_sessions,
-    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id WHERE ar.class_id=c.id AND ar.student_id=ce.student_id AND cs.status<>'cancelled') AS attendance_records,
-    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id WHERE ar.class_id=c.id AND ar.student_id=ce.student_id AND ar.status IN ('present','late') AND cs.status<>'cancelled') AS attended_sessions,
-    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id WHERE ar.class_id=c.id AND ar.student_id=ce.student_id AND ar.status='excused' AND cs.status<>'cancelled') AS excused_sessions,
+    (SELECT COUNT(DISTINCT cs.id)::int FROM class_sessions cs JOIN classes c2 ON c2.id=cs.class_id JOIN class_enrollments ce2 ON ce2.class_id=c2.id AND ce2.student_id=ce.student_id WHERE c2.course_id=c.course_id AND cs.status IN ('completed','locked')) AS completed_sessions,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=c.course_id AND ar.student_id=ce.student_id AND cs.status<>'cancelled') AS attendance_records,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=c.course_id AND ar.student_id=ce.student_id AND ar.status IN ('present','late') AND cs.status<>'cancelled') AS attended_sessions,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=c.course_id AND ar.student_id=ce.student_id AND ar.status='excused' AND cs.status<>'cancelled') AS excused_sessions,
     (SELECT COUNT(*)::int FROM competency_criteria cr WHERE cr.course_id=c.course_id AND cr.is_required) AS required_competencies_total,
-    (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id=lr.competency_criterion_id AND cr.is_required WHERE lr.class_id=c.id AND lr.student_id=ce.student_id AND lr.rating IN ('competent','good','excellent')) AS required_competencies_met,
+    (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id=lr.competency_criterion_id AND cr.is_required WHERE lr.course_id=c.course_id AND lr.student_id=ce.student_id AND lr.rating IN ('competent','good','excellent')) AS required_competencies_met,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
+    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=c.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count,
     (SELECT COUNT(*)::int FROM class_sessions cs WHERE cs.class_id=c.id AND cs.session_type='assessment' AND cs.status<>'cancelled') AS required_assessments,
     (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id=sa.session_id WHERE sa.class_id=c.id AND sa.student_id=ce.student_id AND sa.status IN ('submitted','locked') AND cs.session_type='assessment' AND cs.status<>'cancelled') AS completed_assessments,
-    cp.id AS completion_id, cp.status AS persisted_status, cp.reviewed_by, cp.reviewed_at, cp.review_note
+    cp.id AS completion_id, cp.status AS persisted_status, cp.reviewed_by, cp.reviewed_at, cp.review_note,
+    (SELECT cert.id FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_certificate_id,
+    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number
   FROM class_enrollments ce JOIN classes c ON c.id=ce.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=ce.student_id
-  LEFT JOIN course_completions cp ON cp.class_id=ce.class_id AND cp.student_id=ce.student_id
+  LEFT JOIN course_completions cp ON cp.course_id=c.course_id AND cp.student_id=ce.student_id
   WHERE ce.class_id=$1 AND ce.student_id=$2 AND ce.status IN ('enrolled','completed')
 )
-SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note,
+SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number,
   CASE WHEN attendance_records-excused_sessions<=0 THEN 0::numeric(5,2) ELSE ROUND(100.0*attended_sessions/(attendance_records-excused_sessions),2)::numeric(5,2) END AS attendance_pct,
-  (completed_sessions>=total_sessions
-   AND (CASE WHEN attendance_records-excused_sessions<=0 THEN 0
+  ((CASE WHEN attendance_records-excused_sessions<=0 THEN 0
              ELSE 100.0*attended_sessions/(attendance_records-excused_sessions) END)>=minimum_attendance_pct
-   AND required_competencies_met>=required_competencies_total AND completed_assessments>=required_assessments) AS is_eligible
+   AND required_tests_passed>=required_tests_total
+   AND final_exam_count=1 AND final_exam_score>5) AS is_eligible
 FROM metrics
 `
 
@@ -268,6 +280,10 @@ type GetCompletionCandidateRow struct {
 	ExcusedSessions           int32                `json:"excused_sessions"`
 	RequiredCompetenciesTotal int32                `json:"required_competencies_total"`
 	RequiredCompetenciesMet   int32                `json:"required_competencies_met"`
+	RequiredTestsTotal        int32                `json:"required_tests_total"`
+	RequiredTestsPassed       int32                `json:"required_tests_passed"`
+	FinalExamScore            pgtype.Numeric       `json:"final_exam_score"`
+	FinalExamCount            int32                `json:"final_exam_count"`
 	RequiredAssessments       int32                `json:"required_assessments"`
 	CompletedAssessments      int32                `json:"completed_assessments"`
 	CompletionID              pgtype.UUID          `json:"completion_id"`
@@ -275,6 +291,8 @@ type GetCompletionCandidateRow struct {
 	ReviewedBy                pgtype.UUID          `json:"reviewed_by"`
 	ReviewedAt                pgtype.Timestamptz   `json:"reviewed_at"`
 	ReviewNote                pgtype.Text          `json:"review_note"`
+	CurrentCertificateID      pgtype.UUID          `json:"current_certificate_id"`
+	CurrentCertificateNumber  string               `json:"current_certificate_number"`
 	AttendancePct             pgtype.Numeric       `json:"attendance_pct"`
 	IsEligible                pgtype.Bool          `json:"is_eligible"`
 }
@@ -302,6 +320,10 @@ func (q *Queries) GetCompletionCandidate(ctx context.Context, arg GetCompletionC
 		&i.ExcusedSessions,
 		&i.RequiredCompetenciesTotal,
 		&i.RequiredCompetenciesMet,
+		&i.RequiredTestsTotal,
+		&i.RequiredTestsPassed,
+		&i.FinalExamScore,
+		&i.FinalExamCount,
 		&i.RequiredAssessments,
 		&i.CompletedAssessments,
 		&i.CompletionID,
@@ -309,6 +331,8 @@ func (q *Queries) GetCompletionCandidate(ctx context.Context, arg GetCompletionC
 		&i.ReviewedBy,
 		&i.ReviewedAt,
 		&i.ReviewNote,
+		&i.CurrentCertificateID,
+		&i.CurrentCertificateNumber,
 		&i.AttendancePct,
 		&i.IsEligible,
 	)
@@ -402,43 +426,51 @@ func (q *Queries) GetStudentCertificate(ctx context.Context, arg GetStudentCerti
 
 const listCompletionCandidates = `-- name: ListCompletionCandidates :many
 
-WITH latest_ratings AS (
-  SELECT DISTINCT ON (sa.class_id, sa.student_id, ai.competency_criterion_id)
-    sa.class_id, sa.student_id, ai.competency_criterion_id, ai.rating
-  FROM student_assessments sa
-  JOIN assessment_items ai ON ai.assessment_id = sa.id
-  WHERE sa.status IN ('submitted', 'locked')
-  ORDER BY sa.class_id, sa.student_id, ai.competency_criterion_id, sa.assessment_no DESC, sa.id DESC
+WITH candidate_enrollments AS (
+  SELECT DISTINCT ON (ce.student_id,c.course_id)
+    ce.class_id,ce.student_id,ce.status AS enrollment_status,ce.enrolled_at,
+    c.course_id,c.class_code,c.name AS class_name,c.status AS class_status,
+    co.code AS course_code,co.name AS course_name,co.total_sessions,co.minimum_attendance_pct
+  FROM class_enrollments ce JOIN classes c ON c.id=ce.class_id JOIN courses co ON co.id=c.course_id
+  WHERE ce.status IN ('enrolled','completed')
+  ORDER BY ce.student_id,c.course_id,CASE WHEN ce.status='enrolled' THEN 0 ELSE 1 END,ce.enrolled_at DESC
+), latest_ratings AS (
+  SELECT DISTINCT ON (sa.student_id,sa.course_id,ai.competency_criterion_id)
+    sa.student_id,sa.course_id,ai.competency_criterion_id,ai.rating
+  FROM student_assessments sa JOIN assessment_items ai ON ai.assessment_id=sa.id
+  WHERE sa.status IN ('submitted','locked')
+  ORDER BY sa.student_id,sa.course_id,ai.competency_criterion_id,sa.updated_at DESC,sa.id DESC
 ), metrics AS (
   SELECT
-    ce.class_id, c.class_code, c.name AS class_name, c.status AS class_status,
+    ce.class_id, ce.class_code, ce.class_name, ce.class_status,
     ce.student_id, sp.student_code, sp.full_name AS student_name, sp.user_id AS student_user_id,
-    c.course_id, co.code AS course_code, co.name AS course_name,
-    co.total_sessions, co.minimum_attendance_pct,
-    (SELECT COUNT(*)::int FROM class_sessions cs WHERE cs.class_id = c.id AND cs.status IN ('completed', 'locked')) AS completed_sessions,
-    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id = ar.class_session_id WHERE ar.class_id = c.id AND ar.student_id = ce.student_id AND cs.status <> 'cancelled') AS attendance_records,
-    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id = ar.class_session_id WHERE ar.class_id = c.id AND ar.student_id = ce.student_id AND ar.status IN ('present', 'late') AND cs.status <> 'cancelled') AS attended_sessions,
-    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id = ar.class_session_id WHERE ar.class_id = c.id AND ar.student_id = ce.student_id AND ar.status = 'excused' AND cs.status <> 'cancelled') AS excused_sessions,
-    (SELECT COUNT(*)::int FROM competency_criteria cr WHERE cr.course_id = c.course_id AND cr.is_required) AS required_competencies_total,
-    (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id = lr.competency_criterion_id AND cr.is_required WHERE lr.class_id = c.id AND lr.student_id = ce.student_id AND lr.rating IN ('competent', 'good', 'excellent')) AS required_competencies_met,
-    (SELECT COUNT(*)::int FROM class_sessions cs WHERE cs.class_id = c.id AND cs.session_type = 'assessment' AND cs.status <> 'cancelled') AS required_assessments,
-    (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id = sa.session_id WHERE sa.class_id = c.id AND sa.student_id = ce.student_id AND sa.status IN ('submitted', 'locked') AND cs.session_type = 'assessment' AND cs.status <> 'cancelled') AS completed_assessments,
-    cp.id AS completion_id, cp.status AS persisted_status, cp.reviewed_by, cp.reviewed_at, cp.review_note
-  FROM class_enrollments ce
-  JOIN classes c ON c.id = ce.class_id
-  JOIN courses co ON co.id = c.course_id
+    ce.course_id,ce.course_code,ce.course_name,ce.total_sessions,ce.minimum_attendance_pct,
+    (SELECT COUNT(DISTINCT cs.id)::int FROM class_sessions cs JOIN classes c2 ON c2.id=cs.class_id JOIN class_enrollments ce2 ON ce2.class_id=c2.id AND ce2.student_id=ce.student_id WHERE c2.course_id=ce.course_id AND cs.status IN ('completed','locked')) AS completed_sessions,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND cs.status<>'cancelled') AS attendance_records,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status IN ('present','late') AND cs.status<>'cancelled') AS attended_sessions,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status='excused' AND cs.status<>'cancelled') AS excused_sessions,
+    (SELECT COUNT(*)::int FROM competency_criteria cr WHERE cr.course_id=ce.course_id AND cr.is_required) AS required_competencies_total,
+    (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id=lr.competency_criterion_id AND cr.is_required WHERE lr.course_id=ce.course_id AND lr.student_id=ce.student_id AND lr.rating IN ('competent','good','excellent')) AS required_competencies_met,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
+    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count,
+    (SELECT COUNT(*)::int FROM class_sessions cs JOIN classes c2 ON c2.id=cs.class_id WHERE c2.course_id=ce.course_id AND cs.session_type='assessment' AND cs.status<>'cancelled') AS required_assessments,
+    (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id=sa.session_id WHERE sa.course_id=ce.course_id AND sa.student_id=ce.student_id AND sa.status IN ('submitted','locked') AND cs.session_type='assessment' AND cs.status<>'cancelled') AS completed_assessments,
+    cp.id AS completion_id,cp.status AS persisted_status,cp.reviewed_by,cp.reviewed_at,cp.review_note,
+    (SELECT cert.id FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_certificate_id,
+    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number
+  FROM candidate_enrollments ce
   JOIN student_profiles sp ON sp.id = ce.student_id
-  LEFT JOIN course_completions cp ON cp.class_id = ce.class_id AND cp.student_id = ce.student_id
-  WHERE ce.status IN ('enrolled','completed')
+  LEFT JOIN course_completions cp ON cp.course_id=ce.course_id AND cp.student_id=ce.student_id
 )
-SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note,
+SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number,
   CASE WHEN attendance_records - excused_sessions <= 0 THEN 0::numeric(5,2)
        ELSE ROUND(100.0 * attended_sessions / (attendance_records - excused_sessions), 2)::numeric(5,2) END AS attendance_pct,
-  (completed_sessions >= total_sessions
-   AND (CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+  ((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
              ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
-   AND required_competencies_met >= required_competencies_total
-   AND completed_assessments >= required_assessments) AS is_eligible
+   AND required_tests_passed >= required_tests_total
+   AND final_exam_count=1 AND final_exam_score>5) AS is_eligible
 FROM metrics
 WHERE ($1::text = '' OR student_code ILIKE '%' || $1 || '%' OR student_name ILIKE '%' || $1 || '%' OR class_code ILIKE '%' || $1 || '%')
 ORDER BY class_code, student_code
@@ -471,6 +503,10 @@ type ListCompletionCandidatesRow struct {
 	ExcusedSessions           int32                `json:"excused_sessions"`
 	RequiredCompetenciesTotal int32                `json:"required_competencies_total"`
 	RequiredCompetenciesMet   int32                `json:"required_competencies_met"`
+	RequiredTestsTotal        int32                `json:"required_tests_total"`
+	RequiredTestsPassed       int32                `json:"required_tests_passed"`
+	FinalExamScore            pgtype.Numeric       `json:"final_exam_score"`
+	FinalExamCount            int32                `json:"final_exam_count"`
 	RequiredAssessments       int32                `json:"required_assessments"`
 	CompletedAssessments      int32                `json:"completed_assessments"`
 	CompletionID              pgtype.UUID          `json:"completion_id"`
@@ -478,6 +514,8 @@ type ListCompletionCandidatesRow struct {
 	ReviewedBy                pgtype.UUID          `json:"reviewed_by"`
 	ReviewedAt                pgtype.Timestamptz   `json:"reviewed_at"`
 	ReviewNote                pgtype.Text          `json:"review_note"`
+	CurrentCertificateID      pgtype.UUID          `json:"current_certificate_id"`
+	CurrentCertificateNumber  string               `json:"current_certificate_number"`
 	AttendancePct             pgtype.Numeric       `json:"attendance_pct"`
 	IsEligible                pgtype.Bool          `json:"is_eligible"`
 }
@@ -512,6 +550,10 @@ func (q *Queries) ListCompletionCandidates(ctx context.Context, arg ListCompleti
 			&i.ExcusedSessions,
 			&i.RequiredCompetenciesTotal,
 			&i.RequiredCompetenciesMet,
+			&i.RequiredTestsTotal,
+			&i.RequiredTestsPassed,
+			&i.FinalExamScore,
+			&i.FinalExamCount,
 			&i.RequiredAssessments,
 			&i.CompletedAssessments,
 			&i.CompletionID,
@@ -519,6 +561,8 @@ func (q *Queries) ListCompletionCandidates(ctx context.Context, arg ListCompleti
 			&i.ReviewedBy,
 			&i.ReviewedAt,
 			&i.ReviewNote,
+			&i.CurrentCertificateID,
+			&i.CurrentCertificateNumber,
 			&i.AttendancePct,
 			&i.IsEligible,
 		); err != nil {
@@ -533,7 +577,7 @@ func (q *Queries) ListCompletionCandidates(ctx context.Context, arg ListCompleti
 }
 
 const listCompletionDecisionHistory = `-- name: ListCompletionDecisionHistory :many
-SELECT cdh.id, cdh.completion_id, cdh.status, cdh.attendance_pct, cdh.required_competencies_met, cdh.required_competencies_total, cdh.note, cdh.decided_by, cdh.decided_at, u.email AS decided_by_email
+SELECT cdh.id, cdh.completion_id, cdh.status, cdh.attendance_pct, cdh.required_competencies_met, cdh.required_competencies_total, cdh.note, cdh.decided_by, cdh.decided_at, cdh.required_tests_passed, cdh.required_tests_total, cdh.final_exam_score, u.email AS decided_by_email
 FROM completion_decision_history cdh
 JOIN course_completions cp ON cp.id=cdh.completion_id
 JOIN users u ON u.id=cdh.decided_by
@@ -556,6 +600,9 @@ type ListCompletionDecisionHistoryRow struct {
 	Note                      string             `json:"note"`
 	DecidedBy                 pgtype.UUID        `json:"decided_by"`
 	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	RequiredTestsPassed       int32              `json:"required_tests_passed"`
+	RequiredTestsTotal        int32              `json:"required_tests_total"`
+	FinalExamScore            pgtype.Numeric     `json:"final_exam_score"`
 	DecidedByEmail            string             `json:"decided_by_email"`
 }
 
@@ -578,6 +625,9 @@ func (q *Queries) ListCompletionDecisionHistory(ctx context.Context, arg ListCom
 			&i.Note,
 			&i.DecidedBy,
 			&i.DecidedAt,
+			&i.RequiredTestsPassed,
+			&i.RequiredTestsTotal,
+			&i.FinalExamScore,
 			&i.DecidedByEmail,
 		); err != nil {
 			return nil, err
@@ -691,21 +741,27 @@ func (q *Queries) RevokeCurrentCertificate(ctx context.Context, arg RevokeCurren
 }
 
 const upsertCourseCompletionDecision = `-- name: UpsertCourseCompletionDecision :one
-INSERT INTO course_completions (class_id, student_id, attendance_pct, required_competencies_met, required_competencies_total, status, reviewed_by, reviewed_at, review_note)
-VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
-ON CONFLICT (class_id, student_id) DO UPDATE SET
+INSERT INTO course_completions (class_id,course_id,student_id,attendance_pct,required_competencies_met,required_competencies_total,required_tests_passed,required_tests_total,final_exam_score,status,reviewed_by,reviewed_at,review_note)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),$12)
+ON CONFLICT (student_id,course_id) DO UPDATE SET
+  class_id=EXCLUDED.class_id,
   attendance_pct=EXCLUDED.attendance_pct, required_competencies_met=EXCLUDED.required_competencies_met,
-  required_competencies_total=EXCLUDED.required_competencies_total, status=EXCLUDED.status,
+  required_competencies_total=EXCLUDED.required_competencies_total,
+  required_tests_passed=EXCLUDED.required_tests_passed,required_tests_total=EXCLUDED.required_tests_total,final_exam_score=EXCLUDED.final_exam_score,status=EXCLUDED.status,
   reviewed_by=EXCLUDED.reviewed_by, reviewed_at=EXCLUDED.reviewed_at, review_note=EXCLUDED.review_note
-RETURNING id, class_id, student_id, attendance_pct, required_competencies_met, required_competencies_total, status, reviewed_by, reviewed_at, review_note, created_at, updated_at
+RETURNING id, class_id, student_id, attendance_pct, required_competencies_met, required_competencies_total, status, reviewed_by, reviewed_at, review_note, created_at, updated_at, course_id, required_tests_passed, required_tests_total, final_exam_score
 `
 
 type UpsertCourseCompletionDecisionParams struct {
 	ClassID                   pgtype.UUID      `json:"class_id"`
+	CourseID                  pgtype.UUID      `json:"course_id"`
 	StudentID                 pgtype.UUID      `json:"student_id"`
 	AttendancePct             pgtype.Numeric   `json:"attendance_pct"`
 	RequiredCompetenciesMet   int32            `json:"required_competencies_met"`
 	RequiredCompetenciesTotal int32            `json:"required_competencies_total"`
+	RequiredTestsPassed       int32            `json:"required_tests_passed"`
+	RequiredTestsTotal        int32            `json:"required_tests_total"`
+	FinalExamScore            pgtype.Numeric   `json:"final_exam_score"`
 	Status                    CompletionStatus `json:"status"`
 	ReviewedBy                pgtype.UUID      `json:"reviewed_by"`
 	ReviewNote                pgtype.Text      `json:"review_note"`
@@ -714,10 +770,14 @@ type UpsertCourseCompletionDecisionParams struct {
 func (q *Queries) UpsertCourseCompletionDecision(ctx context.Context, arg UpsertCourseCompletionDecisionParams) (CourseCompletion, error) {
 	row := q.db.QueryRow(ctx, upsertCourseCompletionDecision,
 		arg.ClassID,
+		arg.CourseID,
 		arg.StudentID,
 		arg.AttendancePct,
 		arg.RequiredCompetenciesMet,
 		arg.RequiredCompetenciesTotal,
+		arg.RequiredTestsPassed,
+		arg.RequiredTestsTotal,
+		arg.FinalExamScore,
 		arg.Status,
 		arg.ReviewedBy,
 		arg.ReviewNote,
@@ -736,6 +796,10 @@ func (q *Queries) UpsertCourseCompletionDecision(ctx context.Context, arg Upsert
 		&i.ReviewNote,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CourseID,
+		&i.RequiredTestsPassed,
+		&i.RequiredTestsTotal,
+		&i.FinalExamScore,
 	)
 	return i, err
 }

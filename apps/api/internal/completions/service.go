@@ -27,26 +27,33 @@ var (
 )
 
 type CandidateView struct {
-	ClassID                   string  `json:"class_id"`
-	ClassCode                 string  `json:"class_code"`
-	ClassName                 string  `json:"class_name"`
-	StudentID                 string  `json:"student_id"`
-	StudentCode               string  `json:"student_code"`
-	StudentName               string  `json:"student_name"`
-	CourseCode                string  `json:"course_code"`
-	CourseName                string  `json:"course_name"`
-	CompletedSessions         int32   `json:"completed_sessions"`
-	TotalSessions             int32   `json:"total_sessions"`
-	AttendancePct             float64 `json:"attendance_pct"`
-	MinimumAttendancePct      float64 `json:"minimum_attendance_pct"`
-	RequiredCompetenciesMet   int32   `json:"required_competencies_met"`
-	RequiredCompetenciesTotal int32   `json:"required_competencies_total"`
-	CompletedAssessments      int32   `json:"completed_assessments"`
-	RequiredAssessments       int32   `json:"required_assessments"`
-	IsEligible                bool    `json:"is_eligible"`
-	Status                    string  `json:"status"`
-	ReviewNote                *string `json:"review_note"`
-	ReviewedAt                *string `json:"reviewed_at"`
+	ClassID                   string   `json:"class_id"`
+	ClassCode                 string   `json:"class_code"`
+	ClassName                 string   `json:"class_name"`
+	StudentID                 string   `json:"student_id"`
+	StudentCode               string   `json:"student_code"`
+	StudentName               string   `json:"student_name"`
+	CourseCode                string   `json:"course_code"`
+	CourseName                string   `json:"course_name"`
+	CompletedSessions         int32    `json:"completed_sessions"`
+	TotalSessions             int32    `json:"total_sessions"`
+	AttendancePct             float64  `json:"attendance_pct"`
+	MinimumAttendancePct      float64  `json:"minimum_attendance_pct"`
+	RequiredCompetenciesMet   int32    `json:"required_competencies_met"`
+	RequiredCompetenciesTotal int32    `json:"required_competencies_total"`
+	RequiredTestsPassed       int32    `json:"required_tests_passed"`
+	RequiredTestsTotal        int32    `json:"required_tests_total"`
+	FinalExamScore            *float64 `json:"final_exam_score"`
+	FinalExamPassed           bool     `json:"final_exam_passed"`
+	CompletedAssessments      int32    `json:"completed_assessments"`
+	RequiredAssessments       int32    `json:"required_assessments"`
+	IsEligible                bool     `json:"is_eligible"`
+	Status                    string   `json:"status"`
+	ReviewNote                *string  `json:"review_note"`
+	ReviewedAt                *string  `json:"reviewed_at"`
+	FailureReasons            []string `json:"failure_reasons"`
+	CurrentCertificateID      *string  `json:"current_certificate_id"`
+	CurrentCertificateNumber  *string  `json:"current_certificate_number"`
 }
 
 type CertificateView struct {
@@ -67,11 +74,14 @@ type CertificateView struct {
 }
 
 type DecisionHistoryView struct {
-	ID             string `json:"id"`
-	Status         string `json:"status"`
-	Note           string `json:"note"`
-	DecidedByEmail string `json:"decided_by_email"`
-	DecidedAt      string `json:"decided_at"`
+	ID                  string   `json:"id"`
+	Status              string   `json:"status"`
+	Note                string   `json:"note"`
+	DecidedByEmail      string   `json:"decided_by_email"`
+	DecidedAt           string   `json:"decided_at"`
+	RequiredTestsPassed int32    `json:"required_tests_passed"`
+	RequiredTestsTotal  int32    `json:"required_tests_total"`
+	FinalExamScore      *float64 `json:"final_exam_score"`
 }
 type DecisionResult struct {
 	Candidate   CandidateView    `json:"candidate"`
@@ -131,11 +141,11 @@ func (s *Service) Decide(ctx context.Context, actorID, classIDValue, studentIDVa
 		return DecisionResult{}, ErrNotEligible
 	}
 	decisionStatus := db.CompletionStatus(status)
-	completion, err := q.UpsertCourseCompletionDecision(ctx, db.UpsertCourseCompletionDecisionParams{ClassID: classID, StudentID: studentID, AttendancePct: row.AttendancePct, RequiredCompetenciesMet: row.RequiredCompetenciesMet, RequiredCompetenciesTotal: row.RequiredCompetenciesTotal, Status: decisionStatus, ReviewedBy: actor, ReviewNote: data.Text(&note)})
+	completion, err := q.UpsertCourseCompletionDecision(ctx, db.UpsertCourseCompletionDecisionParams{ClassID: classID, CourseID: row.CourseID, StudentID: studentID, AttendancePct: row.AttendancePct, RequiredCompetenciesMet: row.RequiredCompetenciesMet, RequiredCompetenciesTotal: row.RequiredCompetenciesTotal, RequiredTestsPassed: row.RequiredTestsPassed, RequiredTestsTotal: row.RequiredTestsTotal, FinalExamScore: row.FinalExamScore, Status: decisionStatus, ReviewedBy: actor, ReviewNote: data.Text(&note)})
 	if err != nil {
 		return DecisionResult{}, fmt.Errorf("save completion decision: %w", err)
 	}
-	_, err = q.CreateCompletionDecisionHistory(ctx, db.CreateCompletionDecisionHistoryParams{CompletionID: completion.ID, Status: decisionStatus, AttendancePct: row.AttendancePct, RequiredCompetenciesMet: row.RequiredCompetenciesMet, RequiredCompetenciesTotal: row.RequiredCompetenciesTotal, Note: note, DecidedBy: actor})
+	_, err = q.CreateCompletionDecisionHistory(ctx, db.CreateCompletionDecisionHistoryParams{CompletionID: completion.ID, Status: decisionStatus, AttendancePct: row.AttendancePct, RequiredCompetenciesMet: row.RequiredCompetenciesMet, RequiredCompetenciesTotal: row.RequiredCompetenciesTotal, RequiredTestsPassed: row.RequiredTestsPassed, RequiredTestsTotal: row.RequiredTestsTotal, FinalExamScore: row.FinalExamScore, Note: note, DecidedBy: actor})
 	if err != nil {
 		return DecisionResult{}, fmt.Errorf("save completion history: %w", err)
 	}
@@ -216,7 +226,7 @@ func (s *Service) History(ctx context.Context, classIDValue, studentIDValue stri
 	}
 	items := make([]DecisionHistoryView, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, DecisionHistoryView{ID: data.UUIDString(r.ID), Status: string(r.Status), Note: r.Note, DecidedByEmail: r.DecidedByEmail, DecidedAt: r.DecidedAt.Time.UTC().Format(time.RFC3339Nano)})
+		items = append(items, DecisionHistoryView{ID: data.UUIDString(r.ID), Status: string(r.Status), Note: r.Note, DecidedByEmail: r.DecidedByEmail, DecidedAt: r.DecidedAt.Time.UTC().Format(time.RFC3339Nano), RequiredTestsPassed: r.RequiredTestsPassed, RequiredTestsTotal: r.RequiredTestsTotal, FinalExamScore: numericPointer(r.FinalExamScore)})
 	}
 	return items, nil
 }
@@ -355,10 +365,45 @@ func candidateStatus(p db.NullCompletionStatus, eligible bool) string {
 	return "pending"
 }
 func candidateFromList(r db.ListCompletionCandidatesRow) CandidateView {
-	return CandidateView{ClassID: data.UUIDString(r.ClassID), ClassCode: r.ClassCode, ClassName: r.ClassName, StudentID: data.UUIDString(r.StudentID), StudentCode: r.StudentCode, StudentName: r.StudentName, CourseCode: r.CourseCode, CourseName: r.CourseName, CompletedSessions: r.CompletedSessions, TotalSessions: r.TotalSessions, AttendancePct: data.NumericFloat(r.AttendancePct), MinimumAttendancePct: data.NumericFloat(r.MinimumAttendancePct), RequiredCompetenciesMet: r.RequiredCompetenciesMet, RequiredCompetenciesTotal: r.RequiredCompetenciesTotal, CompletedAssessments: r.CompletedAssessments, RequiredAssessments: r.RequiredAssessments, IsEligible: r.IsEligible.Bool, Status: candidateStatus(r.PersistedStatus, r.IsEligible.Bool), ReviewNote: data.TextPointer(r.ReviewNote), ReviewedAt: data.TimeString(r.ReviewedAt)}
+	return buildCandidate(r.ClassID, r.ClassCode, r.ClassName, r.StudentID, r.StudentCode, r.StudentName, r.CourseCode, r.CourseName, r.CompletedSessions, r.TotalSessions, r.AttendancePct, r.MinimumAttendancePct, r.RequiredCompetenciesMet, r.RequiredCompetenciesTotal, r.RequiredTestsPassed, r.RequiredTestsTotal, r.FinalExamScore, r.CompletedAssessments, r.RequiredAssessments, r.IsEligible, r.PersistedStatus, r.ReviewNote, r.ReviewedAt, r.CurrentCertificateID, r.CurrentCertificateNumber)
 }
 func candidateFromGet(r db.GetCompletionCandidateRow) CandidateView {
-	return CandidateView{ClassID: data.UUIDString(r.ClassID), ClassCode: r.ClassCode, ClassName: r.ClassName, StudentID: data.UUIDString(r.StudentID), StudentCode: r.StudentCode, StudentName: r.StudentName, CourseCode: r.CourseCode, CourseName: r.CourseName, CompletedSessions: r.CompletedSessions, TotalSessions: r.TotalSessions, AttendancePct: data.NumericFloat(r.AttendancePct), MinimumAttendancePct: data.NumericFloat(r.MinimumAttendancePct), RequiredCompetenciesMet: r.RequiredCompetenciesMet, RequiredCompetenciesTotal: r.RequiredCompetenciesTotal, CompletedAssessments: r.CompletedAssessments, RequiredAssessments: r.RequiredAssessments, IsEligible: r.IsEligible.Bool, Status: candidateStatus(r.PersistedStatus, r.IsEligible.Bool), ReviewNote: data.TextPointer(r.ReviewNote), ReviewedAt: data.TimeString(r.ReviewedAt)}
+	return buildCandidate(r.ClassID, r.ClassCode, r.ClassName, r.StudentID, r.StudentCode, r.StudentName, r.CourseCode, r.CourseName, r.CompletedSessions, r.TotalSessions, r.AttendancePct, r.MinimumAttendancePct, r.RequiredCompetenciesMet, r.RequiredCompetenciesTotal, r.RequiredTestsPassed, r.RequiredTestsTotal, r.FinalExamScore, r.CompletedAssessments, r.RequiredAssessments, r.IsEligible, r.PersistedStatus, r.ReviewNote, r.ReviewedAt, r.CurrentCertificateID, r.CurrentCertificateNumber)
+}
+
+func buildCandidate(classID pgtype.UUID, classCode, className string, studentID pgtype.UUID, studentCode, studentName, courseCode, courseName string, completedSessions, totalSessions int32, attendance, minimum pgtype.Numeric, competenciesMet, competenciesTotal, testsPassed, testsTotal int32, finalScore pgtype.Numeric, completedAssessments, requiredAssessments int32, eligible pgtype.Bool, persisted db.NullCompletionStatus, note pgtype.Text, reviewedAt pgtype.Timestamptz, certificateID pgtype.UUID, certificateNumber string) CandidateView {
+	attendancePct := data.NumericFloat(attendance)
+	minimumPct := data.NumericFloat(minimum)
+	final := numericPointer(finalScore)
+	finalPassed := final != nil && *final > 5
+	reasons := make([]string, 0, 3)
+	if attendancePct < minimumPct {
+		reasons = append(reasons, fmt.Sprintf("Chuyên cần %.2f%%, yêu cầu tối thiểu %.0f%%", attendancePct, minimumPct))
+	}
+	if testsPassed < testsTotal {
+		reasons = append(reasons, fmt.Sprintf("Còn %d bài kiểm tra bắt buộc chưa đạt", testsTotal-testsPassed))
+	}
+	if final == nil {
+		reasons = append(reasons, "Chưa có điểm thi kết thúc khóa")
+	} else if !finalPassed {
+		reasons = append(reasons, fmt.Sprintf("Điểm thi kết thúc %.2f, yêu cầu trên 5", *final))
+	}
+	return CandidateView{ClassID: data.UUIDString(classID), ClassCode: classCode, ClassName: className, StudentID: data.UUIDString(studentID), StudentCode: studentCode, StudentName: studentName, CourseCode: courseCode, CourseName: courseName, CompletedSessions: completedSessions, TotalSessions: totalSessions, AttendancePct: attendancePct, MinimumAttendancePct: minimumPct, RequiredCompetenciesMet: competenciesMet, RequiredCompetenciesTotal: competenciesTotal, RequiredTestsPassed: testsPassed, RequiredTestsTotal: testsTotal, FinalExamScore: final, FinalExamPassed: finalPassed, CompletedAssessments: completedAssessments, RequiredAssessments: requiredAssessments, IsEligible: eligible.Bool, Status: candidateStatus(persisted, eligible.Bool), ReviewNote: data.TextPointer(note), ReviewedAt: data.TimeString(reviewedAt), FailureReasons: reasons, CurrentCertificateID: data.UUIDPointer(certificateID), CurrentCertificateNumber: nonEmptyPointer(certificateNumber)}
+}
+
+func nonEmptyPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func numericPointer(value pgtype.Numeric) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	v := data.NumericFloat(value)
+	return &v
 }
 
 type certificateData struct {

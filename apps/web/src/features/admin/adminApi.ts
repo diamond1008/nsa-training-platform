@@ -4,8 +4,10 @@ import type {
   ClassSession,
   CompletionCandidate,
   CompletionDecisionResult,
+  Certificate,
   ClassOperationHistory,
   Course,
+  CourseTest,
   Enrollment,
   EnrollmentTransfer,
   Paginated,
@@ -55,6 +57,11 @@ export const adminApi = {
   createCourse: (body: unknown) => api<Course>("/admin/courses", { method: "POST", body }),
   updateCourse: (id: string, body: unknown) =>
     api<Course>(`/admin/courses/${id}`, { method: "PUT", body }),
+  courseTests: (courseId: string) => api<CourseTest[]>(`/admin/courses/${courseId}/tests`),
+  createCourseTest: (courseId: string, body: unknown) =>
+    api<CourseTest>(`/admin/courses/${courseId}/tests`, { method: "POST", body }),
+  updateCourseTest: (courseId: string, testId: string, body: unknown) =>
+    api<CourseTest>(`/admin/courses/${courseId}/tests/${testId}`, { method: "PUT", body }),
 
   classes: (params: ListParams & { course_id?: string } = {}) =>
     api<Paginated<TrainingClass>>(`/admin/classes${toQuery(params)}`),
@@ -117,6 +124,11 @@ export const adminApi = {
       method: "PUT",
       body: { status, note },
     }),
+  certificatePDF: (id: string) => apiDownload(`/admin/certificates/${id}/pdf`),
+  revokeCertificate: (id: string, reason: string) =>
+    api<Certificate>(`/admin/certificates/${id}/revoke`, { method: "POST", body: { reason } }),
+  reissueCertificate: (id: string, reason: string) =>
+    api<Certificate>(`/admin/certificates/${id}/reissue`, { method: "POST", body: { reason } }),
   reportSummary: () => api<ReportSummary>("/admin/reports/summary"),
   exportReport: (kind: "attendance" | "competencies" | "classes" | "completions") =>
     apiDownload(`/admin/reports/${kind}.csv`),

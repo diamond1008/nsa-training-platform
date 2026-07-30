@@ -35,6 +35,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/testscores"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
@@ -95,6 +96,7 @@ func run() error {
 	completionHandler := completions.NewHandler(completions.NewService(pool), log)
 	notificationHandler := notifications.NewHandler(notifications.NewService(pool), log)
 	reportHandler := reports.NewHandler(reports.NewService(pool), log)
+	testScoreHandler := testscores.NewHandler(testscores.NewService(pool), log)
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -139,10 +141,12 @@ func run() error {
 		mountAdminRoutes(
 			r, tokenService, studentHandler, teacherHandler, courseHandler,
 			classHandler, scheduleHandler, attendanceHandler, completionHandler, reportHandler,
+			testScoreHandler,
 		)
 		mountRoleRoutes(
 			r, tokenService, classHandler, scheduleHandler, attendanceHandler,
 			assessmentHandler, progressHandler, completionHandler,
+			testScoreHandler,
 		)
 		r.Route("/notifications", func(r chi.Router) {
 			r.Use(auth.Authenticate(tokenService))
@@ -202,6 +206,7 @@ func mountAdminRoutes(
 	attendanceHandler *attendance.Handler,
 	completionHandler *completions.Handler,
 	reportHandler *reports.Handler,
+	testScoreHandler *testscores.Handler,
 ) {
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -237,6 +242,10 @@ func mountAdminRoutes(
 			r.Get("/{courseID}/competencies", courseHandler.ListCriteria)
 			r.Post("/{courseID}/competencies", courseHandler.CreateCriterion)
 			r.Put("/{courseID}/competencies/{criterionID}", courseHandler.UpdateCriterion)
+
+			r.Get("/{courseID}/tests", testScoreHandler.ListTests)
+			r.Post("/{courseID}/tests", testScoreHandler.CreateTest)
+			r.Put("/{courseID}/tests/{testID}", testScoreHandler.UpdateTest)
 		})
 
 		r.Route("/classes", func(r chi.Router) {
@@ -273,6 +282,8 @@ func mountAdminRoutes(
 		})
 
 		r.Put("/attendance/{attendanceID}", attendanceHandler.Correct)
+		r.Put("/test-attempts/{attemptID}", testScoreHandler.CorrectAdmin)
+		r.Get("/test-attempts/{attemptID}/history", testScoreHandler.History)
 
 		r.Get("/completions", completionHandler.List)
 		r.Put("/completions/{classID}/{studentID}", completionHandler.Decide)
@@ -295,6 +306,7 @@ func mountRoleRoutes(
 	assessmentHandler *assessments.Handler,
 	progressHandler *progress.Handler,
 	completionHandler *completions.Handler,
+	testScoreHandler *testscores.Handler,
 ) {
 	r.Route("/teacher", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -310,6 +322,10 @@ func mountRoleRoutes(
 		r.Put("/assessments/{assessmentID}", assessmentHandler.Update)
 		r.Post("/assessments/{assessmentID}/submit", assessmentHandler.Submit)
 		r.Post("/assessments/{assessmentID}/lock", assessmentHandler.Lock)
+		r.Get("/classes/{classID}/students/{studentID}/test-results", testScoreHandler.TeacherResults)
+		r.Post("/classes/{classID}/students/{studentID}/tests/{testID}/attempts", testScoreHandler.RecordAttempt)
+		r.Put("/test-attempts/{attemptID}", testScoreHandler.CorrectTeacher)
+		r.Get("/test-attempts/{attemptID}/history", testScoreHandler.TeacherHistory)
 	})
 	r.Route("/student", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
@@ -320,6 +336,7 @@ func mountRoleRoutes(
 		r.Get("/attendance/summary", attendanceHandler.StudentSummary)
 		r.Get("/assessments", assessmentHandler.ListStudent)
 		r.Get("/assessments/{assessmentID}", assessmentHandler.GetStudent)
+		r.Get("/test-results", testScoreHandler.StudentResults)
 		r.Get("/progress", progressHandler.Dashboard)
 		r.Get("/certificates", completionHandler.StudentList)
 		r.Get("/certificates/{certificateID}/pdf", completionHandler.StudentPDF)
