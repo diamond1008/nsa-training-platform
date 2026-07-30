@@ -122,7 +122,8 @@ func setupPhase7(t *testing.T) *phase7Env {
 		   starts_at, ends_at, status, created_by
 		 ) VALUES (
 		   $1, $2, $3, 'Practical assessment', 'assessment',
-		   NOW() - INTERVAL '4 hours', NOW() - INTERVAL '3 hours',
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 1) + TIME '08:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 1) + TIME '12:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
 		   'completed', $4
 		 ) RETURNING id`,
 		env.classID, courseID, teacherA, env.adminUser,
@@ -137,7 +138,8 @@ func setupPhase7(t *testing.T) *phase7Env {
 		   starts_at, ends_at, status, created_by
 		 ) VALUES (
 		   $1, $2, $3, 'Completed workshop', 'workshop',
-		   NOW() - INTERVAL '2 hours', NOW() - INTERVAL '1 hour',
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 1) + TIME '13:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 1) + TIME '17:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
 		   'completed', $4
 		 ) RETURNING id`,
 		env.classID, courseID, teacherA, env.adminUser,

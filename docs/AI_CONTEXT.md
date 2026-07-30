@@ -2,8 +2,8 @@
 
 ## Current Phase
 
-- Phase 17 — Formal results and transfer-safe completion rules
-- Status: implementation and local validation complete; Goose up/down/up and the DB integration suite pass
+- Phase 18 — Fixed training slots and paper-test operations
+- Status: implementation and local validation complete; migration 00007 and the DB integration suite pass
 
 ## Completed
 
@@ -67,14 +67,20 @@
   - Formal eligibility is exactly attendance `>= 80%`, every active mandatory in-class test passed, and one active final exam with best score `> 5.0`. Session, competency, and assessment metrics remain informational.
   - Admin, Teacher, and Student screens expose course-test configuration, score entry/correction, own results, exact missing completion conditions, and completion-report score columns.
   - Ended classes, returning-student profiles/codes, historical attempts, decisions, and revoked certificates are retained. Wrong certificate information is corrected at the source, followed by reasoned revoke/reissue rather than in-place document edits.
+- Phase 18 implementation:
+  - Migration `00007_fixed_training_slots.sql` detaches optional assessment links, deletes every existing off-slot class session (and its cascading attendance rows), then enforces exactly three `Asia/Ho_Chi_Minh` slots: `08:00–12:00`, `13:30–17:30`, and `18:30–21:30`.
+  - The Go scheduling service performs the same slot validation before writes and exposes `SESSION_TIME_SLOT_INVALID`; RFC3339 request/UTC response compatibility is unchanged.
+  - The Admin form now accepts a date plus Morning/Afternoon/Evening rather than free-form datetimes.
+  - The shared desktop week calendar is a compact seven-day by three-slot grid. Month and mobile agenda modes remain, and Admin/Teacher/Student pages provide role-specific summary counters for the loaded range.
+  - Course tests and final exams are explicitly paper-only. ADMIN owns test configuration, assigned TEACHER users enter marked scores and reasoned corrections, and STUDENT users have result-only access. No online testing subsystem exists.
 
 ## In Progress
 
-- Phase 17 is implemented and validated but remains uncommitted pending explicit user approval.
+- Phase 18 is implemented and validated on `codex/fixed-training-slots`; use Git history for the exact delivery commit.
 
 ## Next
 
-- Phase 17 acceptance with representative transferred students, score attempts, and certificate correction/reissue.
+- Phase 18 visual acceptance of all three role calendars and a real center timetable rehearsal.
 - After acceptance: maintenance, real center-data rehearsal, and deployment preparation only.
 - Payments, tuition, debt tracking, third-party payment integrations, and category-based student-code prefixes remain explicitly out of scope.
 
@@ -91,6 +97,8 @@
 - Formal completion policy is intentionally fixed: attendance 80%, all mandatory in-class tests, final exam strictly above 5. ADMIN cannot override an ineligible approval.
 - Completion uniqueness and calculation are per student/course, not student/class; same-course transfer history remains counted.
 - Classes and education records are retained rather than hard-deleted. Returning Students keep their existing profile and generated code and receive a new enrollment.
+- The fixed-slot migration is an explicit exception to normal historical session retention: the user authorized deleting all pre-Phase-18 sessions that do not match one of the three center-wide slots. Assessment results survive with a null optional session link; attendance rows tied to deleted sessions do not.
+- Tests and final exams are physical paper workflows. The platform stores test definitions, attempts, scores, corrections, and completion effects only; it must not add online questions, answers, submissions, timers, or browser proctoring without a newly approved scope.
 - Phase 12 intentionally keeps the existing `HV********` student-code policy; training-category prefixes are not part of this phase.
 - Production uses same-origin Caddy routing; only Caddy publishes ports and the migration container must finish before API startup.
 - Production startup rejects placeholder JWT secrets and wildcard/non-HTTPS CORS origins.
@@ -112,6 +120,7 @@
 - `apps/web/src/features/admin/{adminApi,AdminPages}.tsx` — Admin feature workflows.
 - `apps/web/src/features/teacher/{teacherApi,TeacherPages}.tsx` — Teacher workspaces and write workflows.
 - `apps/web/src/features/student/{studentApi,StudentPages}.tsx` — Student self-service screens.
+- `apps/web/src/components/calendar.tsx` — shared compact three-slot week calendar, month view, mobile agenda, and role counters.
 - `apps/web/src/components/{ui,data}.tsx` — shared UI and server-state presentation.
 - `apps/web/src/lib/{apiClient,domainTypes,format}.ts` — transport, contracts, and display helpers.
 - `apps/web/src/routes/router.tsx` — role-protected Phase 9 route tree.
@@ -122,10 +131,11 @@
 - `database/queries/classes.sql` — Admin and Teacher class queries.
 - `database/migrations/00005_completion_certificates_and_evidence.sql` — assessment evidence, immutable completion decisions, and certificates.
 - `database/migrations/00006_tests_scores_and_completion_rules.sql` — tests, attempts, corrections, fixed attendance, and course-scoped completion.
+- `database/migrations/00007_fixed_training_slots.sql` — destructive cleanup of off-slot sessions and database enforcement of the three center-wide slots.
 - `database/queries/{tests,completions,progress}.sql` — score workflows and transfer-safe formal eligibility.
 - `apps/api/internal/testscores` — ADMIN/Teacher/Student score configuration and attempt workflows.
 - `apps/api/internal/{completions,notifications,reports}` — Phase 15–16 business modules.
-- `docs/openapi.yaml` — external API contract, version 1.0.0.
+- `docs/openapi.yaml` — external API contract, version 1.1.0.
 - `.github/workflows/ci.yml` — API, web, migration, E2E, and image-build gates.
 - `compose.production.yaml` and `infra/caddy/Caddyfile` — production topology and TLS edge.
 - `apps/web/e2e/critical-path.spec.ts` and `database/seeds/e2e.sql` — deterministic role journeys.
@@ -136,29 +146,29 @@
 - Completion eligibility is deterministic from attendance >=80%, all required tests, and final exam >5; only ADMIN records approval/rejection, and rejected re-reviews revoke any current certificate.
 - Attendance rates intentionally count Present and Late, exclude Excused from the denominator, and flag risk only after at least one recorded session.
 - Rate limiting is in-memory; Testcontainers remains deferred in favor of `nsa_training_test`.
-- First GitHub-hosted CI run is pending because Phase 10 has not been pushed.
+- Check the GitHub-hosted CI result after each pushed delivery branch.
 - `npm audit --omit=dev` reports two moderate React Router 6 advisories; applicability and upgrade decision are documented.
 
 ## Database and API State
 
-- Latest migration: `00006_tests_scores_and_completion_rules.sql`; local Goose up/down/up passes on both development and test databases.
+- Latest migration: `00007_fixed_training_slots.sql`; local Goose up/down/up passes, and the development database now enforces the fixed-slot constraint.
 - Teacher class reads are assignment scoped by authenticated Teacher user ID.
 - Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`; test results/attempts use the adjacent `/test-results` and `/tests/{testID}/attempts` routes.
 - Student self-service APIs include `/api/v1/student/{schedule,attendance,assessments,test-results,progress,certificates}`; public certificate verification is `/api/v1/certificates/{verificationCode}`.
-- OpenAPI version: 1.1.0, including all Phase 17 routes and result schemas.
+- OpenAPI version: 1.1.0, including Phase 17 score routes plus the Phase 18 fixed-slot scheduling contract.
 
 ## Web State
 
 - Routes: `/login`, `/doi-mat-khau`, `/admin/*`, `/teacher/*`, `/student/*`, `/403`, and fallback 404.
 - All sidebar routes render connected feature screens rather than placeholders.
-- Role-specific dashboards, responsive navigation, mobile card tables, improved forms/modals/feedback, and week/month calendars with mobile agendas are implemented.
-- Phase 17 validation: sqlc generation, Go format/vet/unit tests, Goose up/down/up, DB integration (including same-course transfer score retention), ESLint, Prettier, 20/20 Vitest tests, TypeScript, Vite production build, and OpenAPI lint pass. Full browser E2E and image builds were not rerun in this turn.
+- Role-specific dashboards, responsive navigation, mobile card tables, improved forms/modals/feedback, compact three-slot week calendars, month views, mobile agendas, and role-specific calendar counters are implemented.
+- Phase 18 validation: sqlc generation, Go format/vet/unit tests, Goose up/down/up, the complete DB integration suite, ESLint, Prettier, 23/23 Vitest tests, TypeScript, Vite production build, OpenAPI lint, and 3/3 Playwright role journeys pass. A 1440x900 browser smoke test confirmed that the schedule page has no document overflow.
 
 ## Git State
 
-- Current branch: `main`.
+- Current branch: `codex/fixed-training-slots`.
 - Phase 10/UI baseline commit: `27f8630 feat(platform): harden delivery and polish role experiences`.
-- Phase 17 changes are uncommitted; do not commit or push without explicit permission.
+- Phase 18 includes the fixed-slot work plus the concurrently prepared application-shell and icon polish in `AppLayout.tsx` and `icons.tsx`.
 
 ## Phase 10 Handoff (2026-07-28)
 

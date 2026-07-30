@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 17 complete locally — formal vocational course results and completion rules**
+**Current phase: Phase 18 complete locally — fixed training slots and paper-test operations**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -28,6 +28,7 @@ Training management platform for an automotive vocational training center. It ma
 | 15 | Course completion and certificates | ✅ Completed locally |
 | 16 | Reports, notifications, and production hardening | ✅ Completed locally |
 | 17 | Tests, final exam, transfer-safe completion rules | ✅ Completed and validated locally |
+| 18 | Fixed training slots and paper-test operations | ✅ Completed and validated locally |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 
@@ -105,6 +106,14 @@ Create student → Assign class → Schedule training → Record attendance
 
 ADMIN remains the only role allowed to approve/reject completion and issue, revoke, or reissue certificates.
 
+### Phase 18 — Fixed training slots and paper-test operations
+
+- Restrict every class session to one Vietnam-time slot: Morning `08:00–12:00`, Afternoon `13:30–17:30`, or Evening `18:30–21:30`.
+- Replace free-form Admin datetime inputs with a date and slot selector while preserving RFC3339 timestamps at the API boundary.
+- Show the weekly calendar as a compact three-row timetable with role-specific counters for Admin, Teacher, and Student.
+- Remove pre-existing sessions that do not match a fixed slot during migration `00007`; linked attendance is removed and optional assessment-session links are detached while assessment results remain.
+- Conduct all in-class tests and final exams on paper. ADMIN configures the required tests, assigned TEACHER users enter scores after marking, and STUDENT users only view results.
+
 ### Explicitly Out of Scope
 
 - Tuition, payment collection, debt tracking, accounting, and third-party payment integrations. Admissions handles payment outside this platform.
@@ -178,7 +187,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 ## Implemented Features
 
 - **Local infrastructure:** PostgreSQL 16 via Docker Compose with health check and persistent named volume (`make db-up`)
-- **Migrations:** Goose v3 through `00006_tests_scores_and_completion_rules.sql`; the latest migration adds course tests, score attempts, immutable score corrections, course-scoped completion snapshots, and the fixed 80% rule
+- **Migrations:** Goose v3 through `00007_fixed_training_slots.sql`; the latest migration removes off-slot sessions and enforces the three Vietnam-time training slots
 - **Seeds:** roles (ADMIN/TEACHER/STUDENT) ship in the baseline; DEV-ONLY demo accounts via `make db-seed`
 - **API docs:** OpenAPI 3.1 at `docs/openapi.yaml` — served by the API at `/docs` + `/openapi.yaml`, or via container (`make swagger` → http://localhost:8081)
 - **ERD:** `database/schema.dbml` for dbdiagram.io
@@ -195,11 +204,11 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Class operations:** capacity-safe enrollment plus atomic same-course transfers, withdrawal/completion transitions, active-account checks, duplicate prevention, and teacher assignment management
 - **Class operation history:** enrollment, transfer, assignment, class, and schedule changes retain actor, timestamp, reason, entity, and structured before/after details in an immutable per-class timeline
 - **Administration safeguards:** every Phase 4 route requires `ADMIN`; list endpoints use search/status filters and bounded pagination; important writes create audit logs in the same transaction
-- **Scheduling (`/api/v1/admin/sessions`):** create/list/detail/update/cancel class sessions with optional module, assigned teacher, and training location; changes require a reason and locked sessions are immutable
+- **Scheduling (`/api/v1/admin/sessions`):** create/list/detail/update/cancel class sessions with optional module, assigned teacher, and training location; each session must use Morning `08:00–12:00`, Afternoon `13:30–17:30`, or Evening `18:30–21:30` in Vietnam time; changes require a reason and locked sessions are immutable
 - **Conflict protection:** PostgreSQL exclusion constraints prevent overlapping non-cancelled sessions for a class, teacher, or location; API returns distinct conflict codes
 - **Training locations (`/api/v1/admin/locations`):** create/list/detail/update workshops and rooms, including capacity and active state; Admin manages them alongside the calendar
 - **Role schedules:** `GET /api/v1/teacher/schedule` returns the authenticated teacher's assigned sessions; `GET /api/v1/student/schedule` returns only active-enrollment sessions
-- **Timezone contract:** API accepts RFC3339 offsets, stores/returns UTC, and evaluates class date boundaries in `Asia/Ho_Chi_Minh`
+- **Timezone contract:** API accepts RFC3339 offsets, stores/returns UTC, and evaluates class date boundaries plus fixed-slot validity in `Asia/Ho_Chi_Minh`
 - **Teacher attendance:** assigned teachers can view their class rosters and save or revise transactional Present/Absent/Late/Excused batches only after the session starts and during its Vietnamese calendar day
 - **Automatic attendance lock:** at 00:00 Asia/Ho_Chi_Minh, unrecorded historical-roster students are saved as Absent and completed sessions are locked; cross-midnight sessions remain writable until the next valid boundary
 - **Attendance corrections:** ADMIN can correct an existing record even after locking; the required reason and old/new values are written to both the audit log and class operation timeline in the same transaction
@@ -209,7 +218,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Practical assessments:** assigned teachers create and replace drafts containing competency ratings/comments, submit only after every required criterion is rated, then lock immutable results; assessment numbers retain history over time
 - **Assessment integrity:** student enrollment, teacher assignment/ownership, optional session class/course, and every competency's course are validated transactionally and backed by composite PostgreSQL constraints
 - **Student assessment history:** authenticated students see only their own submitted/locked assessments through `/api/v1/student/assessments`
-- **Test and exam results:** ADMIN configures course tests; assigned teachers record repeat attempts and reasoned corrections; students see their own attempts and best scores
+- **Test and exam results:** tests are conducted on paper; ADMIN configures course tests, assigned teachers record scores/repeat attempts and reasoned corrections after marking, and students only see their own results
 - **Progress dashboard:** `/api/v1/student/progress` aggregates by student/course, shows attendance, required-test and final-exam status plus explicit missing conditions, while retaining sessions, competencies, and practical assessments as context
 - **Formal completion rules:** attendance is fixed at 80%; all mandatory in-class tests must pass; final-exam best score must be strictly above 5.0
 - **Transfer-safe outcomes:** same-course transfers preserve historical attendance/scores and continue toward one completion and one current certificate for the course
@@ -218,8 +227,8 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Frontend authentication:** login, silent cookie-based refresh, in-memory access tokens, deduplicated 401 refresh/retry, logout, forced password change, and role-aware home redirects
 - **Authenticated shells:** responsive Admin, Teacher, and Student navigation with route guards, 403/404 handling, and shared loading/error/empty patterns
 - **Admin feature screens:** searchable/paginated student, teacher, course, and class management; class transfer/withdrawal/completion and operation timeline; teacher assignment; room/workshop management; session creation, rescheduling, cancellation, and attendance inspection from the calendar
-- **Teacher feature screens:** assigned-class workspaces, rosters, Google Calendar-style weekly teaching schedule, batch attendance, practical skill assessments, and repeat test/final-exam score entry with audited corrections
-- **Student feature screens:** dashboard, enrolled courses, weekly calendar, attendance history/summary, test/final-exam attempts, assessment results, explicit completion blockers, and certificates
+- **Teacher feature screens:** assigned-class workspaces, rosters, compact three-slot weekly teaching schedule with summary counters, batch attendance, practical skill assessments, and paper-test/final-exam score entry with audited corrections
+- **Student feature screens:** dashboard, enrolled courses, compact three-slot weekly calendar with attendance counters, attendance history/summary, paper-test/final-exam results, assessment results, explicit completion blockers, and certificates
 - **Teacher class API:** assignment-scoped class list/detail endpoints provide roster and competency data without exposing unassigned classes
 - **Web delivery:** multi-stage Node/Caddy Docker image, SPA route fallback, security headers, health check, and root `.dockerignore` rules that exclude nested frontend artifacts
 

@@ -1007,7 +1007,9 @@ paths:
       summary: Create a class session
       description: |
         `starts_at` and `ends_at` accept RFC3339 offsets and are stored/returned
-        in UTC. The class date range is evaluated in Asia/Ho_Chi_Minh.
+        in UTC. The class date range and fixed training slot are evaluated in
+        Asia/Ho_Chi_Minh. The accepted local slots are 08:00–12:00,
+        13:30–17:30, and 18:30–21:30.
       operationId: createAdminClassSession
       requestBody:
         required: true
@@ -2512,10 +2514,12 @@ components:
           type: string
           format: date-time
           example: "2026-09-01T08:00:00+07:00"
+          description: Must start at 08:00, 13:30, or 18:30 in Asia/Ho_Chi_Minh.
         ends_at:
           type: string
           format: date-time
-          example: "2026-09-01T10:00:00+07:00"
+          example: "2026-09-01T12:00:00+07:00"
+          description: Must be the matching slot end at 12:00, 17:30, or 21:30 in Asia/Ho_Chi_Minh.
         status: { $ref: "#/components/schemas/WritableSessionStatus" }
         change_reason:
           type: string

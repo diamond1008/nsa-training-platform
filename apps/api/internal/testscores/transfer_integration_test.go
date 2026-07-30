@@ -54,10 +54,10 @@ func TestIntegration_SameCourseTransferKeepsScoresForCompletion(t *testing.T) {
 	}
 
 	var oldSessionID, newSessionID string
-	if err := pool.QueryRow(ctx, `INSERT INTO class_sessions (class_id,course_id,title,starts_at,ends_at,status,created_by) VALUES ($1,$2,'Old session',NOW()-INTERVAL '10 days',NOW()-INTERVAL '10 days'+INTERVAL '2 hours','completed',$3) RETURNING id`, oldClassID, courseID, actorID).Scan(&oldSessionID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO class_sessions (class_id,course_id,title,starts_at,ends_at,status,created_by) VALUES ($1,$2,'Old session',((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 10) + TIME '08:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 10) + TIME '12:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),'completed',$3) RETURNING id`, oldClassID, courseID, actorID).Scan(&oldSessionID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO class_sessions (class_id,course_id,title,starts_at,ends_at,status,created_by) VALUES ($1,$2,'New session',NOW()-INTERVAL '2 days',NOW()-INTERVAL '2 days'+INTERVAL '2 hours','completed',$3) RETURNING id`, newClassID, courseID, actorID).Scan(&newSessionID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO class_sessions (class_id,course_id,title,starts_at,ends_at,status,created_by) VALUES ($1,$2,'New session',((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 2) + TIME '08:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 2) + TIME '12:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),'completed',$3) RETURNING id`, newClassID, courseID, actorID).Scan(&newSessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO attendance_records (class_session_id,class_id,student_id,status,recorded_by) VALUES ($1,$2,$3,'present',$4),($5,$6,$3,'present',$4)`, oldSessionID, oldClassID, studentID, actorID, newSessionID, newClassID); err != nil {

@@ -24,13 +24,14 @@ JOIN users tu ON tu.id = tp.user_id AND tu.email = 'teacher@nsa.local'
 JOIN users au ON au.email = 'admin@nsa.local'
 ON CONFLICT (class_id, teacher_id) DO NOTHING;
 
-INSERT INTO class_enrollments (id, class_id, student_id, status, created_by)
+INSERT INTO class_enrollments (id, class_id, student_id, status, enrolled_at, created_by)
 SELECT 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-       sp.id, 'enrolled', au.id
+       sp.id, 'enrolled', CURRENT_DATE - 30, au.id
 FROM student_profiles sp
 JOIN users su ON su.id = sp.user_id AND su.email = 'student@nsa.local'
 JOIN users au ON au.email = 'admin@nsa.local'
-ON CONFLICT (class_id, student_id) DO NOTHING;
+ON CONFLICT (class_id, student_id) DO UPDATE
+SET status = 'enrolled', enrolled_at = EXCLUDED.enrolled_at, ended_at = NULL;
 
 INSERT INTO training_locations (id, code, name, location_type, capacity, is_active)
 VALUES ('99999999-9999-9999-9999-999999999999', 'E2E-ROOM', 'Phòng kiểm thử E2E', 'classroom', 20, TRUE)
@@ -44,8 +45,8 @@ SELECT '88888888-8888-8888-8888-888888888888',
        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
        'cccccccc-cccc-cccc-cccc-cccccccccccc', tp.id,
        '99999999-9999-9999-9999-999999999999', 'Lý thuyết E2E', 'theory',
-       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '2 days 13 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
-       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '2 days 15 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '2 days 13 hours 30 minutes') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '2 days 17 hours 30 minutes') AT TIME ZONE 'Asia/Ho_Chi_Minh',
        'scheduled', au.id
 FROM teacher_profiles tp
 JOIN users tu ON tu.id = tp.user_id AND tu.email = 'teacher@nsa.local'

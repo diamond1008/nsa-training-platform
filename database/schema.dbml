@@ -240,7 +240,7 @@ Table class_sessions {
     (id, class_id) [unique]
     (id, class_id, course_id) [unique]
   }
-  note: 'EXCLUDE constraints (btree_gist): no overlapping non-cancelled sessions per class / per teacher / per location. Composite FKs keep class-course-module-teacher consistent.'
+  note: 'Sessions must use a Vietnam-time fixed slot: 08:00-12:00, 13:30-17:30, or 18:30-21:30. EXCLUDE constraints (btree_gist) prevent overlapping non-cancelled sessions per class / teacher / location. Composite FKs keep class-course-module-teacher consistent.'
 }
 
 // Composite FKs (documented; see migration SQL for exact definitions)

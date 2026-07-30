@@ -5,10 +5,38 @@ import { Icon } from "./icons";
 import { Badge, Button, Card, EmptyState } from "./ui";
 
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
-const START_HOUR = 7;
-const END_HOUR = 22;
-const HOUR_HEIGHT = 60;
 export type CalendarView = "week" | "month";
+export type TrainingSlotKey = "morning" | "afternoon" | "evening";
+
+export const TRAINING_SLOTS: ReadonlyArray<{
+  key: TrainingSlotKey;
+  label: string;
+  timeLabel: string;
+  startMinutes: number;
+  endMinutes: number;
+}> = [
+  {
+    key: "morning",
+    label: "Sáng",
+    timeLabel: "08:00–12:00",
+    startMinutes: 8 * 60,
+    endMinutes: 12 * 60,
+  },
+  {
+    key: "afternoon",
+    label: "Chiều",
+    timeLabel: "13:30–17:30",
+    startMinutes: 13 * 60 + 30,
+    endMinutes: 17 * 60 + 30,
+  },
+  {
+    key: "evening",
+    label: "Tối",
+    timeLabel: "18:30–21:30",
+    startMinutes: 18 * 60 + 30,
+    endMinutes: 21 * 60 + 30,
+  },
+];
 
 export interface WeekCalendarEvent {
   id: string;
@@ -17,6 +45,11 @@ export interface WeekCalendarEvent {
   startsAt: string;
   endsAt: string;
   tone?: "navy" | "gold" | "green" | "red" | "gray";
+}
+export interface CalendarStat {
+  label: string;
+  value: number;
+  tone: "navy" | "gold" | "green" | "red" | "gray";
 }
 interface ZonedParts {
   year: number;
@@ -49,6 +82,36 @@ function zonedParts(value: Date): ZonedParts {
 export function vietnamDateKey(value: Date) {
   const p = zonedParts(value);
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+export function inferTrainingSlot(startsAt: string, endsAt: string): TrainingSlotKey | null {
+  const startDate = new Date(startsAt);
+  const endDate = new Date(endsAt);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+  if (vietnamDateKey(startDate) !== vietnamDateKey(endDate)) return null;
+  const start = zonedParts(startDate);
+  const end = zonedParts(endDate);
+  const startMinutes = start.hour * 60 + start.minute;
+  const endMinutes = end.hour * 60 + end.minute;
+  return (
+    TRAINING_SLOTS.find(
+      (slot) => slot.startMinutes === startMinutes && slot.endMinutes === endMinutes,
+    )?.key ?? null
+  );
+}
+export function trainingSlotRange(dateKey: string, slotKey: TrainingSlotKey) {
+  const slot = TRAINING_SLOTS.find((item) => item.key === slotKey);
+  if (!slot || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    throw new Error("Invalid training date or slot");
+  }
+  const localTimestamp = (minutes: number) => {
+    const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const minute = String(minutes % 60).padStart(2, "0");
+    return new Date(`${dateKey}T${hour}:${minute}:00+07:00`).toISOString();
+  };
+  return {
+    startsAt: localTimestamp(slot.startMinutes),
+    endsAt: localTimestamp(slot.endMinutes),
+  };
 }
 export function addCalendarDays(dateKey: string, amount: number) {
   const value = new Date(`${dateKey}T00:00:00Z`);
@@ -122,26 +185,6 @@ const toneDot = {
   red: "bg-error",
   gray: "bg-gtext",
 };
-function eventPosition(event: WeekCalendarEvent) {
-  const start = zonedParts(new Date(event.startsAt));
-  const end = zonedParts(new Date(event.endsAt));
-  const startMinutes = start.hour * 60 + start.minute;
-  const rawEnd =
-    vietnamDateKey(new Date(event.endsAt)) === vietnamDateKey(new Date(event.startsAt))
-      ? end.hour * 60 + end.minute
-      : END_HOUR * 60;
-  const visibleStart = Math.max(START_HOUR * 60, startMinutes);
-  const visibleEnd = Math.min(END_HOUR * 60, rawEnd);
-  return {
-    top: ((visibleStart - START_HOUR * 60) / 60) * HOUR_HEIGHT,
-    height: Math.max(
-      30,
-      ((Math.max(visibleStart + 15, visibleEnd) - visibleStart) / 60) * HOUR_HEIGHT,
-    ),
-    hidden: rawEnd <= START_HOUR * 60 || startMinutes >= END_HOUR * 60,
-  };
-}
-
 export function WeekCalendar({
   events,
   weekStart,
@@ -149,6 +192,7 @@ export function WeekCalendar({
   onEventClick,
   view = "week",
   onViewChange,
+  stats = [],
 }: {
   events: WeekCalendarEvent[];
   weekStart: string;
@@ -156,6 +200,7 @@ export function WeekCalendar({
   onEventClick: (event: WeekCalendarEvent) => void;
   view?: CalendarView;
   onViewChange?: (value: CalendarView) => void;
+  stats?: CalendarStat[];
 }) {
   const [mobile, setMobile] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 768,
@@ -219,7 +264,7 @@ export function WeekCalendar({
               type="button"
               onClick={() => switchView(value)}
               className={clsx(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold",
                 view === value ? "bg-white text-navy shadow-sm" : "text-gtext hover:text-navy",
               )}
             >
@@ -242,6 +287,25 @@ export function WeekCalendar({
           </span>
         ))}
       </div>
+      {stats.length > 0 && (
+        <div
+          aria-label="Tổng quan lịch"
+          className="flex flex-wrap gap-x-5 gap-y-2 border-b border-gborder px-4 py-3 text-sm md:px-5"
+        >
+          {stats.map((stat) => (
+            <span
+              key={stat.label}
+              aria-label={`${stat.value} buổi ${stat.label}`}
+              className="flex items-center gap-2 text-gtext"
+            >
+              <i className={clsx("h-3 w-3 rounded-full", toneDot[stat.tone])} />
+              <span>
+                <b className="text-navy">{stat.value}</b> buổi {stat.label}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
       {mobile ? (
         <AgendaView
           events={events}
@@ -311,7 +375,7 @@ function AgendaView({
                   type="button"
                   aria-label={`Mở ${event.title}`}
                   onClick={() => onEventClick(event)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-gborder bg-white p-3 text-left transition hover:border-gold"
+                  className="flex w-full items-center gap-3 rounded-xl border border-gborder bg-white p-3 text-left transition hover:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
                 >
                   <i
                     className={clsx(
@@ -344,9 +408,6 @@ function WeekGrid({
   today: string;
   onEventClick: (event: WeekCalendarEvent) => void;
 }) {
-  const now = zonedParts(new Date());
-  const calendarHeight = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
-  const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i);
   const time = new Intl.DateTimeFormat("vi-VN", {
     timeZone: TIME_ZONE,
     hour: "2-digit",
@@ -354,108 +415,91 @@ function WeekGrid({
   });
   const weekday = new Intl.DateTimeFormat("vi-VN", { timeZone: TIME_ZONE, weekday: "short" });
   return (
-    <div className="h-[calc(100dvh-16rem)] min-h-[34rem] overflow-auto">
-      <div className="min-w-[900px]">
-        <div className="sticky top-0 z-30 grid grid-cols-[64px_repeat(7,minmax(110px,1fr))] border-b border-gborder bg-white">
-          <div />
-          <>
-            {days.map((day) => {
-              const date = zonedParts(dateAtNoon(day));
-              const active = day === today;
-              return (
-                <div
-                  key={day}
+    <div className="overflow-x-auto bg-white">
+      <div className="min-w-[920px]">
+        <div className="grid grid-cols-[112px_repeat(7,minmax(112px,1fr))] border-b border-gborder bg-white">
+          <div className="flex items-center justify-center text-[10px] font-bold uppercase tracking-wide text-gtext">
+            Ca học
+          </div>
+          {days.map((day) => {
+            const date = zonedParts(dateAtNoon(day));
+            const active = day === today;
+            return (
+              <div
+                key={day}
+                className={clsx("border-l border-gborder py-2 text-center", active && "bg-gold/5")}
+              >
+                <p
                   className={clsx(
-                    "border-l border-gborder py-2 text-center",
-                    active && "bg-gold/5",
+                    "text-[10px] font-bold uppercase",
+                    active ? "text-gold-dark" : "text-gtext",
                   )}
                 >
-                  <p
-                    className={clsx(
-                      "text-[10px] font-bold uppercase",
-                      active ? "text-gold-dark" : "text-gtext",
-                    )}
-                  >
-                    {weekday.format(dateAtNoon(day))}
-                  </p>
-                  <div
-                    className={clsx(
-                      "mx-auto mt-1 flex h-8 w-8 items-center justify-center rounded-full text-base",
-                      active ? "bg-navy font-bold text-white" : "text-navy",
-                    )}
-                  >
-                    {date.day}
-                  </div>
+                  {weekday.format(dateAtNoon(day))}
+                </p>
+                <div
+                  className={clsx(
+                    "mx-auto mt-1 flex h-8 w-8 items-center justify-center rounded-full text-base",
+                    active ? "bg-navy font-bold text-white" : "text-navy",
+                  )}
+                >
+                  {date.day}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {TRAINING_SLOTS.map((slot) => (
+          <div
+            key={slot.key}
+            className="grid min-h-28 grid-cols-[112px_repeat(7,minmax(112px,1fr))] border-b border-gborder last:border-b-0"
+          >
+            <div className="flex flex-col items-center justify-center bg-gbg2/60 px-2 text-center">
+              <b className="text-sm text-navy">{slot.label}</b>
+              <span className="mt-1 text-[10px] text-gtext">{slot.timeLabel}</span>
+            </div>
+            {days.map((day) => {
+              const slotEvents = events.filter(
+                (event) =>
+                  vietnamDateKey(new Date(event.startsAt)) === day &&
+                  inferTrainingSlot(event.startsAt, event.endsAt) === slot.key,
+              );
+              return (
+                <div
+                  key={`${slot.key}-${day}`}
+                  className={clsx(
+                    "max-h-36 space-y-1.5 overflow-y-auto border-l border-gborder p-1.5",
+                    day === today && "bg-gold/[0.025]",
+                  )}
+                >
+                  {slotEvents.map((event) => (
+                    <button
+                      key={event.id}
+                      type="button"
+                      aria-label={`Mở ${event.title}`}
+                      onClick={() => onEventClick(event)}
+                      className={clsx(
+                        "w-full overflow-hidden rounded-lg border px-2 py-1.5 text-left text-xs shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-1",
+                        toneClasses[event.tone ?? "navy"],
+                      )}
+                    >
+                      <b className="block truncate">{event.title}</b>
+                      <span className="block truncate text-[10px] opacity-75">
+                        {time.format(new Date(event.startsAt))}–
+                        {time.format(new Date(event.endsAt))}
+                      </span>
+                      {event.subtitle && (
+                        <span className="mt-0.5 block truncate text-[10px] opacity-75">
+                          {event.subtitle}
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               );
             })}
-          </>
-        </div>
-        <div className="relative bg-white" style={{ height: calendarHeight }}>
-          {hours.map((hour) => (
-            <div
-              key={hour}
-              className="absolute left-0 right-0 border-t border-gborder/80"
-              style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
-            >
-              <span className="absolute -top-2.5 left-2 w-12 bg-white pr-2 text-right text-[10px] text-gtext">
-                {String(hour).padStart(2, "0")}:00
-              </span>
-            </div>
-          ))}
-          <div className="absolute bottom-0 left-16 right-0 top-0 grid grid-cols-7">
-            {days.map((day) => (
-              <div
-                key={day}
-                className={clsx(
-                  "relative border-l border-gborder",
-                  day === today && "bg-gold/[0.025]",
-                )}
-              >
-                {day === today && now.hour >= START_HOUR && now.hour < END_HOUR && (
-                  <div
-                    className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-error"
-                    style={{
-                      top: ((now.hour * 60 + now.minute - START_HOUR * 60) / 60) * HOUR_HEIGHT,
-                    }}
-                  >
-                    <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-error" />
-                  </div>
-                )}
-                {events
-                  .filter((e) => vietnamDateKey(new Date(e.startsAt)) === day)
-                  .map((event) => {
-                    const p = eventPosition(event);
-                    if (p.hidden) return null;
-                    return (
-                      <button
-                        key={event.id}
-                        type="button"
-                        aria-label={`Mở ${event.title}`}
-                        onClick={() => onEventClick(event)}
-                        className={clsx(
-                          "absolute left-1 right-1 z-10 overflow-hidden rounded-lg border px-2 py-1.5 text-left text-xs shadow-sm transition",
-                          toneClasses[event.tone ?? "navy"],
-                        )}
-                        style={{ top: p.top, height: p.height }}
-                      >
-                        <b className="block truncate">{event.title}</b>
-                        <span className="block truncate text-[10px] opacity-75">
-                          {time.format(new Date(event.startsAt))}–
-                          {time.format(new Date(event.endsAt))}
-                        </span>
-                        {event.subtitle && p.height >= 54 && (
-                          <span className="mt-0.5 block truncate text-[10px] opacity-75">
-                            {event.subtitle}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-              </div>
-            ))}
           </div>
-        </div>
+        ))}
       </div>
     </div>
   );
@@ -517,7 +561,7 @@ function MonthGrid({
                       aria-label={`Mở ${event.title}`}
                       onClick={() => onEventClick(event)}
                       className={clsx(
-                        "flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[10px] font-semibold",
+                        "flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[10px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold",
                         toneClasses[event.tone ?? "navy"],
                       )}
                     >

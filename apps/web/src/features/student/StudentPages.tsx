@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { currentWeekStart, monthRange, WeekCalendar, weekRange } from "../../components/calendar";
-import type { CalendarView, WeekCalendarEvent } from "../../components/calendar";
+import type { CalendarStat, CalendarView, WeekCalendarEvent } from "../../components/calendar";
 import {
   AttendanceRoster,
   DataTable,
@@ -285,6 +285,32 @@ export function StudentSchedulePage() {
   });
   const selectedAttendance = selected ? attendanceFor(selected.id) : undefined;
   const selectedFinished = selected ? new Date(selected.ends_at).getTime() <= Date.now() : false;
+  const now = Date.now();
+  const calendarStats = [
+    {
+      label: "Sắp học",
+      value: (schedule.data?.items ?? []).filter(
+        (session) => session.status !== "cancelled" && new Date(session.starts_at).getTime() > now,
+      ).length,
+      tone: "navy",
+    },
+    {
+      label: "Đã tham gia",
+      value: (schedule.data?.items ?? []).filter((session) => {
+        const status = attendanceFor(session.id)?.status;
+        return status === "present" || status === "late";
+      }).length,
+      tone: "green",
+    },
+    {
+      label: "Vắng mặt",
+      value: (schedule.data?.items ?? []).filter((session) => {
+        const status = attendanceFor(session.id)?.status;
+        return status === "absent" || status === "excused";
+      }).length,
+      tone: "red",
+    },
+  ] satisfies CalendarStat[];
   return (
     <div>
       <PageHeader
@@ -298,6 +324,7 @@ export function StudentSchedulePage() {
           onWeekStartChange={setWeekStart}
           view={calendarView}
           onViewChange={setCalendarView}
+          stats={calendarStats}
           onEventClick={(event) =>
             setSelected((schedule.data?.items ?? []).find((item) => item.id === event.id) ?? null)
           }
@@ -336,7 +363,7 @@ export function StudentSchedulePage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-gtext">
                 Trạng thái điểm danh của bạn
               </p>
-              <div className="mt-2">
+              <div className="mt-2" data-testid="student-own-attendance-status">
                 {attendance.isLoading ? (
                   <span className="text-sm text-gtext">Đang tải kết quả…</span>
                 ) : selectedAttendance ? (
@@ -478,7 +505,7 @@ export function StudentAssessmentsPage() {
     <div>
       <PageHeader
         title="Kết quả học tập"
-        subtitle="Điểm kiểm tra, thi kết thúc khóa và đánh giá kỹ năng của bạn."
+        subtitle="Bài kiểm tra được làm trên giấy; hệ thống chỉ hiển thị điểm do giảng viên nhập sau khi chấm."
       />
       <QueryState loading={scores.isLoading} error={scores.error}>
         <div className="mb-6 space-y-4">

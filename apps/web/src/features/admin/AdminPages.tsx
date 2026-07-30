@@ -3,8 +3,21 @@ import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
-import { currentWeekStart, monthRange, WeekCalendar, weekRange } from "../../components/calendar";
-import type { CalendarView, WeekCalendarEvent } from "../../components/calendar";
+import {
+  currentWeekStart,
+  inferTrainingSlot,
+  monthRange,
+  trainingSlotRange,
+  vietnamDateKey,
+  WeekCalendar,
+  weekRange,
+} from "../../components/calendar";
+import type {
+  CalendarStat,
+  CalendarView,
+  TrainingSlotKey,
+  WeekCalendarEvent,
+} from "../../components/calendar";
 import {
   AttendanceRoster,
   DataTable,
@@ -1210,7 +1223,9 @@ function CourseTestsPanel({ course }: { course: Course }) {
   return (
     <div className="space-y-5">
       <div className="rounded-xl bg-gbg2 p-4 text-sm text-gtext">
-        Mọi bài kiểm tra bắt buộc phải đạt. Thi kết thúc khóa chỉ đạt khi điểm lớn hơn 5.
+        Bài kiểm tra và thi kết thúc khóa được tổ chức trên giấy. Admin cấu hình đầu điểm; giảng
+        viên nhập kết quả sau khi chấm. Mọi bài bắt buộc phải đạt và điểm thi kết thúc phải lớn hơn
+        5.
       </div>
       <QueryState loading={query.isLoading} error={query.error}>
         <div className="space-y-2">
@@ -2048,6 +2063,28 @@ export function ScheduleAdminPage() {
             ? "gold"
             : "navy",
   }));
+  const now = Date.now();
+  const calendarStats = [
+    {
+      label: "Sắp diễn ra",
+      value: (query.data?.items ?? []).filter(
+        (session) => session.status !== "cancelled" && new Date(session.starts_at).getTime() > now,
+      ).length,
+      tone: "navy",
+    },
+    {
+      label: "Đã diễn ra",
+      value: (query.data?.items ?? []).filter(
+        (session) => session.status !== "cancelled" && new Date(session.ends_at).getTime() <= now,
+      ).length,
+      tone: "green",
+    },
+    {
+      label: "Đã hủy",
+      value: (query.data?.items ?? []).filter((session) => session.status === "cancelled").length,
+      tone: "red",
+    },
+  ] satisfies CalendarStat[];
   return (
     <div>
       <PageHeader
@@ -2066,13 +2103,14 @@ export function ScheduleAdminPage() {
           </>
         }
       />
-      <QueryState loading={query.isLoading} error={query.error} empty={!query.data?.items.length}>
+      <QueryState loading={query.isLoading} error={query.error}>
         <WeekCalendar
           events={events}
           weekStart={calendarAnchor}
           onWeekStartChange={setCalendarAnchor}
           view={calendarView}
           onViewChange={setCalendarView}
+          stats={calendarStats}
           onEventClick={(event) =>
             setSelectedSession(query.data?.items.find((item) => item.id === event.id) ?? null)
           }
@@ -2251,23 +2289,29 @@ function SessionForm({
     location_id: initial?.location_id ?? "",
     title: initial?.title ?? "",
     session_type: initial?.session_type ?? "theory",
-    starts_at: localDateTimeInput(initial?.starts_at),
-    ends_at: localDateTimeInput(initial?.ends_at),
+    session_date: initial?.starts_at
+      ? vietnamDateKey(new Date(initial.starts_at))
+      : vietnamDateKey(new Date()),
+    slot: (initial ? inferTrainingSlot(initial.starts_at, initial.ends_at) : null) ?? "morning",
     status: initial?.status ?? "scheduled",
     change_reason: "",
   });
   const update = (k: string, v: string) => setForm((o) => ({ ...o, [k]: v }));
-  const body = useMemo(
-    () => ({
-      ...form,
+  const body = useMemo(() => {
+    const range = trainingSlotRange(form.session_date, form.slot as TrainingSlotKey);
+    return {
+      class_id: form.class_id,
+      title: form.title,
+      session_type: form.session_type,
+      status: form.status,
+      change_reason: form.change_reason,
       module_id: null,
       teacher_id: form.teacher_id || null,
       location_id: form.location_id || null,
-      starts_at: form.starts_at ? new Date(form.starts_at).toISOString() : "",
-      ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : "",
-    }),
-    [form],
-  );
+      starts_at: range.startsAt,
+      ends_at: range.endsAt,
+    };
+  }, [form]);
   return (
     <form
       className="space-y-4"
@@ -2299,18 +2343,21 @@ function SessionForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
           required
-          label="Bắt đầu"
-          type="datetime-local"
-          value={form.starts_at}
-          onChange={(e) => update("starts_at", e.target.value)}
+          label="Ngày học"
+          type="date"
+          value={form.session_date}
+          onChange={(e) => update("session_date", e.target.value)}
         />
-        <Input
+        <Select
           required
-          label="Kết thúc"
-          type="datetime-local"
-          value={form.ends_at}
-          onChange={(e) => update("ends_at", e.target.value)}
-        />
+          label="Ca học"
+          value={form.slot}
+          onChange={(e) => update("slot", e.target.value)}
+        >
+          <option value="morning">Sáng · 08:00–12:00</option>
+          <option value="afternoon">Chiều · 13:30–17:30</option>
+          <option value="evening">Tối · 18:30–21:30</option>
+        </Select>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Select
@@ -2374,12 +2421,6 @@ function SessionForm({
       </div>
     </form>
   );
-}
-
-function localDateTimeInput(value?: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
 function LocationManager({

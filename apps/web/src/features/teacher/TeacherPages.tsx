@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { currentWeekStart, monthRange, WeekCalendar, weekRange } from "../../components/calendar";
-import type { CalendarView, WeekCalendarEvent } from "../../components/calendar";
+import type { CalendarStat, CalendarView, WeekCalendarEvent } from "../../components/calendar";
 import {
   DataTable,
   QueryState,
@@ -429,6 +429,33 @@ export function TeacherSchedulePage() {
             ? "gold"
             : "navy",
   }));
+  const now = Date.now();
+  const calendarStats = [
+    {
+      label: "Sắp dạy",
+      value: (query.data?.items ?? []).filter(
+        (session) => session.status !== "cancelled" && new Date(session.starts_at).getTime() > now,
+      ).length,
+      tone: "navy",
+    },
+    {
+      label: "Đã dạy",
+      value: (query.data?.items ?? []).filter(
+        (session) => session.status !== "cancelled" && new Date(session.ends_at).getTime() <= now,
+      ).length,
+      tone: "green",
+    },
+    {
+      label: "Chưa điểm danh",
+      value: (query.data?.items ?? []).filter(
+        (session) =>
+          session.status !== "cancelled" &&
+          !session.attendance_locked_at &&
+          new Date(session.ends_at).getTime() <= now,
+      ).length,
+      tone: "red",
+    },
+  ] satisfies CalendarStat[];
   return (
     <div>
       <PageHeader
@@ -442,6 +469,7 @@ export function TeacherSchedulePage() {
           onWeekStartChange={setWeekStart}
           view={calendarView}
           onViewChange={setCalendarView}
+          stats={calendarStats}
           onEventClick={(event) => navigate(`/teacher/diem-danh?session=${event.id}`)}
         />
       </QueryState>
@@ -748,7 +776,7 @@ export function AssessmentPage() {
             <Card>
               <SectionHeader
                 title="Điểm kiểm tra và thi kết thúc khóa"
-                subtitle="Có thể nhập nhiều lần thi; hệ thống dùng điểm cao nhất để xét hoàn thành."
+                subtitle="Học viên làm bài trên giấy. Nhập điểm sau khi chấm; hệ thống dùng điểm cao nhất để xét hoàn thành."
               />
               {(recordScore.error || correctScore.error) && (
                 <ErrorBanner message={errorText(recordScore.error || correctScore.error)} />

@@ -1,5 +1,15 @@
 # Operations runbook
 
+## Migration 00007: fixed training slots
+
+Migration `00007_fixed_training_slots.sql` is intentionally destructive for class-session data that does not match Morning `08:00–12:00`, Afternoon `13:30–17:30`, or Evening `18:30–21:30` in `Asia/Ho_Chi_Minh`.
+
+- Take and verify a database backup before applying it outside development.
+- The migration clears optional `student_assessments.session_id` links first, preserving assessment results.
+- It then deletes off-slot `class_sessions`; their `attendance_records` are deleted by the existing cascade.
+- The down migration removes the new check constraint but cannot reconstruct deleted sessions or attendance.
+- After migration, verify representative class calendars and assessment histories before reopening writes.
+
 ## Health and logs
 
 - `/health` confirms the process is alive; `/ready` also verifies PostgreSQL.

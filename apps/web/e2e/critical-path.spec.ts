@@ -22,7 +22,7 @@ test("admin login and role guard", async ({ page }) => {
 
 test("teacher opens attendance from weekly calendar", async ({ page }) => {
   await login(page, "teacher@nsa.local");
-  await page.getByRole("link", { name: "Lịch dạy" }).click();
+  await page.getByRole("link", { name: "Lịch dạy", exact: true }).click();
   await expect(page).toHaveURL(/\/teacher\/lich-day$/);
   await page.getByRole("button", { name: /E2E$/ }).click();
   await expect(page).toHaveURL(/\/teacher\/diem-danh\?session=88888888/);
@@ -33,12 +33,12 @@ test("teacher opens attendance from weekly calendar", async ({ page }) => {
 
 test("student views own attendance and progress", async ({ page }) => {
   await login(page, "student@nsa.local");
-  await page.getByRole("link", { name: "Lịch học" }).click();
+  await page.getByRole("link", { name: "Lịch học", exact: true }).click();
   await expect(page).toHaveURL(/\/student\/lich-hoc$/);
   await page.getByRole("button", { name: /E2E$/ }).click();
   await expect(page.getByText("Trạng thái điểm danh của bạn", { exact: true })).toBeVisible();
-  await expect(page.getByText("Có mặt")).toHaveCount(2);
-  await expect(page.getByText("STU-DEMO-001 — Demo Student")).toBeVisible();
+  await expect(page.getByTestId("student-own-attendance-status")).toContainText("Có mặt");
+  await expect(page.getByText("STU-DEMO-001", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Đóng" }).click();
 
   await page.getByRole("link", { name: "Tiến độ học tập" }).click();

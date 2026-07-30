@@ -351,6 +351,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Fail(w, http.StatusConflict, "CLASS_STATUS_INVALID", "Class status does not allow scheduling")
 	case errors.Is(err, ErrSessionOutsideClass):
 		response.Fail(w, http.StatusConflict, "SESSION_OUTSIDE_CLASS_DATES", "Session must be within class dates in Asia/Ho_Chi_Minh")
+	case errors.Is(err, ErrSessionTimeSlot):
+		response.Fail(w, http.StatusConflict, "SESSION_TIME_SLOT_INVALID", "Session must use a fixed Vietnam training slot: 08:00-12:00, 13:30-17:30, or 18:30-21:30")
 	case errors.Is(err, ErrModuleCourse):
 		response.Fail(w, http.StatusBadRequest, "MODULE_COURSE_MISMATCH", "Module does not belong to the class course")
 	case errors.Is(err, ErrTeacherInactive):

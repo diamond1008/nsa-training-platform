@@ -198,7 +198,7 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 	}
 
 	starts := mustTime(t, "2026-09-01T08:00:00+07:00")
-	ends := mustTime(t, "2026-09-01T10:00:00+07:00")
+	ends := mustTime(t, "2026-09-01T12:00:00+07:00")
 	first, err := env.schedules.CreateSession(ctx, env.actorID, schedulemodule.SessionInput{
 		ClassID: classA.ID, TeacherID: stringPointer(teacherA.ID), LocationID: stringPointer(locationA.ID),
 		Title: "Engine workshop", SessionType: db.SessionTypeWorkshop,
@@ -229,7 +229,7 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 
 	_, err = env.schedules.CreateSession(ctx, env.actorID, schedulemodule.SessionInput{
 		ClassID: classA.ID, Title: "Same class overlap", SessionType: db.SessionTypeTheory,
-		StartsAt: starts.Add(time.Hour), EndsAt: ends.Add(time.Hour), Status: db.SessionStatusScheduled,
+		StartsAt: starts, EndsAt: ends, Status: db.SessionStatusScheduled,
 	})
 	if !errors.Is(err, schedulemodule.ErrClassConflict) {
 		t.Fatalf("class conflict error = %v", err)
@@ -238,7 +238,7 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 	_, err = env.schedules.CreateSession(ctx, env.actorID, schedulemodule.SessionInput{
 		ClassID: classB.ID, TeacherID: stringPointer(teacherA.ID), LocationID: stringPointer(locationB.ID),
 		Title: "Same teacher overlap", SessionType: db.SessionTypeTheory,
-		StartsAt: starts.Add(30 * time.Minute), EndsAt: ends.Add(30 * time.Minute), Status: db.SessionStatusScheduled,
+		StartsAt: starts, EndsAt: ends, Status: db.SessionStatusScheduled,
 	})
 	if !errors.Is(err, schedulemodule.ErrTeacherConflict) {
 		t.Fatalf("teacher conflict error = %v", err)
@@ -247,7 +247,7 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 	_, err = env.schedules.CreateSession(ctx, env.actorID, schedulemodule.SessionInput{
 		ClassID: classC.ID, TeacherID: stringPointer(teacherB.ID), LocationID: stringPointer(locationA.ID),
 		Title: "Same location overlap", SessionType: db.SessionTypeTheory,
-		StartsAt: starts.Add(15 * time.Minute), EndsAt: ends.Add(15 * time.Minute), Status: db.SessionStatusScheduled,
+		StartsAt: starts, EndsAt: ends, Status: db.SessionStatusScheduled,
 	})
 	if !errors.Is(err, schedulemodule.ErrLocationConflict) {
 		t.Fatalf("location conflict error = %v", err)
@@ -312,7 +312,7 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 	_, err = env.schedules.CreateSession(ctx, env.actorID, schedulemodule.SessionInput{
 		ClassID: classB.ID, Title: "Outside class dates", SessionType: db.SessionTypeTheory,
 		StartsAt: mustTime(t, "2027-01-01T08:00:00+07:00"),
-		EndsAt:   mustTime(t, "2027-01-01T10:00:00+07:00"), Status: db.SessionStatusScheduled,
+		EndsAt:   mustTime(t, "2027-01-01T12:00:00+07:00"), Status: db.SessionStatusScheduled,
 	})
 	if !errors.Is(err, schedulemodule.ErrSessionOutsideClass) {
 		t.Fatalf("outside class date error = %v", err)

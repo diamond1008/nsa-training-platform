@@ -28,6 +28,7 @@ var (
 	ErrClassNotFound        = errors.New("class not found")
 	ErrClassStatus          = errors.New("class status does not allow scheduling")
 	ErrSessionOutsideClass  = errors.New("session is outside class date range")
+	ErrSessionTimeSlot      = errors.New("session must match a fixed training slot")
 	ErrModuleCourse         = errors.New("module does not belong to class course")
 	ErrTeacherNotFound      = errors.New("teacher not found")
 	ErrTeacherInactive      = errors.New("teacher is not active")
@@ -429,6 +430,9 @@ func (s *Service) ListStudent(ctx context.Context, userIDValue string, filter Li
 }
 
 func (s *Service) buildSessionParams(ctx context.Context, q *db.Queries, actorID string, input SessionInput) (db.CreateClassSessionParams, error) {
+	if !validTrainingSlot(input.StartsAt, input.EndsAt) {
+		return db.CreateClassSessionParams{}, ErrSessionTimeSlot
+	}
 	classID, err := data.UUID(input.ClassID)
 	if err != nil {
 		return db.CreateClassSessionParams{}, ErrClassNotFound
@@ -522,6 +526,9 @@ func mapLocationWriteError(err error) error {
 }
 
 func mapSessionWriteError(err error) error {
+	if dberror.IsCode(err, dberror.CheckViolation) && dberror.Constraint(err) == "class_sessions_training_slot_check" {
+		return ErrSessionTimeSlot
+	}
 	if dberror.IsCode(err, dberror.ExclusionViolation) {
 		switch dberror.Constraint(err) {
 		case "class_sessions_no_class_overlap":
@@ -545,6 +552,29 @@ func mapSessionWriteError(err error) error {
 		}
 	}
 	return err
+}
+
+func validTrainingSlot(startsAt, endsAt time.Time) bool {
+	location, err := time.LoadLocation(presentationTimezone)
+	if err != nil {
+		location = time.FixedZone("Asia/Saigon", 7*60*60)
+	}
+	start := startsAt.In(location)
+	end := endsAt.In(location)
+	if start.Format("2006-01-02") != end.Format("2006-01-02") {
+		return false
+	}
+	startMinutes := start.Hour()*60 + start.Minute()
+	endMinutes := end.Hour()*60 + end.Minute()
+	if start.Second() != 0 || start.Nanosecond() != 0 || end.Second() != 0 || end.Nanosecond() != 0 {
+		return false
+	}
+	for _, slot := range [][2]int{{8 * 60, 12 * 60}, {13*60 + 30, 17*60 + 30}, {18*60 + 30, 21*60 + 30}} {
+		if startMinutes == slot[0] && endMinutes == slot[1] {
+			return true
+		}
+	}
+	return false
 }
 
 func sessionWithinClassDates(startsAt, endsAt time.Time, classStart, classEnd pgtype.Date) bool {

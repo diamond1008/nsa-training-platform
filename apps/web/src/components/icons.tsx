@@ -23,9 +23,30 @@ export type IconName =
   | "sparkles"
   | "alert"
   | "info"
-  | "chevron-right";
+  | "chevron-right"
+  | "sidebar"
+  | "sidebar-collapse"
+  | "sidebar-expand";
 
 const paths: Record<IconName, JSX.Element> = {
+  sidebar: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <path d="M9 3v18" />
+    </>
+  ),
+  "sidebar-collapse": (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <path d="M9 3v18M15 15l-3-3 3-3" />
+    </>
+  ),
+  "sidebar-expand": (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <path d="M9 3v18M13 9l3 3-3 3" />
+    </>
+  ),
   home: (
     <>
       <path d="m3 11 9-8 9 8" />

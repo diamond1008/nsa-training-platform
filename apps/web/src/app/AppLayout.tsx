@@ -59,6 +59,7 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const queryClient = useQueryClient();
   const notifications = useQuery({
@@ -97,68 +98,164 @@ export default function AppLayout() {
     await logout();
     navigate("/login", { replace: true });
   };
-  const sidebar = (
-    <aside className="flex h-full w-[17rem] flex-col bg-navy text-white">
-      <div className="flex h-[4.5rem] items-center gap-3 border-b border-white/10 px-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gold font-extrabold text-navy shadow-lg shadow-black/20">
-          N
-        </div>
-        <div>
-          <p className="font-bold tracking-tight">NSA Training</p>
-          <p className="mt-0.5 text-[11px] text-white/55">Learning Management</p>
-        </div>
-      </div>
-      <div className="px-4 pb-2 pt-5">
-        <p className="px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
-          Không gian làm việc
-        </p>
-      </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-5" aria-label="Điều hướng chính">
-        {items.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={["/admin", "/teacher", "/student"].includes(item.to)}
-            onClick={() => setMenuOpen(false)}
-            className={({ isActive }) =>
-              clsx(
-                "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
-                isActive
-                  ? "bg-white text-navy shadow-sm"
-                  : "text-white/65 hover:bg-white/10 hover:text-white",
-              )
-            }
-          >
-            <Icon name={item.icon} className="h-[18px] w-[18px] shrink-0" />
-            <span className="truncate">{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
-      <div className="border-t border-white/10 p-4">
-        <div className="mb-3 flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gold/20 text-xs font-bold text-gold">
-            {initials}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{displayName}</p>
-            <p className="truncate text-[11px] text-white/45">{user.email}</p>
-          </div>
-        </div>
-        <Button
-          variant="soft"
-          className="h-9 w-full border-white/10 bg-white/10 text-white hover:bg-white/15"
-          onClick={handleLogout}
+
+  const renderSidebarContent = (mobile = false) => {
+    const collapsed = mobile ? false : isCollapsed;
+    return (
+      <aside
+        className={clsx(
+          "relative flex h-full flex-col border-r border-gborder bg-[#F0F4F9] text-navy transition-[width] duration-300 ease-in-out select-none z-30",
+          collapsed ? "w-[4.5rem] overflow-visible" : "w-[16rem]",
+        )}
+      >
+        <div
+          className={clsx(
+            "flex h-[4.5rem] shrink-0 items-center border-b border-gborder/70 px-4",
+            collapsed ? "justify-center overflow-visible" : "justify-between gap-2",
+          )}
         >
-          <Icon name="logout" className="h-4 w-4" />
-          Đăng xuất
-        </Button>
-      </div>
-    </aside>
-  );
+          {!collapsed || mobile ? (
+            <>
+              <div className="flex items-center gap-2.5 truncate">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold font-extrabold text-navy shadow-xs">
+                  N
+                </div>
+                <div className="truncate">
+                  <p className="text-sm font-bold tracking-tight text-navy">NSA Training</p>
+                  <p className="text-[10px] text-gtext">Learning Platform</p>
+                </div>
+              </div>
+              {!mobile && (
+                <div className="relative group">
+                  <button
+                    type="button"
+                    onClick={() => setIsCollapsed(true)}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-navy/80 hover:bg-[#E9EEF6] hover:text-navy transition-all duration-200"
+                    aria-label="Thu nhỏ thanh điều hướng"
+                  >
+                    <Icon name="sidebar" className="h-5 w-5 group-hover:hidden" />
+                    <Icon name="sidebar-collapse" className="h-5 w-5 hidden group-hover:block" />
+                  </button>
+                  <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
+                    Thu nhỏ thanh điều hướng
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="relative group flex justify-center w-full">
+              <button
+                type="button"
+                onClick={() => setIsCollapsed(false)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-navy/80 hover:bg-[#E9EEF6] hover:text-navy transition-all duration-200"
+                aria-label="Mở rộng thanh điều hướng"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gold font-extrabold text-navy shadow-xs group-hover:hidden">
+                  N
+                </div>
+                <Icon name="sidebar-expand" className="h-5 w-5 hidden group-hover:block" />
+              </button>
+              <div className="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
+                Mở rộng thanh điều hướng
+              </div>
+            </div>
+          )}
+        </div>
+
+        <nav
+          className={clsx(
+            "flex-1 space-y-1.5 pb-4 pt-2",
+            collapsed ? "px-2 overflow-visible" : "px-3 overflow-y-auto",
+          )}
+          aria-label="Điều hướng chính"
+        >
+          {items.map((item) => (
+            <div key={item.to} className="relative group">
+              <NavLink
+                to={item.to}
+                end={["/admin", "/teacher", "/student"].includes(item.to)}
+                onClick={() => setMenuOpen(false)}
+                className={({ isActive }) =>
+                  clsx(
+                    "flex items-center rounded-full text-sm font-medium transition-all duration-200",
+                    collapsed ? "h-11 w-11 justify-center mx-auto" : "h-11 px-4 gap-3.5",
+                    isActive
+                      ? "bg-[#D3E3FD] text-[#041E49] font-bold shadow-xs"
+                      : "text-navy/75 hover:bg-[#E9EEF6] hover:text-navy",
+                  )
+                }
+              >
+                <Icon
+                  name={item.icon}
+                  className="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-105"
+                />
+                {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
+              </NavLink>
+              {collapsed && !mobile && (
+                <div className="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
+                  {item.label}
+                </div>
+              )}
+            </div>
+          ))}
+        </nav>
+
+        <div className="border-t border-gborder/70 p-3">
+          {!collapsed || mobile ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 px-1">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark">
+                  {initials}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold text-navy">{displayName}</p>
+                  <p className="truncate text-[10px] text-gtext">{user.email}</p>
+                </div>
+              </div>
+              <Button
+                variant="soft"
+                className="h-9.5 w-full justify-center gap-2 rounded-full border-gborder/80 bg-white text-navy hover:bg-[#E9EEF6] hover:text-navy font-medium shadow-2xs"
+                onClick={handleLogout}
+              >
+                <Icon name="logout" className="h-4 w-4" />
+                Đăng xuất
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 py-1">
+              <div className="relative group">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark cursor-pointer">
+                  {initials}
+                </div>
+                <div className="pointer-events-none absolute left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
+                  {displayName}
+                </div>
+              </div>
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-navy/70 hover:bg-[#E9EEF6] hover:text-navy transition-colors"
+                  aria-label="Đăng xuất"
+                >
+                  <Icon name="logout" className="h-4.5 w-4.5" />
+                </button>
+                <div className="pointer-events-none absolute left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
+                  Đăng xuất
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </aside>
+    );
+  };
 
   return (
     <div className="flex h-dvh overflow-hidden bg-gbg">
-      <div className="hidden h-full shrink-0 lg:block">{sidebar}</div>
+      <div className="hidden h-full shrink-0 lg:block z-30 relative overflow-visible">
+        {renderSidebarContent(false)}
+      </div>
       {menuOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <button
@@ -166,7 +263,9 @@ export default function AppLayout() {
             onClick={() => setMenuOpen(false)}
             aria-label="Đóng menu"
           />
-          <div className="absolute inset-y-0 left-0 z-50 shadow-elevated">{sidebar}</div>
+          <div className="absolute inset-y-0 left-0 z-50 shadow-elevated">
+            {renderSidebarContent(true)}
+          </div>
         </div>
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">

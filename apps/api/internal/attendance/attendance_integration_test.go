@@ -114,7 +114,8 @@ func setupAttendance(t *testing.T) *attendanceEnv {
 		   starts_at, ends_at, status, created_by
 		 ) VALUES (
 		   $1, $2, $3, 'Past attendance session', 'theory',
-		   NOW() - INTERVAL '2 hours', NOW() - INTERVAL '1 hour',
+		   (((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + TIME '08:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		   (((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + TIME '12:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
 		   'completed', $4
 		 ) RETURNING id`,
 		classID, courseID, teacherID, env.adminUserID,
@@ -269,7 +270,8 @@ func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	}
 	if _, err := env.pool.Exec(ctx,
 		`UPDATE class_sessions
-		 SET starts_at = NOW() - INTERVAL '2 days', ends_at = NOW() - INTERVAL '2 days' + INTERVAL '1 hour'
+		 SET starts_at = ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 2) + TIME '08:00') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		     ends_at = ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 2) + TIME '12:00') AT TIME ZONE 'Asia/Ho_Chi_Minh')
 		 WHERE id = $1`, env.sessionID); err != nil {
 		t.Fatalf("expire attendance session: %v", err)
 	}
