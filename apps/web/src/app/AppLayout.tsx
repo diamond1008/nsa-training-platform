@@ -88,20 +88,22 @@ export default function AppLayout() {
       <aside
         className={clsx(
           "relative flex h-full flex-col text-navy transition-[width,background-color,border-color] duration-300 ease-in-out select-none z-30",
-          collapsed
-            ? "w-[4.5rem] overflow-visible bg-gbg border-r border-transparent"
-            : "w-[16rem] bg-[#F0F4F9] border-r border-gborder",
+          mobile
+            ? "w-[min(22rem,85vw)] sm:w-80 bg-white shadow-2xl rounded-r-3xl border-r border-gborder/40"
+            : collapsed
+              ? "w-[4.5rem] overflow-visible bg-gbg border-r border-transparent"
+              : "w-[16rem] bg-[#F0F4F9] border-r border-gborder",
         )}
       >
         <div
           className={clsx(
-            "flex h-[4.5rem] shrink-0 items-center justify-between border-b px-3 overflow-visible transition-colors duration-300",
-            collapsed ? "border-transparent" : "border-gborder/70",
+            "flex h-[4.5rem] shrink-0 items-center justify-between border-b px-4 overflow-visible transition-colors duration-300",
+            collapsed && !mobile ? "border-transparent" : "border-gborder/70",
           )}
         >
           {!collapsed || mobile ? (
             <>
-              <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+              <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center">
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gold font-extrabold text-navy shadow-xs">
                     N
@@ -112,12 +114,21 @@ export default function AppLayout() {
                   <p className="text-[10px] text-gtext">Learning Platform</p>
                 </div>
               </div>
-              {!mobile && (
+              {mobile ? (
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-navy/75 hover:bg-gbg2 active:scale-90 active:bg-slate-200 transition-all"
+                  aria-label="Đóng menu"
+                >
+                  <Icon name="close" className="h-5 w-5" />
+                </button>
+              ) : (
                 <div className="relative group shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsCollapsed(true)}
-                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full text-navy/80 transition-colors duration-200 hover:bg-[#E9EEF6] hover:text-navy motion-reduce:transition-none"
+                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full text-navy/80 transition-all duration-200 hover:bg-[#E9EEF6] active:scale-90 active:bg-[#D8E4F8] hover:text-navy motion-reduce:transition-none"
                     aria-label="Thu nhỏ thanh điều hướng"
                   >
                     <Icon name="sidebar" className="h-5 w-5 group-hover:hidden" />
@@ -134,7 +145,7 @@ export default function AppLayout() {
               <button
                 type="button"
                 onClick={() => setIsCollapsed(false)}
-                className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-all duration-200 hover:bg-[#E9EEF6] focus-visible:outline-none"
+                className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-all duration-200 hover:bg-[#E9EEF6] active:scale-90 active:bg-[#D8E4F8] focus-visible:outline-none"
                 aria-label="Mở rộng thanh điều hướng"
               >
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gold font-extrabold text-navy shadow-xs group-hover:hidden">
@@ -153,7 +164,7 @@ export default function AppLayout() {
         </div>
 
         <nav
-          className="flex-1 space-y-1.5 pb-4 pt-2 px-3 overflow-visible"
+          className="flex-1 space-y-1.5 pb-4 pt-3 px-3 overflow-visible"
           aria-label="Điều hướng chính"
         >
           {items.map((item) => (
@@ -164,18 +175,18 @@ export default function AppLayout() {
                 onClick={() => setMenuOpen(false)}
                 className={({ isActive }) =>
                   clsx(
-                    "flex items-center overflow-hidden rounded-full text-sm font-medium transition-[width,background-color,color,box-shadow] duration-300 motion-reduce:transition-none",
-                    collapsed ? "w-11" : "w-full",
+                    "flex items-center overflow-hidden rounded-full text-sm font-medium transition-all duration-200 active:scale-[0.97] select-none",
+                    collapsed && !mobile ? "w-11" : "w-full",
                     isActive
-                      ? "bg-[#D3E3FD] text-[#041E49] font-bold shadow-xs"
-                      : "text-navy/75 hover:bg-[#E9EEF6] hover:text-navy",
+                      ? "bg-[#D3E3FD] text-[#041E49] font-bold shadow-xs ring-1 ring-blue-300/40"
+                      : "text-navy/75 hover:bg-[#E9EEF6] hover:text-navy active:bg-[#D8E4F8]",
                   )
                 }
               >
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center">
                   <Icon
                     name={item.icon}
-                    className="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-105"
+                    className="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95"
                   />
                 </div>
                 {(!collapsed || mobile) && <span className="truncate pr-3.5">{item.label}</span>}
@@ -192,7 +203,7 @@ export default function AppLayout() {
         <div
           className={clsx(
             "border-t p-3 space-y-1 overflow-visible transition-colors duration-300",
-            collapsed ? "border-transparent" : "border-gborder/70",
+            collapsed && !mobile ? "border-transparent" : "border-gborder/70",
           )}
         >
           <div className="relative group">
@@ -220,7 +231,7 @@ export default function AppLayout() {
             <button
               type="button"
               onClick={handleLogout}
-              className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-full text-sm font-medium text-navy/75 transition-colors duration-300 hover:bg-[#E9EEF6] hover:text-navy motion-reduce:transition-none"
+              className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-full text-sm font-medium text-navy/75 transition-all duration-200 hover:bg-[#E9EEF6] hover:text-navy active:scale-[0.97] active:bg-red-50 active:text-red-700 select-none motion-reduce:transition-none"
             >
               <div className="flex h-11 w-11 shrink-0 items-center justify-center">
                 <Icon name="logout" className="h-5 w-5 shrink-0" />
@@ -254,11 +265,11 @@ export default function AppLayout() {
       {menuOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <button
-            className="absolute inset-0 bg-navy/55 backdrop-blur-sm"
+            className="absolute inset-0 bg-navy/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
             onClick={() => setMenuOpen(false)}
             aria-label="Đóng menu"
           />
-          <div className="absolute inset-y-0 left-0 z-50 shadow-elevated">
+          <div className="absolute inset-y-0 left-0 z-50 shadow-2xl animate-in slide-in-from-left duration-300 ease-out">
             {renderSidebarContent(true)}
           </div>
         </div>
@@ -268,7 +279,7 @@ export default function AppLayout() {
           <div className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8">
             <div className="flex items-center justify-between lg:justify-end pb-3">
               <button
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gborder bg-white text-navy hover:bg-gbg2 lg:hidden shadow-2xs"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gborder bg-white text-navy hover:bg-gbg2 active:scale-90 active:bg-slate-100 lg:hidden shadow-2xs transition-all"
                 aria-label="Mở menu"
                 onClick={() => setMenuOpen(true)}
               >
@@ -276,7 +287,7 @@ export default function AppLayout() {
               </button>
               <div className="relative">
                 <button
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-navy/80 transition-colors hover:bg-black/5 hover:text-navy"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-navy/80 transition-all hover:bg-black/5 active:scale-90 active:bg-black/10 hover:text-navy"
                   aria-label="Thông báo"
                   aria-expanded={notificationsOpen}
                   onClick={() => setNotificationsOpen((value) => !value)}
