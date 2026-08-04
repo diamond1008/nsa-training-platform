@@ -52,9 +52,25 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isClosingMenu, setIsClosingMenu] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  const openMobileMenu = () => {
+    setIsClosingMenu(false);
+    setMenuOpen(true);
+  };
+
+  const closeMobileMenu = () => {
+    if (isClosingMenu) return;
+    setIsClosingMenu(true);
+    setTimeout(() => {
+      setMenuOpen(false);
+      setIsClosingMenu(false);
+    }, 240);
+  };
+
   const notifications = useQuery({
     queryKey: ["notifications"],
     queryFn: () => notificationApi.list(),
@@ -117,7 +133,7 @@ export default function AppLayout() {
               {mobile ? (
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={closeMobileMenu}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-navy/75 hover:bg-gbg2 active:scale-90 active:bg-slate-200 transition-all"
                   aria-label="Đóng menu"
                 >
@@ -172,7 +188,9 @@ export default function AppLayout() {
               <NavLink
                 to={item.to}
                 end={["/admin", "/teacher", "/student"].includes(item.to)}
-                onClick={() => setMenuOpen(false)}
+                onClick={() => {
+                  if (mobile) closeMobileMenu();
+                }}
                 className={({ isActive }) =>
                   clsx(
                     "flex items-center overflow-hidden rounded-full text-sm font-medium transition-all duration-200 active:scale-[0.97] select-none",
@@ -265,11 +283,19 @@ export default function AppLayout() {
       {menuOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <button
-            className="absolute inset-0 bg-navy/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
-            onClick={() => setMenuOpen(false)}
+            className={clsx(
+              "absolute inset-0 bg-navy/60 backdrop-blur-sm",
+              isClosingMenu ? "animate-backdrop-out" : "animate-backdrop-in",
+            )}
+            onClick={closeMobileMenu}
             aria-label="Đóng menu"
           />
-          <div className="absolute inset-y-0 left-0 z-50 shadow-2xl animate-in slide-in-from-left duration-300 ease-out">
+          <div
+            className={clsx(
+              "absolute inset-y-0 left-0 z-50 shadow-2xl flex",
+              isClosingMenu ? "animate-drawer-out" : "animate-drawer-in",
+            )}
+          >
             {renderSidebarContent(true)}
           </div>
         </div>
@@ -281,7 +307,7 @@ export default function AppLayout() {
               <button
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gborder bg-white text-navy hover:bg-gbg2 active:scale-90 active:bg-slate-100 lg:hidden shadow-2xs transition-all"
                 aria-label="Mở menu"
-                onClick={() => setMenuOpen(true)}
+                onClick={openMobileMenu}
               >
                 <Icon name="menu" />
               </button>
