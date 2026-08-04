@@ -237,22 +237,22 @@ export function WeekCalendar({
           <Button variant="ghost" className="h-9 px-3" onClick={goToday}>
             Hôm nay
           </Button>
-          <Button
-            variant="soft"
-            className="h-9 w-9 px-0"
+          <button
+            type="button"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-transparent bg-gbg2 text-navy transition-all duration-200 hover:border-gborder hover:bg-gborder active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
             aria-label={view === "week" ? "Tuần trước" : "Tháng trước"}
             onClick={() => navigate(-1)}
           >
-            <Icon name="arrow-left" className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="soft"
-            className="h-9 w-9 px-0"
+            <Icon name="chevron-left" className="h-4 w-4 shrink-0 text-navy" />
+          </button>
+          <button
+            type="button"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-transparent bg-gbg2 text-navy transition-all duration-200 hover:border-gborder hover:bg-gborder active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
             aria-label={view === "week" ? "Tuần sau" : "Tháng sau"}
             onClick={() => navigate(1)}
           >
-            <Icon name="arrow-right" className="h-4 w-4" />
-          </Button>
+            <Icon name="chevron-right" className="h-4 w-4 shrink-0 text-navy" />
+          </button>
         </div>
         <h2 className="order-first w-full text-center text-base font-bold text-navy sm:order-none sm:w-auto md:text-lg">
           {titleFor(weekStart, view)}
