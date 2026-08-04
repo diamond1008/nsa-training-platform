@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import clsx from "clsx";
@@ -56,6 +56,20 @@ export default function AppLayout() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (menuOpen) {
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
+    } else {
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
+    };
+  }, [menuOpen]);
 
   const openMobileMenu = () => {
     setIsClosingMenu(false);
@@ -270,7 +284,7 @@ export default function AppLayout() {
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-gbg">
+    <div className="flex h-dvh w-full max-w-full overflow-hidden bg-gbg select-none">
       <a
         href="#main-content"
         className="sr-only z-[100] rounded-lg bg-navy px-4 py-2 text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
@@ -281,13 +295,14 @@ export default function AppLayout() {
         {renderSidebarContent(false)}
       </div>
       {menuOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="fixed inset-0 z-40 lg:hidden overflow-hidden touch-none">
           <button
             className={clsx(
-              "absolute inset-0 bg-navy/60 backdrop-blur-sm",
+              "absolute inset-0 bg-navy/60 backdrop-blur-sm touch-none overscroll-none",
               isClosingMenu ? "animate-backdrop-out" : "animate-backdrop-in",
             )}
             onClick={closeMobileMenu}
+            onTouchMove={(e) => e.preventDefault()}
             aria-label="Đóng menu"
           />
           <div

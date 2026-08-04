@@ -7,9 +7,12 @@
   font-synthesis: none;
 }
 
+html,
 body {
-  @apply m-0 bg-gbg font-sans text-navy antialiased;
+  @apply m-0 bg-gbg font-sans text-navy antialiased overflow-x-hidden w-full max-w-full;
   min-width: 320px;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 ::selection {
