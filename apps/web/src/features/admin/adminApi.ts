@@ -1,6 +1,5 @@
 import { api, apiCSV, apiDownload } from "../../lib/apiClient";
 import type {
-  AttendanceStatus,
   ClassSession,
   CompletionCandidate,
   CompletionDecisionResult,
@@ -12,7 +11,6 @@ import type {
   EnrollmentTransfer,
   Paginated,
   ReportSummary,
-  SessionAttendance,
   Student,
   StudentStatusHistory,
   Teacher,
@@ -25,8 +23,46 @@ import { toQuery } from "../../lib/format";
 export interface ListParams {
   search?: string;
   status?: string;
+  sort_by?: string;
+  sort_order?: "asc" | "desc";
   page?: number;
   per_page?: number;
+}
+
+export interface StudentListParams extends ListParams {
+  class_id?: string;
+  course_id?: string;
+  attendance_risk?: "at_risk" | "on_track";
+}
+
+export interface TeacherListParams extends ListParams {
+  class_id?: string;
+  course_id?: string;
+  assignment?: "assigned" | "unassigned";
+}
+
+export interface ClassListParams extends ListParams {
+  course_id?: string;
+  teacher_id?: string;
+  capacity?: "available" | "full";
+  from_date?: string;
+  to_date?: string;
+}
+
+export interface SessionListParams extends ListParams {
+  from?: string;
+  to?: string;
+  class_id?: string;
+  teacher_id?: string;
+  location_id?: string;
+  session_type?: string;
+  attendance_state?: "locked" | "unlocked";
+}
+
+export interface CompletionListParams extends ListParams {
+  eligibility?: "eligible" | "ineligible";
+  course_id?: string;
+  class_id?: string;
 }
 
 export interface StudentImportResult {
@@ -36,24 +72,26 @@ export interface StudentImportResult {
 }
 
 export const adminApi = {
-  students: (params: ListParams = {}) =>
+  students: (params: StudentListParams = {}) =>
     api<Paginated<Student>>(`/admin/students${toQuery(params)}`),
   createStudent: (body: unknown) => api<Student>("/admin/students", { method: "POST", body }),
   updateStudent: (id: string, body: unknown) =>
     api<Student>(`/admin/students/${id}`, { method: "PUT", body }),
   studentStatusHistory: (id: string) =>
     api<StudentStatusHistory[]>(`/admin/students/${id}/status-history`),
-  exportStudents: (params: Pick<ListParams, "search" | "status"> = {}) =>
+  exportStudents: (params: StudentListParams = {}) =>
     apiDownload(`/admin/students/export${toQuery(params)}`),
   importStudents: (csv: string) => apiCSV<StudentImportResult>("/admin/students/import", csv),
 
-  teachers: (params: ListParams = {}) =>
+  teachers: (params: TeacherListParams = {}) =>
     api<Paginated<Teacher>>(`/admin/teachers${toQuery(params)}`),
+  getTeacher: (id: string) => api<Teacher>(`/admin/teachers/${id}`),
   createTeacher: (body: unknown) => api<Teacher>("/admin/teachers", { method: "POST", body }),
   updateTeacher: (id: string, body: unknown) =>
     api<Teacher>(`/admin/teachers/${id}`, { method: "PUT", body }),
 
   courses: (params: ListParams = {}) => api<Paginated<Course>>(`/admin/courses${toQuery(params)}`),
+  getCourse: (id: string) => api<Course>(`/admin/courses/${id}`),
   createCourse: (body: unknown) => api<Course>("/admin/courses", { method: "POST", body }),
   updateCourse: (id: string, body: unknown) =>
     api<Course>(`/admin/courses/${id}`, { method: "PUT", body }),
@@ -63,7 +101,7 @@ export const adminApi = {
   updateCourseTest: (courseId: string, testId: string, body: unknown) =>
     api<CourseTest>(`/admin/courses/${courseId}/tests/${testId}`, { method: "PUT", body }),
 
-  classes: (params: ListParams & { course_id?: string } = {}) =>
+  classes: (params: ClassListParams = {}) =>
     api<Paginated<TrainingClass>>(`/admin/classes${toQuery(params)}`),
   getClass: (id: string) => api<TrainingClass>(`/admin/classes/${id}`),
   createClass: (body: unknown) => api<TrainingClass>("/admin/classes", { method: "POST", body }),
@@ -77,10 +115,16 @@ export const adminApi = {
       method: "POST",
       body: { student_id: studentId, reason },
     }),
-  updateEnrollment: (classId: string, id: string, status: string, reason: string) =>
+  updateEnrollment: (
+    classId: string,
+    id: string,
+    status: string,
+    reason: string,
+    effectiveAt?: string,
+  ) =>
     api<Enrollment>(`/admin/classes/${classId}/enrollments/${id}`, {
       method: "PUT",
-      body: { status, reason },
+      body: { status, reason, ...(effectiveAt ? { effective_at: effectiveAt } : {}) },
     }),
   transferEnrollment: (classId: string, id: string, targetClassId: string, reason: string) =>
     api<EnrollmentTransfer>(`/admin/classes/${classId}/enrollments/${id}/transfer`, {
@@ -106,18 +150,12 @@ export const adminApi = {
     api<TrainingLocation>("/admin/locations", { method: "POST", body }),
   updateLocation: (id: string, body: unknown) =>
     api<TrainingLocation>(`/admin/locations/${id}`, { method: "PUT", body }),
-  sessions: (params: ListParams & { from?: string; to?: string; class_id?: string } = {}) =>
+  sessions: (params: SessionListParams = {}) =>
     api<Paginated<ClassSession>>(`/admin/sessions${toQuery(params)}`),
-  sessionAttendance: (sessionId: string) =>
-    api<SessionAttendance>(`/admin/sessions/${sessionId}/attendance`),
-  correctAttendance: (
-    attendanceId: string,
-    body: { status: AttendanceStatus; note: string | null; reason: string },
-  ) => api(`/admin/attendance/${attendanceId}`, { method: "PUT", body }),
   createSession: (body: unknown) => api<ClassSession>("/admin/sessions", { method: "POST", body }),
   updateSession: (id: string, body: unknown) =>
     api<ClassSession>(`/admin/sessions/${id}`, { method: "PUT", body }),
-  completions: (params: ListParams = {}) =>
+  completions: (params: CompletionListParams = {}) =>
     api<Paginated<CompletionCandidate>>(`/admin/completions${toQuery(params)}`),
   decideCompletion: (classId: string, studentId: string, status: string, note: string) =>
     api<CompletionDecisionResult>(`/admin/completions/${classId}/${studentId}`, {

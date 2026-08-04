@@ -42,13 +42,36 @@ AND (
   sqlc.narg(course_id)::uuid IS NULL
   OR c.course_id = sqlc.narg(course_id)::uuid
 )
+AND (
+  sqlc.narg(teacher_id)::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.class_id = c.id AND ta.teacher_id = sqlc.narg(teacher_id)::uuid
+  )
+)
+AND (sqlc.narg(from_date)::date IS NULL OR c.end_date >= sqlc.narg(from_date)::date)
+AND (sqlc.narg(to_date)::date IS NULL OR c.start_date <= sqlc.narg(to_date)::date)
 GROUP BY c.id, co.code, co.name
-ORDER BY c.created_at DESC, c.id
+HAVING (
+  sqlc.arg(capacity)::text = ''
+  OR (sqlc.arg(capacity)::text = 'available' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') < c.maximum_students)
+  OR (sqlc.arg(capacity)::text = 'full' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') >= c.maximum_students)
+)
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'class_code' AND sqlc.arg(sort_order)::text = 'asc' THEN c.class_code END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'class_code' AND sqlc.arg(sort_order)::text = 'desc' THEN c.class_code END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'start_date' AND sqlc.arg(sort_order)::text = 'asc' THEN c.start_date END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'start_date' AND sqlc.arg(sort_order)::text = 'desc' THEN c.start_date END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'asc' THEN c.created_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'desc' THEN c.created_at END DESC,
+  c.id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountAdminClasses :one
-SELECT COUNT(*)
+SELECT COUNT(*) FROM (
+SELECT c.id
 FROM classes c
+LEFT JOIN class_enrollments ce ON ce.class_id = c.id
 WHERE (
   sqlc.arg(search)::text = ''
   OR c.class_code ILIKE '%' || sqlc.arg(search) || '%'
@@ -61,7 +84,23 @@ AND (
 AND (
   sqlc.narg(course_id)::uuid IS NULL
   OR c.course_id = sqlc.narg(course_id)::uuid
-);
+)
+AND (
+  sqlc.narg(teacher_id)::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.class_id = c.id AND ta.teacher_id = sqlc.narg(teacher_id)::uuid
+  )
+)
+AND (sqlc.narg(from_date)::date IS NULL OR c.end_date >= sqlc.narg(from_date)::date)
+AND (sqlc.narg(to_date)::date IS NULL OR c.start_date <= sqlc.narg(to_date)::date)
+GROUP BY c.id
+HAVING (
+  sqlc.arg(capacity)::text = ''
+  OR (sqlc.arg(capacity)::text = 'available' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') < c.maximum_students)
+  OR (sqlc.arg(capacity)::text = 'full' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') >= c.maximum_students)
+)
+) filtered_classes;
 
 -- name: ListTeacherClasses :many
 SELECT
@@ -140,6 +179,62 @@ SET
 WHERE id = $1 AND class_id = $2
 RETURNING id, class_id, student_id, status, enrolled_at, ended_at,
   created_by, created_at, updated_at;
+
+-- name: EndClassEnrollmentAt :one
+UPDATE class_enrollments
+SET status = $3, ended_at = $4
+WHERE id = $1 AND class_id = $2
+RETURNING id, class_id, student_id, status, enrolled_at, ended_at,
+  created_by, created_at, updated_at;
+
+-- name: ReopenClassEnrollment :one
+UPDATE class_enrollments
+SET status = 'enrolled', ended_at = NULL
+WHERE id = $1 AND class_id = $2
+RETURNING id, class_id, student_id, status, enrolled_at, ended_at,
+  created_by, created_at, updated_at;
+
+-- name: LockStudentForEnrollment :one
+SELECT id
+FROM student_profiles
+WHERE id = $1
+FOR UPDATE;
+
+-- name: CreateEnrollmentPeriod :one
+INSERT INTO class_enrollment_periods (
+  enrollment_id, started_at, created_by, start_reason
+)
+VALUES ($1, $2, $3, $4)
+RETURNING id, enrollment_id, started_at, ended_at, created_by, ended_by,
+  start_reason, end_reason, created_at;
+
+-- name: CloseOpenEnrollmentPeriod :one
+UPDATE class_enrollment_periods
+SET ended_at = $2, ended_by = $3, end_reason = $4
+WHERE enrollment_id = $1
+  AND ended_at IS NULL
+  AND started_at <= $2
+RETURNING id, enrollment_id, started_at, ended_at, created_by, ended_by,
+  start_reason, end_reason, created_at;
+
+-- name: GetLatestEnrollmentPeriod :one
+SELECT id, enrollment_id, started_at, ended_at, created_by, ended_by,
+  start_reason, end_reason, created_at
+FROM class_enrollment_periods
+WHERE enrollment_id = $1
+ORDER BY started_at DESC, id DESC
+LIMIT 1;
+
+-- name: HasOtherActiveEnrollmentForCourse :one
+SELECT EXISTS(
+  SELECT 1
+  FROM class_enrollments ce
+  JOIN classes c ON c.id = ce.class_id
+  WHERE ce.student_id = sqlc.arg(student_id)
+    AND c.course_id = sqlc.arg(course_id)
+    AND ce.status = 'enrolled'
+    AND ce.id <> sqlc.arg(enrollment_id)
+);
 
 -- name: CreateTeacherAssignment :one
 INSERT INTO teacher_assignments (

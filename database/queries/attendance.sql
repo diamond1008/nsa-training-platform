@@ -23,7 +23,7 @@ FOR UPDATE OF cs;
 
 -- name: ListSessionAttendanceRoster :many
 SELECT
-  ce.student_id, sp.student_code, sp.full_name,
+  ce.student_id, sp.student_code, sp.full_name, sp.avatar_url,
   ce.status AS enrollment_status,
   ar.id AS attendance_id, ar.status AS attendance_status, ar.note,
   ar.recorded_by, recorder.email AS recorded_by_email,
@@ -31,8 +31,12 @@ SELECT
 FROM class_sessions cs
 JOIN class_enrollments ce
   ON ce.class_id = cs.class_id
-  AND ce.enrolled_at <= cs.starts_at
-  AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
 JOIN student_profiles sp ON sp.id = ce.student_id
 LEFT JOIN attendance_records ar
   ON ar.class_session_id = cs.id
@@ -48,8 +52,12 @@ SELECT EXISTS(
   JOIN class_enrollments ce
     ON ce.class_id = cs.class_id
     AND ce.student_id = sqlc.arg(student_id)
-    AND ce.enrolled_at <= cs.starts_at
-    AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
+    AND EXISTS (
+      SELECT 1 FROM class_enrollment_periods cep
+      WHERE cep.enrollment_id = ce.id
+        AND cep.started_at <= cs.starts_at
+        AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+    )
   WHERE cs.id = sqlc.arg(session_id)
 );
 
@@ -72,8 +80,12 @@ SELECT EXISTS(
   FROM class_sessions cs
   JOIN class_enrollments ce
     ON ce.class_id = cs.class_id
-    AND ce.enrolled_at <= cs.starts_at
-    AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
+    AND EXISTS (
+      SELECT 1 FROM class_enrollment_periods cep
+      WHERE cep.enrollment_id = ce.id
+        AND cep.started_at <= cs.starts_at
+        AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+    )
   JOIN student_profiles sp ON sp.id = ce.student_id
   WHERE cs.id = sqlc.arg(session_id)
     AND sp.user_id = sqlc.arg(user_id)
@@ -107,8 +119,12 @@ SELECT
 FROM class_sessions cs
 JOIN class_enrollments ce
   ON ce.class_id = cs.class_id
-  AND ce.enrolled_at <= cs.starts_at
-  AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
 LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
 WHERE cs.ends_at < sqlc.arg(cutoff)
   AND cs.status IN ('scheduled', 'completed')
@@ -141,8 +157,12 @@ WHERE cs.ends_at < sqlc.arg(cutoff)
       ON ar.class_session_id = cs.id
       AND ar.student_id = ce.student_id
     WHERE ce.class_id = cs.class_id
-      AND ce.enrolled_at <= cs.starts_at
-      AND (ce.ended_at IS NULL OR ce.ended_at >= cs.starts_at)
+      AND EXISTS (
+        SELECT 1 FROM class_enrollment_periods cep
+        WHERE cep.enrollment_id = ce.id
+          AND cep.started_at <= cs.starts_at
+          AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+      )
       AND ar.id IS NULL
   );
 

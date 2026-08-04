@@ -151,6 +151,42 @@ func (h *Handler) Correct(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, view)
 }
 
+func (h *Handler) AdminCorrectStudent(w http.ResponseWriter, r *http.Request) {
+	var body correctionRequest
+	if err := request.DecodeJSON(w, r, &body); err != nil {
+		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
+		return
+	}
+	status, ok := attendanceStatus(body.Status)
+	if !ok {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "status must be present, absent, late, or excused")
+		return
+	}
+	note, ok := normalizeOptional(body.Note, maxNoteRunes)
+	if !ok {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "note must not exceed 1000 characters")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason == "" || len([]rune(reason)) > maxReasonRunes {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "reason is required and must not exceed 500 characters")
+		return
+	}
+	adminID, _ := auth.UserIDFrom(r.Context())
+	view, err := h.service.AdminCorrectStudent(
+		r.Context(),
+		adminID,
+		chi.URLParam(r, "sessionID"),
+		chi.URLParam(r, "studentID"),
+		CorrectionInput{Status: status, Note: note, Reason: reason},
+	)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, view)
+}
+
 func (h *Handler) StudentHistory(w http.ResponseWriter, r *http.Request) {
 	page, perPage, err := request.Page(r)
 	if err != nil {

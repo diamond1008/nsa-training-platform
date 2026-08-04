@@ -34,7 +34,34 @@ AND (
   sqlc.arg(status)::text = ''
   OR tp.status::text = sqlc.arg(status)::text
 )
-ORDER BY tp.created_at DESC, tp.id
+AND (
+  sqlc.narg(class_id)::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.teacher_id = tp.id AND ta.class_id = sqlc.narg(class_id)::uuid
+  )
+)
+AND (
+  sqlc.narg(course_id)::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    JOIN classes c ON c.id = ta.class_id
+    WHERE ta.teacher_id = tp.id AND c.course_id = sqlc.narg(course_id)::uuid
+  )
+)
+AND (
+  sqlc.arg(assignment)::text = ''
+  OR (sqlc.arg(assignment)::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+  OR (sqlc.arg(assignment)::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+)
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'teacher_code' AND sqlc.arg(sort_order)::text = 'asc' THEN tp.teacher_code END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'teacher_code' AND sqlc.arg(sort_order)::text = 'desc' THEN tp.teacher_code END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'full_name' AND sqlc.arg(sort_order)::text = 'asc' THEN tp.full_name END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'full_name' AND sqlc.arg(sort_order)::text = 'desc' THEN tp.full_name END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'asc' THEN tp.created_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'desc' THEN tp.created_at END DESC,
+  tp.id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountAdminTeachers :one
@@ -50,6 +77,26 @@ WHERE (
 AND (
   sqlc.arg(status)::text = ''
   OR tp.status::text = sqlc.arg(status)::text
+)
+AND (
+  sqlc.narg(class_id)::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.teacher_id = tp.id AND ta.class_id = sqlc.narg(class_id)::uuid
+  )
+)
+AND (
+  sqlc.narg(course_id)::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    JOIN classes c ON c.id = ta.class_id
+    WHERE ta.teacher_id = tp.id AND c.course_id = sqlc.narg(course_id)::uuid
+  )
+)
+AND (
+  sqlc.arg(assignment)::text = ''
+  OR (sqlc.arg(assignment)::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+  OR (sqlc.arg(assignment)::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
 );
 
 -- name: UpdateTeacherProfile :one

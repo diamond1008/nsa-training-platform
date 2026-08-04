@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { AttendanceRoster, Pagination, StatusBadge } from "./data";
+import { AttendanceRoster, DataTable, Pagination, StatusBadge } from "./data";
 import { ProgressBar } from "./ui";
 
 describe("Phase 9 shared data components", () => {
@@ -76,5 +76,24 @@ describe("Phase 9 shared data components", () => {
     expect(screen.getByText("Chưa ghi nhận")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Hiệu chỉnh" }));
     expect(onCorrect).toHaveBeenCalledWith(expect.objectContaining({ student_id: "student-1" }));
+  });
+
+  it("reports sortable column requests through semantic header buttons", () => {
+    const onSort = vi.fn();
+    render(
+      <DataTable
+        items={[{ id: "1", name: "Nguyễn An" }]}
+        sort={{ key: "name", order: "asc" }}
+        onSort={onSort}
+        columns={[{ header: "Họ tên", sortKey: "name", cell: (item) => item.name }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Sắp xếp theo Họ tên" }));
+    expect(onSort).toHaveBeenCalledWith("name", "desc");
+    expect(screen.getByRole("columnheader", { name: /Họ tên/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
   });
 });

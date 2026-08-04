@@ -42,21 +42,89 @@ WITH candidate_enrollments AS (
 SELECT *,
   CASE WHEN attendance_records - excused_sessions <= 0 THEN 0::numeric(5,2)
        ELSE ROUND(100.0 * attended_sessions / (attendance_records - excused_sessions), 2)::numeric(5,2) END AS attendance_pct,
-  ((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+  COALESCE(((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
              ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
    AND required_tests_passed >= required_tests_total
-   AND final_exam_count=1 AND final_exam_score>5) AS is_eligible
+   AND final_exam_count=1 AND final_exam_score>5), FALSE)::boolean AS is_eligible
 FROM metrics
 WHERE (sqlc.arg(search)::text = '' OR student_code ILIKE '%' || sqlc.arg(search) || '%' OR student_name ILIKE '%' || sqlc.arg(search) || '%' OR class_code ILIKE '%' || sqlc.arg(search) || '%')
-ORDER BY class_code, student_code
+  AND (sqlc.narg(course_id)::uuid IS NULL OR course_id = sqlc.narg(course_id)::uuid)
+  AND (sqlc.narg(class_id)::uuid IS NULL OR class_id = sqlc.narg(class_id)::uuid)
+  AND (
+    sqlc.arg(eligibility)::text = ''
+    OR (
+      sqlc.arg(eligibility)::text = 'eligible'
+      AND COALESCE(((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+                ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+      AND required_tests_passed >= required_tests_total
+      AND final_exam_count = 1 AND final_exam_score > 5), FALSE)
+    )
+    OR (
+      sqlc.arg(eligibility)::text = 'ineligible'
+      AND NOT COALESCE((
+        (CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+              ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+        AND required_tests_passed >= required_tests_total
+        AND final_exam_count = 1 AND final_exam_score > 5
+      ), FALSE)
+    )
+  )
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'class_code' AND sqlc.arg(sort_order)::text = 'asc' THEN class_code END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'class_code' AND sqlc.arg(sort_order)::text = 'desc' THEN class_code END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'student_code' AND sqlc.arg(sort_order)::text = 'asc' THEN student_code END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'student_code' AND sqlc.arg(sort_order)::text = 'desc' THEN student_code END DESC,
+  class_id, student_id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountCompletionCandidates :one
-SELECT COUNT(DISTINCT (ce.student_id,c.course_id))
-FROM class_enrollments ce JOIN classes c ON c.id=ce.class_id JOIN student_profiles sp ON sp.id=ce.student_id
-WHERE ce.status IN ('enrolled','completed')
-  AND (sqlc.arg(search)::text = '' OR sp.student_code ILIKE '%' || sqlc.arg(search) || '%' OR sp.full_name ILIKE '%' || sqlc.arg(search) || '%' OR c.class_code ILIKE '%' || sqlc.arg(search) || '%')
-;
+WITH candidate_enrollments AS (
+  SELECT DISTINCT ON (ce.student_id,c.course_id)
+    ce.class_id, ce.student_id, c.course_id, c.class_code,
+    co.minimum_attendance_pct
+  FROM class_enrollments ce
+  JOIN classes c ON c.id=ce.class_id
+  JOIN courses co ON co.id=c.course_id
+  WHERE ce.status IN ('enrolled','completed')
+  ORDER BY ce.student_id,c.course_id,CASE WHEN ce.status='enrolled' THEN 0 ELSE 1 END,ce.enrolled_at DESC
+), metrics AS (
+  SELECT
+    ce.class_id, ce.class_code, ce.student_id, sp.student_code, sp.full_name AS student_name,
+    ce.course_id, ce.minimum_attendance_pct,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND cs.status<>'cancelled') AS attendance_records,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status IN ('present','late') AND cs.status<>'cancelled') AS attended_sessions,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status='excused' AND cs.status<>'cancelled') AS excused_sessions,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
+    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count
+  FROM candidate_enrollments ce
+  JOIN student_profiles sp ON sp.id=ce.student_id
+)
+SELECT COUNT(*)
+FROM metrics
+WHERE (sqlc.arg(search)::text = '' OR student_code ILIKE '%' || sqlc.arg(search) || '%' OR student_name ILIKE '%' || sqlc.arg(search) || '%' OR class_code ILIKE '%' || sqlc.arg(search) || '%')
+  AND (sqlc.narg(course_id)::uuid IS NULL OR course_id = sqlc.narg(course_id)::uuid)
+  AND (sqlc.narg(class_id)::uuid IS NULL OR class_id = sqlc.narg(class_id)::uuid)
+  AND (
+    sqlc.arg(eligibility)::text = ''
+    OR (
+      sqlc.arg(eligibility)::text = 'eligible'
+      AND COALESCE(((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+                ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+      AND required_tests_passed >= required_tests_total
+      AND final_exam_count = 1 AND final_exam_score > 5), FALSE)
+    )
+    OR (
+      sqlc.arg(eligibility)::text = 'ineligible'
+      AND NOT COALESCE((
+        (CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+              ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+        AND required_tests_passed >= required_tests_total
+        AND final_exam_count = 1 AND final_exam_score > 5
+      ), FALSE)
+    )
+  );
 
 -- name: GetCompletionCandidate :one
 WITH latest_ratings AS (
@@ -90,10 +158,10 @@ WITH latest_ratings AS (
 )
 SELECT *,
   CASE WHEN attendance_records-excused_sessions<=0 THEN 0::numeric(5,2) ELSE ROUND(100.0*attended_sessions/(attendance_records-excused_sessions),2)::numeric(5,2) END AS attendance_pct,
-  ((CASE WHEN attendance_records-excused_sessions<=0 THEN 0
+  COALESCE(((CASE WHEN attendance_records-excused_sessions<=0 THEN 0
              ELSE 100.0*attended_sessions/(attendance_records-excused_sessions) END)>=minimum_attendance_pct
    AND required_tests_passed>=required_tests_total
-   AND final_exam_count=1 AND final_exam_score>5) AS is_eligible
+   AND final_exam_count=1 AND final_exam_score>5), FALSE)::boolean AS is_eligible
 FROM metrics;
 
 -- name: UpsertCourseCompletionDecision :one

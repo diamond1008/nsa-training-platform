@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import { Icon } from "./icons";
-import { Badge, Button, Card, EmptyState } from "./ui";
+import { Badge, Button, Card, EmptyState, Modal } from "./ui";
 
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
 export type CalendarView = "week" | "month";
@@ -408,100 +408,174 @@ function WeekGrid({
   today: string;
   onEventClick: (event: WeekCalendarEvent) => void;
 }) {
+  const [overflowCell, setOverflowCell] = useState<{
+    slot: (typeof TRAINING_SLOTS)[number];
+    day: string;
+    events: WeekCalendarEvent[];
+  } | null>(null);
   const time = new Intl.DateTimeFormat("vi-VN", {
     timeZone: TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
   });
   const weekday = new Intl.DateTimeFormat("vi-VN", { timeZone: TIME_ZONE, weekday: "short" });
+  const eventPriority = (event: WeekCalendarEvent) => {
+    switch (event.tone) {
+      case "red":
+        return 3;
+      case "green":
+        return 2;
+      case "gray":
+        return 1;
+      default:
+        return 0;
+    }
+  };
+  const sortEvents = (items: WeekCalendarEvent[]) =>
+    [...items].sort(
+      (left, right) =>
+        eventPriority(left) - eventPriority(right) ||
+        new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime() ||
+        left.title.localeCompare(right.title, "vi"),
+    );
   return (
-    <div className="overflow-x-auto bg-white">
-      <div className="min-w-[920px]">
-        <div className="grid grid-cols-[112px_repeat(7,minmax(112px,1fr))] border-b border-gborder bg-white">
-          <div className="flex items-center justify-center text-[10px] font-bold uppercase tracking-wide text-gtext">
-            Ca học
-          </div>
-          {days.map((day) => {
-            const date = zonedParts(dateAtNoon(day));
-            const active = day === today;
-            return (
-              <div
-                key={day}
-                className={clsx("border-l border-gborder py-2 text-center", active && "bg-gold/5")}
-              >
-                <p
-                  className={clsx(
-                    "text-[10px] font-bold uppercase",
-                    active ? "text-gold-dark" : "text-gtext",
-                  )}
-                >
-                  {weekday.format(dateAtNoon(day))}
-                </p>
-                <div
-                  className={clsx(
-                    "mx-auto mt-1 flex h-8 w-8 items-center justify-center rounded-full text-base",
-                    active ? "bg-navy font-bold text-white" : "text-navy",
-                  )}
-                >
-                  {date.day}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {TRAINING_SLOTS.map((slot) => (
-          <div
-            key={slot.key}
-            className="grid min-h-28 grid-cols-[112px_repeat(7,minmax(112px,1fr))] border-b border-gborder last:border-b-0"
-          >
-            <div className="flex flex-col items-center justify-center bg-gbg2/60 px-2 text-center">
-              <b className="text-sm text-navy">{slot.label}</b>
-              <span className="mt-1 text-[10px] text-gtext">{slot.timeLabel}</span>
+    <>
+      <div className="overflow-x-auto bg-white">
+        <div className="min-w-[920px]">
+          <div className="grid grid-cols-[112px_repeat(7,minmax(112px,1fr))] border-b border-gborder bg-white">
+            <div className="flex items-center justify-center text-[10px] font-bold uppercase tracking-wide text-gtext">
+              Ca học
             </div>
             {days.map((day) => {
-              const slotEvents = events.filter(
-                (event) =>
-                  vietnamDateKey(new Date(event.startsAt)) === day &&
-                  inferTrainingSlot(event.startsAt, event.endsAt) === slot.key,
-              );
+              const date = zonedParts(dateAtNoon(day));
+              const active = day === today;
               return (
                 <div
-                  key={`${slot.key}-${day}`}
+                  key={day}
                   className={clsx(
-                    "max-h-36 space-y-1.5 overflow-y-auto border-l border-gborder p-1.5",
-                    day === today && "bg-gold/[0.025]",
+                    "border-l border-gborder py-2 text-center",
+                    active && "bg-gold/5",
                   )}
                 >
-                  {slotEvents.map((event) => (
-                    <button
-                      key={event.id}
-                      type="button"
-                      aria-label={`Mở ${event.title}`}
-                      onClick={() => onEventClick(event)}
-                      className={clsx(
-                        "w-full overflow-hidden rounded-lg border px-2 py-1.5 text-left text-xs shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-1",
-                        toneClasses[event.tone ?? "navy"],
-                      )}
-                    >
-                      <b className="block truncate">{event.title}</b>
-                      <span className="block truncate text-[10px] opacity-75">
-                        {time.format(new Date(event.startsAt))}–
-                        {time.format(new Date(event.endsAt))}
-                      </span>
-                      {event.subtitle && (
-                        <span className="mt-0.5 block truncate text-[10px] opacity-75">
-                          {event.subtitle}
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                  <p
+                    className={clsx(
+                      "text-[10px] font-bold uppercase",
+                      active ? "text-gold-dark" : "text-gtext",
+                    )}
+                  >
+                    {weekday.format(dateAtNoon(day))}
+                  </p>
+                  <div
+                    className={clsx(
+                      "mx-auto mt-1 flex h-8 w-8 items-center justify-center rounded-full text-base",
+                      active ? "bg-navy font-bold text-white" : "text-navy",
+                    )}
+                  >
+                    {date.day}
+                  </div>
                 </div>
               );
             })}
           </div>
-        ))}
+          {TRAINING_SLOTS.map((slot) => (
+            <div
+              key={slot.key}
+              className="grid min-h-28 grid-cols-[112px_repeat(7,minmax(112px,1fr))] border-b border-gborder last:border-b-0"
+            >
+              <div className="flex flex-col items-center justify-center bg-gbg2/60 px-2 text-center">
+                <b className="text-sm text-navy">{slot.label}</b>
+                <span className="mt-1 text-[10px] text-gtext">{slot.timeLabel}</span>
+              </div>
+              {days.map((day) => {
+                const slotEvents = sortEvents(
+                  events.filter(
+                    (event) =>
+                      vietnamDateKey(new Date(event.startsAt)) === day &&
+                      inferTrainingSlot(event.startsAt, event.endsAt) === slot.key,
+                  ),
+                );
+                return (
+                  <div
+                    key={`${slot.key}-${day}`}
+                    className={clsx(
+                      "space-y-1.5 border-l border-gborder p-1.5",
+                      day === today && "bg-gold/[0.025]",
+                    )}
+                  >
+                    {slotEvents.slice(0, 2).map((event) => (
+                      <button
+                        key={event.id}
+                        type="button"
+                        aria-label={`Mở ${event.title}`}
+                        onClick={() => onEventClick(event)}
+                        className={clsx(
+                          "w-full overflow-hidden rounded-lg border px-2 py-1.5 text-left text-xs shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-1",
+                          toneClasses[event.tone ?? "navy"],
+                        )}
+                      >
+                        <b className="block truncate">{event.title}</b>
+                        <span className="block truncate text-[10px] opacity-75">
+                          {time.format(new Date(event.startsAt))}–
+                          {time.format(new Date(event.endsAt))}
+                        </span>
+                        {event.subtitle && (
+                          <span className="mt-0.5 block truncate text-[10px] opacity-75">
+                            {event.subtitle}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                    {slotEvents.length > 2 ? (
+                      <button
+                        type="button"
+                        aria-label={`+${slotEvents.length - 2} lớp khác`}
+                        onClick={() => setOverflowCell({ slot, day, events: slotEvents })}
+                        className="flex h-8 w-full touch-manipulation items-center justify-center rounded-lg border border-dashed border-gborder bg-gbg2/70 px-2 text-[11px] font-bold text-navy transition-[background-color,border-color] hover:border-gold hover:bg-gold/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold motion-reduce:transition-none"
+                      >
+                        +{slotEvents.length - 2} lớp khác
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+      <Modal
+        open={overflowCell !== null}
+        title={overflowCell ? `${overflowCell.events.length} lớp · ${overflowCell.slot.label}` : ""}
+        onClose={() => setOverflowCell(null)}
+      >
+        <div className="space-y-2">
+          {overflowCell?.events.map((event) => (
+            <button
+              key={event.id}
+              type="button"
+              aria-label={`Mở ${event.title}`}
+              onClick={() => {
+                setOverflowCell(null);
+                onEventClick(event);
+              }}
+              className="flex w-full touch-manipulation items-center gap-3 rounded-xl border border-gborder bg-white p-3 text-left transition-[background-color,border-color,box-shadow] hover:border-gold hover:bg-gold/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold motion-reduce:transition-none"
+            >
+              <i
+                className={clsx("h-10 w-1 shrink-0 rounded-full", toneDot[event.tone ?? "navy"])}
+              />
+              <span className="min-w-0 flex-1">
+                <b className="block truncate text-sm text-navy">{event.title}</b>
+                <span className="mt-0.5 block truncate text-xs text-gtext">
+                  {event.subtitle || "Chưa có thông tin giảng viên / phòng"}
+                </span>
+              </span>
+              <Badge tone="gray">
+                {time.format(new Date(event.startsAt))}–{time.format(new Date(event.endsAt))}
+              </Badge>
+            </button>
+          ))}
+        </div>
+      </Modal>
+    </>
   );
 }
 

@@ -298,9 +298,32 @@ func TestIntegration_AcademicCoreLifecycle(t *testing.T) {
 	if err != nil || class.MaximumStudents != 2 {
 		t.Fatalf("update class: view=%+v err=%v", class, err)
 	}
-	studentPage, err := env.students.List(ctx, env.prefix, string(db.StudentStatusActive), 1, 1)
+	studentPage, err := env.students.List(ctx, studentmodule.ListFilter{
+		Search: env.prefix, Status: string(db.StudentStatusActive), ClassID: class.ID,
+		SortBy: "student_code", SortOrder: "asc", Page: 1, PerPage: 1,
+	})
 	if err != nil || len(studentPage.Items) != 1 || studentPage.Meta.Total < 2 {
 		t.Fatalf("paginated student list: result=%+v err=%v", studentPage, err)
+	}
+	classPage, err := env.classes.List(ctx, classmodule.ListFilter{
+		CourseID: class.CourseID, TeacherID: teacher.ID, Capacity: "available",
+		SortBy: "class_code", SortOrder: "asc", Page: 1, PerPage: 10,
+	})
+	if err != nil || len(classPage.Items) != 1 || classPage.Items[0].ID != class.ID {
+		t.Fatalf("combined class filters: result=%+v err=%v", classPage, err)
+	}
+	teacherPage, err := env.teachers.List(ctx, teachermodule.ListFilter{
+		ClassID: class.ID, Assignment: "assigned", SortBy: "teacher_code", SortOrder: "asc",
+		Page: 1, PerPage: 10,
+	})
+	if err != nil || len(teacherPage.Items) != 1 || teacherPage.Items[0].ID != teacher.ID {
+		t.Fatalf("assigned teacher filters: result=%+v err=%v", teacherPage, err)
+	}
+	coursePage, err := env.courses.List(ctx, coursemodule.ListFilter{
+		Search: course.Code, SortBy: "code", SortOrder: "asc", Page: 1, PerPage: 10,
+	})
+	if err != nil || len(coursePage.Items) != 1 || coursePage.Items[0].ID != course.ID {
+		t.Fatalf("sorted course filters: result=%+v err=%v", coursePage, err)
 	}
 
 	if _, err := env.classes.Update(ctx, env.actorID, class.ID, classmodule.WriteInput{
@@ -361,6 +384,148 @@ func TestIntegration_ClassTransferAndOperationHistory(t *testing.T) {
 	}
 	if !containsOperation(targetHistory, "student_transferred_in") {
 		t.Fatalf("target transfer event missing: %#v", targetHistory)
+	}
+}
+
+func TestIntegration_WithdrawnStudentCanReturnWithoutMergingEnrollmentPeriods(t *testing.T) {
+	env := setupPhase4(t)
+	ctx := context.Background()
+	course := env.createCourse(t, "RETURN")
+	class := env.createClass(t, course.ID, "RETURN", 10)
+	student := env.createStudent(t, "RETURN")
+
+	enrollment, err := env.classes.Enroll(ctx, env.actorID, class.ID, student.ID)
+	if err != nil {
+		t.Fatalf("enroll student: %v", err)
+	}
+	if _, err := env.classes.UpdateEnrollmentWithReason(
+		ctx, env.actorID, class.ID, enrollment.ID, db.EnrollmentStatusWithdrawn,
+		"Học viên xin tạm nghỉ",
+	); err != nil {
+		t.Fatalf("withdraw enrollment: %v", err)
+	}
+
+	returnedAt := time.Now().Add(time.Minute).UTC().Truncate(time.Microsecond)
+	returned, err := env.classes.Reenroll(
+		ctx, env.actorID, class.ID, enrollment.ID, returnedAt,
+		"Học viên quay lại học",
+	)
+	if err != nil {
+		t.Fatalf("reenroll student: %v", err)
+	}
+	if returned.Status != "enrolled" || returned.EndedAt != nil {
+		t.Fatalf("returned enrollment = %+v", returned)
+	}
+
+	var periods, openPeriods int
+	var latestStart time.Time
+	if err := env.pool.QueryRow(ctx,
+		`SELECT COUNT(*), COUNT(*) FILTER (WHERE ended_at IS NULL), MAX(started_at)
+		 FROM class_enrollment_periods
+		 WHERE enrollment_id = $1`,
+		enrollment.ID,
+	).Scan(&periods, &openPeriods, &latestStart); err != nil {
+		t.Fatalf("read enrollment periods: %v", err)
+	}
+	if periods != 2 || openPeriods != 1 || !latestStart.Equal(returnedAt) {
+		t.Fatalf("periods=%d open=%d latest=%s want 2/1/%s", periods, openPeriods, latestStart, returnedAt)
+	}
+}
+
+func TestIntegration_ReenrollmentRejectsInvalidStateAndConflicts(t *testing.T) {
+	env := setupPhase4(t)
+	ctx := context.Background()
+	course := env.createCourse(t, "RG")
+	source := env.createClass(t, course.ID, "RG-SOURCE", 2)
+	target := env.createClass(t, course.ID, "RG-TARGET", 2)
+	student := env.createStudent(t, "RG")
+
+	enrollment, err := env.classes.Enroll(ctx, env.actorID, source.ID, student.ID)
+	if err != nil {
+		t.Fatalf("enroll source: %v", err)
+	}
+	if _, err := env.classes.Reenroll(
+		ctx, env.actorID, source.ID, enrollment.ID, time.Now(), "Không hợp lệ",
+	); !errors.Is(err, classmodule.ErrEnrollmentCannotReopen) {
+		t.Fatalf("active enrollment reopen error = %v", err)
+	}
+	if _, err := env.classes.UpdateEnrollmentWithReason(
+		ctx, env.actorID, source.ID, enrollment.ID, db.EnrollmentStatusWithdrawn, "Tạm nghỉ",
+	); err != nil {
+		t.Fatalf("withdraw source: %v", err)
+	}
+	if _, err := env.classes.Enroll(ctx, env.actorID, target.ID, student.ID); err != nil {
+		t.Fatalf("enroll target: %v", err)
+	}
+	if _, err := env.classes.Reenroll(
+		ctx, env.actorID, source.ID, enrollment.ID, time.Now().Add(time.Minute), "Quay lại lớp cũ",
+	); !errors.Is(err, classmodule.ErrActiveCourseEnrollment) {
+		t.Fatalf("other active same-course enrollment error = %v", err)
+	}
+}
+
+func TestIntegration_ReenrollmentRejectsFullClassWithoutOpeningPeriod(t *testing.T) {
+	env := setupPhase4(t)
+	ctx := context.Background()
+	course := env.createCourse(t, "RGF")
+	class := env.createClass(t, course.ID, "RGF", 1)
+	returningStudent := env.createStudent(t, "RGFR")
+	blocker := env.createStudent(t, "RGFB")
+
+	enrollment, err := env.classes.Enroll(ctx, env.actorID, class.ID, returningStudent.ID)
+	if err != nil {
+		t.Fatalf("enroll returning student: %v", err)
+	}
+	if _, err := env.classes.UpdateEnrollmentWithReason(
+		ctx, env.actorID, class.ID, enrollment.ID, db.EnrollmentStatusWithdrawn, "Tạm nghỉ",
+	); err != nil {
+		t.Fatalf("withdraw returning student: %v", err)
+	}
+	if _, err := env.classes.Enroll(ctx, env.actorID, class.ID, blocker.ID); err != nil {
+		t.Fatalf("fill class: %v", err)
+	}
+	if _, err := env.classes.Reenroll(
+		ctx, env.actorID, class.ID, enrollment.ID, time.Now().Add(time.Minute), "Quay lại lớp",
+	); !errors.Is(err, classmodule.ErrClassFull) {
+		t.Fatalf("full-class reenrollment error = %v", err)
+	}
+
+	var periods int
+	if err := env.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM class_enrollment_periods WHERE enrollment_id = $1`, enrollment.ID,
+	).Scan(&periods); err != nil {
+		t.Fatalf("count rolled-back enrollment periods: %v", err)
+	}
+	if periods != 1 {
+		t.Fatalf("period count after rejected reenrollment = %d, want 1", periods)
+	}
+}
+
+func TestIntegration_ReenrollmentRejectsInactiveStudent(t *testing.T) {
+	env := setupPhase4(t)
+	ctx := context.Background()
+	course := env.createCourse(t, "RGI")
+	class := env.createClass(t, course.ID, "RGI", 2)
+	student := env.createStudent(t, "RGI")
+
+	enrollment, err := env.classes.Enroll(ctx, env.actorID, class.ID, student.ID)
+	if err != nil {
+		t.Fatalf("enroll student: %v", err)
+	}
+	if _, err := env.classes.UpdateEnrollmentWithReason(
+		ctx, env.actorID, class.ID, enrollment.ID, db.EnrollmentStatusWithdrawn, "Tạm nghỉ",
+	); err != nil {
+		t.Fatalf("withdraw student: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx,
+		`UPDATE student_profiles SET status = 'suspended' WHERE id = $1`, student.ID,
+	); err != nil {
+		t.Fatalf("suspend student: %v", err)
+	}
+	if _, err := env.classes.Reenroll(
+		ctx, env.actorID, class.ID, enrollment.ID, time.Now().Add(time.Minute), "Quay lại lớp",
+	); !errors.Is(err, classmodule.ErrStudentInactive) {
+		t.Fatalf("inactive-student reenrollment error = %v", err)
 	}
 }
 

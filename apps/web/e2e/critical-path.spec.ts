@@ -27,8 +27,12 @@ test("teacher opens attendance from weekly calendar", async ({ page }) => {
   await page.getByRole("button", { name: /E2E$/ }).click();
   await expect(page).toHaveURL(/\/teacher\/diem-danh\?session=88888888/);
   await expect(page.getByRole("heading", { name: "Điểm danh" })).toBeVisible();
-  await expect(page.getByText("Demo Student")).toBeVisible();
-  await expect(page.getByText("Đã lưu")).toBeVisible();
+  const studentRow = page.getByRole("row", { name: /STU-DEMO-001 Demo Student/ });
+  await expect(studentRow).toBeVisible();
+  await expect(studentRow.getByRole("button", { name: "Có mặt" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });
 
 test("student views own attendance and progress", async ({ page }) => {

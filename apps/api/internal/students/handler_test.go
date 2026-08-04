@@ -63,6 +63,38 @@ func TestValidateWriteNormalizesExtendedProfile(t *testing.T) {
 	}
 }
 
+func TestValidateWriteValidatesAvatarDataURL(t *testing.T) {
+	valid := "data:image/webp;base64,UklGRgQAAABXRUJQ"
+	input, message := validateWrite(writeRequest{
+		Email: "student@test.local", AccountStatus: "active", FullName: "Test Student",
+		Status: "active", AvatarURL: &valid,
+	}, false)
+	if message != "" || input.AvatarURL == nil || *input.AvatarURL != valid {
+		t.Fatalf("valid WebP avatar rejected: message=%q input=%#v", message, input.AvatarURL)
+	}
+
+	invalid := "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
+	_, message = validateWrite(writeRequest{
+		Email: "student@test.local", AccountStatus: "active", FullName: "Test Student",
+		Status: "active", AvatarURL: &invalid,
+	}, false)
+	if message == "" {
+		t.Fatal("non-WebP avatar data URL must be rejected")
+	}
+}
+
+func TestAuditStudentViewRedactsAvatarPayload(t *testing.T) {
+	avatar := "data:image/webp;base64,UklGRgQAAABXRUJQ"
+	view := View{AvatarURL: &avatar}
+	redacted := auditStudentView(view)
+	if redacted.AvatarURL == nil || *redacted.AvatarURL != "[stored WebP image]" {
+		t.Fatalf("audit avatar was not redacted: %#v", redacted.AvatarURL)
+	}
+	if view.AvatarURL == nil || *view.AvatarURL != avatar {
+		t.Fatal("audit redaction mutated the API response view")
+	}
+}
+
 func TestCSVSafePreventsSpreadsheetFormulaInjection(t *testing.T) {
 	for _, value := range []string{"=SUM(1,1)", "+cmd", "-1+2", "@IMPORT"} {
 		if got := csvSafe(value); got != "'"+value {

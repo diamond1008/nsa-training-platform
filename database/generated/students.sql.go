@@ -25,15 +25,80 @@ AND (
   $2::text = ''
   OR sp.status::text = $2::text
 )
+AND (
+  $3::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM class_enrollments ce
+    WHERE ce.student_id = sp.id AND ce.class_id = $3::uuid
+  )
+)
+AND (
+  $4::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM class_enrollments ce
+    JOIN classes c ON c.id = ce.class_id
+    WHERE ce.student_id = sp.id AND c.course_id = $4::uuid
+  )
+)
+AND (
+  $5::text = ''
+  OR (
+    $5::text = 'at_risk'
+    AND EXISTS (
+      SELECT 1
+      FROM class_enrollments ce
+      JOIN classes c ON c.id = ce.class_id
+      JOIN courses co ON co.id = c.course_id
+      JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+      JOIN attendance_records ar
+        ON ar.class_session_id = cs.id AND ar.student_id = sp.id
+      WHERE ce.student_id = sp.id
+        AND ($3::uuid IS NULL OR ce.class_id = $3::uuid)
+        AND ($4::uuid IS NULL OR c.course_id = $4::uuid)
+      GROUP BY ce.class_id, co.minimum_attendance_pct
+      HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+        AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+          / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+    )
+  )
+  OR (
+    $5::text = 'on_track'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM class_enrollments ce
+      JOIN classes c ON c.id = ce.class_id
+      JOIN courses co ON co.id = c.course_id
+      JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+      JOIN attendance_records ar
+        ON ar.class_session_id = cs.id AND ar.student_id = sp.id
+      WHERE ce.student_id = sp.id
+        AND ($3::uuid IS NULL OR ce.class_id = $3::uuid)
+        AND ($4::uuid IS NULL OR c.course_id = $4::uuid)
+      GROUP BY ce.class_id, co.minimum_attendance_pct
+      HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+        AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+          / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+    )
+  )
+)
 `
 
 type CountAdminStudentsParams struct {
-	Search string `json:"search"`
-	Status string `json:"status"`
+	Search         string      `json:"search"`
+	Status         string      `json:"status"`
+	ClassID        pgtype.UUID `json:"class_id"`
+	CourseID       pgtype.UUID `json:"course_id"`
+	AttendanceRisk string      `json:"attendance_risk"`
 }
 
 func (q *Queries) CountAdminStudents(ctx context.Context, arg CountAdminStudentsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAdminStudents, arg.Search, arg.Status)
+	row := q.db.QueryRow(ctx, countAdminStudents,
+		arg.Search,
+		arg.Status,
+		arg.ClassID,
+		arg.CourseID,
+		arg.AttendanceRisk,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -42,17 +107,17 @@ func (q *Queries) CountAdminStudents(ctx context.Context, arg CountAdminStudents
 const createStudentProfile = `-- name: CreateStudentProfile :one
 
 INSERT INTO student_profiles (
-  user_id, student_code, full_name, phone, date_of_birth, gender, address,
+  user_id, student_code, full_name, avatar_url, phone, date_of_birth, gender, address,
   emergency_contact_name, emergency_contact_phone, status, enrolled_at
 )
 VALUES (
   $1,
   COALESCE(NULLIF($2::text, ''), 'HV' || lpad(nextval('student_code_seq')::text, 8, '0')),
-  $3, $4, $5, $6,
-  $7, $8, $9,
-  $10, $11
+  $3, $4, $5, $6, $7,
+  $8, $9, $10,
+  $11, $12
 )
-RETURNING id, user_id, student_code, full_name, phone, date_of_birth, gender, address,
+RETURNING id, user_id, student_code, full_name, avatar_url, phone, date_of_birth, gender, address,
   emergency_contact_name, emergency_contact_phone, status, enrolled_at, created_at, updated_at
 `
 
@@ -60,6 +125,7 @@ type CreateStudentProfileParams struct {
 	UserID                pgtype.UUID   `json:"user_id"`
 	StudentCode           string        `json:"student_code"`
 	FullName              string        `json:"full_name"`
+	AvatarUrl             pgtype.Text   `json:"avatar_url"`
 	Phone                 pgtype.Text   `json:"phone"`
 	DateOfBirth           pgtype.Date   `json:"date_of_birth"`
 	Gender                pgtype.Text   `json:"gender"`
@@ -75,6 +141,7 @@ type CreateStudentProfileRow struct {
 	UserID                pgtype.UUID        `json:"user_id"`
 	StudentCode           string             `json:"student_code"`
 	FullName              string             `json:"full_name"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
 	Phone                 pgtype.Text        `json:"phone"`
 	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
 	Gender                pgtype.Text        `json:"gender"`
@@ -93,6 +160,7 @@ func (q *Queries) CreateStudentProfile(ctx context.Context, arg CreateStudentPro
 		arg.UserID,
 		arg.StudentCode,
 		arg.FullName,
+		arg.AvatarUrl,
 		arg.Phone,
 		arg.DateOfBirth,
 		arg.Gender,
@@ -108,6 +176,7 @@ func (q *Queries) CreateStudentProfile(ctx context.Context, arg CreateStudentPro
 		&i.UserID,
 		&i.StudentCode,
 		&i.FullName,
+		&i.AvatarUrl,
 		&i.Phone,
 		&i.DateOfBirth,
 		&i.Gender,
@@ -165,7 +234,7 @@ func (q *Queries) CreateStudentStatusHistory(ctx context.Context, arg CreateStud
 const exportAdminStudents = `-- name: ExportAdminStudents :many
 SELECT
   sp.id, sp.user_id, u.email, u.status AS user_status,
-  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth, sp.gender, sp.address,
+  sp.student_code, sp.full_name, sp.avatar_url, sp.phone, sp.date_of_birth, sp.gender, sp.address,
   sp.emergency_contact_name, sp.emergency_contact_phone,
   sp.status AS student_status, sp.enrolled_at, sp.created_at, sp.updated_at
 FROM student_profiles sp
@@ -180,12 +249,71 @@ AND (
   $2::text = ''
   OR sp.status::text = $2::text
 )
+AND (
+  $3::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM class_enrollments ce
+    WHERE ce.student_id = sp.id AND ce.class_id = $3::uuid
+  )
+)
+AND (
+  $4::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM class_enrollments ce
+    JOIN classes c ON c.id = ce.class_id
+    WHERE ce.student_id = sp.id AND c.course_id = $4::uuid
+  )
+)
+AND (
+  $5::text = ''
+  OR (
+    $5::text = 'at_risk'
+    AND EXISTS (
+      SELECT 1
+      FROM class_enrollments ce
+      JOIN classes c ON c.id = ce.class_id
+      JOIN courses co ON co.id = c.course_id
+      JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+      JOIN attendance_records ar
+        ON ar.class_session_id = cs.id AND ar.student_id = sp.id
+      WHERE ce.student_id = sp.id
+        AND ($3::uuid IS NULL OR ce.class_id = $3::uuid)
+        AND ($4::uuid IS NULL OR c.course_id = $4::uuid)
+      GROUP BY ce.class_id, co.minimum_attendance_pct
+      HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+        AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+          / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+    )
+  )
+  OR (
+    $5::text = 'on_track'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM class_enrollments ce
+      JOIN classes c ON c.id = ce.class_id
+      JOIN courses co ON co.id = c.course_id
+      JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+      JOIN attendance_records ar
+        ON ar.class_session_id = cs.id AND ar.student_id = sp.id
+      WHERE ce.student_id = sp.id
+        AND ($3::uuid IS NULL OR ce.class_id = $3::uuid)
+        AND ($4::uuid IS NULL OR c.course_id = $4::uuid)
+      GROUP BY ce.class_id, co.minimum_attendance_pct
+      HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+        AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+          / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+    )
+  )
+)
 ORDER BY sp.student_code, sp.id
 `
 
 type ExportAdminStudentsParams struct {
-	Search string `json:"search"`
-	Status string `json:"status"`
+	Search         string      `json:"search"`
+	Status         string      `json:"status"`
+	ClassID        pgtype.UUID `json:"class_id"`
+	CourseID       pgtype.UUID `json:"course_id"`
+	AttendanceRisk string      `json:"attendance_risk"`
 }
 
 type ExportAdminStudentsRow struct {
@@ -195,6 +323,7 @@ type ExportAdminStudentsRow struct {
 	UserStatus            UserStatus         `json:"user_status"`
 	StudentCode           string             `json:"student_code"`
 	FullName              string             `json:"full_name"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
 	Phone                 pgtype.Text        `json:"phone"`
 	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
 	Gender                pgtype.Text        `json:"gender"`
@@ -208,7 +337,13 @@ type ExportAdminStudentsRow struct {
 }
 
 func (q *Queries) ExportAdminStudents(ctx context.Context, arg ExportAdminStudentsParams) ([]ExportAdminStudentsRow, error) {
-	rows, err := q.db.Query(ctx, exportAdminStudents, arg.Search, arg.Status)
+	rows, err := q.db.Query(ctx, exportAdminStudents,
+		arg.Search,
+		arg.Status,
+		arg.ClassID,
+		arg.CourseID,
+		arg.AttendanceRisk,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +358,7 @@ func (q *Queries) ExportAdminStudents(ctx context.Context, arg ExportAdminStuden
 			&i.UserStatus,
 			&i.StudentCode,
 			&i.FullName,
+			&i.AvatarUrl,
 			&i.Phone,
 			&i.DateOfBirth,
 			&i.Gender,
@@ -247,7 +383,7 @@ func (q *Queries) ExportAdminStudents(ctx context.Context, arg ExportAdminStuden
 const getAdminStudent = `-- name: GetAdminStudent :one
 SELECT
   sp.id, sp.user_id, u.email, u.status AS user_status,
-  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth, sp.gender, sp.address,
+  sp.student_code, sp.full_name, sp.avatar_url, sp.phone, sp.date_of_birth, sp.gender, sp.address,
   sp.emergency_contact_name, sp.emergency_contact_phone,
   sp.status AS student_status, sp.enrolled_at, sp.created_at, sp.updated_at
 FROM student_profiles sp
@@ -262,6 +398,7 @@ type GetAdminStudentRow struct {
 	UserStatus            UserStatus         `json:"user_status"`
 	StudentCode           string             `json:"student_code"`
 	FullName              string             `json:"full_name"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
 	Phone                 pgtype.Text        `json:"phone"`
 	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
 	Gender                pgtype.Text        `json:"gender"`
@@ -284,6 +421,7 @@ func (q *Queries) GetAdminStudent(ctx context.Context, id pgtype.UUID) (GetAdmin
 		&i.UserStatus,
 		&i.StudentCode,
 		&i.FullName,
+		&i.AvatarUrl,
 		&i.Phone,
 		&i.DateOfBirth,
 		&i.Gender,
@@ -301,7 +439,7 @@ func (q *Queries) GetAdminStudent(ctx context.Context, id pgtype.UUID) (GetAdmin
 const listAdminStudents = `-- name: ListAdminStudents :many
 SELECT
   sp.id, sp.user_id, u.email, u.status AS user_status,
-  sp.student_code, sp.full_name, sp.phone, sp.date_of_birth, sp.gender, sp.address,
+  sp.student_code, sp.full_name, sp.avatar_url, sp.phone, sp.date_of_birth, sp.gender, sp.address,
   sp.emergency_contact_name, sp.emergency_contact_phone,
   sp.status AS student_status, sp.enrolled_at, sp.created_at, sp.updated_at
 FROM student_profiles sp
@@ -316,15 +454,83 @@ AND (
   $2::text = ''
   OR sp.status::text = $2::text
 )
-ORDER BY sp.created_at DESC, sp.id
-LIMIT $4 OFFSET $3
+AND (
+  $3::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM class_enrollments ce
+    WHERE ce.student_id = sp.id AND ce.class_id = $3::uuid
+  )
+)
+AND (
+  $4::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM class_enrollments ce
+    JOIN classes c ON c.id = ce.class_id
+    WHERE ce.student_id = sp.id AND c.course_id = $4::uuid
+  )
+)
+AND (
+  $5::text = ''
+  OR (
+    $5::text = 'at_risk'
+    AND EXISTS (
+      SELECT 1
+      FROM class_enrollments ce
+      JOIN classes c ON c.id = ce.class_id
+      JOIN courses co ON co.id = c.course_id
+      JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+      JOIN attendance_records ar
+        ON ar.class_session_id = cs.id AND ar.student_id = sp.id
+      WHERE ce.student_id = sp.id
+        AND ($3::uuid IS NULL OR ce.class_id = $3::uuid)
+        AND ($4::uuid IS NULL OR c.course_id = $4::uuid)
+      GROUP BY ce.class_id, co.minimum_attendance_pct
+      HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+        AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+          / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+    )
+  )
+  OR (
+    $5::text = 'on_track'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM class_enrollments ce
+      JOIN classes c ON c.id = ce.class_id
+      JOIN courses co ON co.id = c.course_id
+      JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+      JOIN attendance_records ar
+        ON ar.class_session_id = cs.id AND ar.student_id = sp.id
+      WHERE ce.student_id = sp.id
+        AND ($3::uuid IS NULL OR ce.class_id = $3::uuid)
+        AND ($4::uuid IS NULL OR c.course_id = $4::uuid)
+      GROUP BY ce.class_id, co.minimum_attendance_pct
+      HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+        AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+          / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+    )
+  )
+)
+ORDER BY
+  CASE WHEN $6::text = 'student_code' AND $7::text = 'asc' THEN sp.student_code END ASC,
+  CASE WHEN $6::text = 'student_code' AND $7::text = 'desc' THEN sp.student_code END DESC,
+  CASE WHEN $6::text = 'full_name' AND $7::text = 'asc' THEN sp.full_name END ASC,
+  CASE WHEN $6::text = 'full_name' AND $7::text = 'desc' THEN sp.full_name END DESC,
+  CASE WHEN $6::text = 'created_at' AND $7::text = 'asc' THEN sp.created_at END ASC,
+  CASE WHEN $6::text = 'created_at' AND $7::text = 'desc' THEN sp.created_at END DESC,
+  sp.id
+LIMIT $9 OFFSET $8
 `
 
 type ListAdminStudentsParams struct {
-	Search     string `json:"search"`
-	Status     string `json:"status"`
-	PageOffset int32  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	Search         string      `json:"search"`
+	Status         string      `json:"status"`
+	ClassID        pgtype.UUID `json:"class_id"`
+	CourseID       pgtype.UUID `json:"course_id"`
+	AttendanceRisk string      `json:"attendance_risk"`
+	SortBy         string      `json:"sort_by"`
+	SortOrder      string      `json:"sort_order"`
+	PageOffset     int32       `json:"page_offset"`
+	PageLimit      int32       `json:"page_limit"`
 }
 
 type ListAdminStudentsRow struct {
@@ -334,6 +540,7 @@ type ListAdminStudentsRow struct {
 	UserStatus            UserStatus         `json:"user_status"`
 	StudentCode           string             `json:"student_code"`
 	FullName              string             `json:"full_name"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
 	Phone                 pgtype.Text        `json:"phone"`
 	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
 	Gender                pgtype.Text        `json:"gender"`
@@ -350,6 +557,11 @@ func (q *Queries) ListAdminStudents(ctx context.Context, arg ListAdminStudentsPa
 	rows, err := q.db.Query(ctx, listAdminStudents,
 		arg.Search,
 		arg.Status,
+		arg.ClassID,
+		arg.CourseID,
+		arg.AttendanceRisk,
+		arg.SortBy,
+		arg.SortOrder,
 		arg.PageOffset,
 		arg.PageLimit,
 	)
@@ -367,6 +579,7 @@ func (q *Queries) ListAdminStudents(ctx context.Context, arg ListAdminStudentsPa
 			&i.UserStatus,
 			&i.StudentCode,
 			&i.FullName,
+			&i.AvatarUrl,
 			&i.Phone,
 			&i.DateOfBirth,
 			&i.Gender,
@@ -442,21 +655,23 @@ const updateStudentProfile = `-- name: UpdateStudentProfile :one
 UPDATE student_profiles
 SET
   full_name = $1,
-  phone = $2,
-  date_of_birth = $3,
-  gender = $4,
-  address = $5,
-  emergency_contact_name = $6,
-  emergency_contact_phone = $7,
-  status = $8,
-  enrolled_at = $9
-WHERE id = $10
-RETURNING id, user_id, student_code, full_name, phone, date_of_birth, gender, address,
+  avatar_url = $2,
+  phone = $3,
+  date_of_birth = $4,
+  gender = $5,
+  address = $6,
+  emergency_contact_name = $7,
+  emergency_contact_phone = $8,
+  status = $9,
+  enrolled_at = $10
+WHERE id = $11
+RETURNING id, user_id, student_code, full_name, avatar_url, phone, date_of_birth, gender, address,
   emergency_contact_name, emergency_contact_phone, status, enrolled_at, created_at, updated_at
 `
 
 type UpdateStudentProfileParams struct {
 	FullName              string        `json:"full_name"`
+	AvatarUrl             pgtype.Text   `json:"avatar_url"`
 	Phone                 pgtype.Text   `json:"phone"`
 	DateOfBirth           pgtype.Date   `json:"date_of_birth"`
 	Gender                pgtype.Text   `json:"gender"`
@@ -473,6 +688,7 @@ type UpdateStudentProfileRow struct {
 	UserID                pgtype.UUID        `json:"user_id"`
 	StudentCode           string             `json:"student_code"`
 	FullName              string             `json:"full_name"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
 	Phone                 pgtype.Text        `json:"phone"`
 	DateOfBirth           pgtype.Date        `json:"date_of_birth"`
 	Gender                pgtype.Text        `json:"gender"`
@@ -488,6 +704,7 @@ type UpdateStudentProfileRow struct {
 func (q *Queries) UpdateStudentProfile(ctx context.Context, arg UpdateStudentProfileParams) (UpdateStudentProfileRow, error) {
 	row := q.db.QueryRow(ctx, updateStudentProfile,
 		arg.FullName,
+		arg.AvatarUrl,
 		arg.Phone,
 		arg.DateOfBirth,
 		arg.Gender,
@@ -504,6 +721,7 @@ func (q *Queries) UpdateStudentProfile(ctx context.Context, arg UpdateStudentPro
 		&i.UserID,
 		&i.StudentCode,
 		&i.FullName,
+		&i.AvatarUrl,
 		&i.Phone,
 		&i.DateOfBirth,
 		&i.Gender,

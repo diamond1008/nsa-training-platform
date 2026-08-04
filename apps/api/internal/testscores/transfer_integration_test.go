@@ -87,7 +87,7 @@ func TestIntegration_SameCourseTransferKeepsScoresForCompletion(t *testing.T) {
 		t.Fatalf("transfer-safe progress metrics = %+v", rows[0])
 	}
 	candidates, err := queries.ListCompletionCandidates(ctx, db.ListCompletionCandidatesParams{Search: prefix + "-HV", PageLimit: 10})
-	if err != nil || len(candidates) != 1 || !candidates[0].IsEligible.Bool {
+	if err != nil || len(candidates) != 1 || !candidates[0].IsEligible {
 		t.Fatalf("completion candidates=%+v err=%v", candidates, err)
 	}
 	if candidates[0].ClassID.String() != newClassID {

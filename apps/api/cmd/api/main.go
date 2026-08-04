@@ -279,6 +279,7 @@ func mountAdminRoutes(
 			r.Get("/{sessionID}", scheduleHandler.GetSession)
 			r.Put("/{sessionID}", scheduleHandler.UpdateSession)
 			r.Get("/{sessionID}/attendance", attendanceHandler.AdminSession)
+			r.Post("/{sessionID}/students/{studentID}/attendance", attendanceHandler.AdminCorrectStudent)
 		})
 
 		r.Put("/attendance/{attendanceID}", attendanceHandler.Correct)

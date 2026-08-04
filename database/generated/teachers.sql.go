@@ -25,15 +25,44 @@ AND (
   $2::text = ''
   OR tp.status::text = $2::text
 )
+AND (
+  $3::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.teacher_id = tp.id AND ta.class_id = $3::uuid
+  )
+)
+AND (
+  $4::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    JOIN classes c ON c.id = ta.class_id
+    WHERE ta.teacher_id = tp.id AND c.course_id = $4::uuid
+  )
+)
+AND (
+  $5::text = ''
+  OR ($5::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+  OR ($5::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+)
 `
 
 type CountAdminTeachersParams struct {
-	Search string `json:"search"`
-	Status string `json:"status"`
+	Search     string      `json:"search"`
+	Status     string      `json:"status"`
+	ClassID    pgtype.UUID `json:"class_id"`
+	CourseID   pgtype.UUID `json:"course_id"`
+	Assignment string      `json:"assignment"`
 }
 
 func (q *Queries) CountAdminTeachers(ctx context.Context, arg CountAdminTeachersParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAdminTeachers, arg.Search, arg.Status)
+	row := q.db.QueryRow(ctx, countAdminTeachers,
+		arg.Search,
+		arg.Status,
+		arg.ClassID,
+		arg.CourseID,
+		arg.Assignment,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -143,15 +172,47 @@ AND (
   $2::text = ''
   OR tp.status::text = $2::text
 )
-ORDER BY tp.created_at DESC, tp.id
-LIMIT $4 OFFSET $3
+AND (
+  $3::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.teacher_id = tp.id AND ta.class_id = $3::uuid
+  )
+)
+AND (
+  $4::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    JOIN classes c ON c.id = ta.class_id
+    WHERE ta.teacher_id = tp.id AND c.course_id = $4::uuid
+  )
+)
+AND (
+  $5::text = ''
+  OR ($5::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+  OR ($5::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+)
+ORDER BY
+  CASE WHEN $6::text = 'teacher_code' AND $7::text = 'asc' THEN tp.teacher_code END ASC,
+  CASE WHEN $6::text = 'teacher_code' AND $7::text = 'desc' THEN tp.teacher_code END DESC,
+  CASE WHEN $6::text = 'full_name' AND $7::text = 'asc' THEN tp.full_name END ASC,
+  CASE WHEN $6::text = 'full_name' AND $7::text = 'desc' THEN tp.full_name END DESC,
+  CASE WHEN $6::text = 'created_at' AND $7::text = 'asc' THEN tp.created_at END ASC,
+  CASE WHEN $6::text = 'created_at' AND $7::text = 'desc' THEN tp.created_at END DESC,
+  tp.id
+LIMIT $9 OFFSET $8
 `
 
 type ListAdminTeachersParams struct {
-	Search     string `json:"search"`
-	Status     string `json:"status"`
-	PageOffset int32  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	Search     string      `json:"search"`
+	Status     string      `json:"status"`
+	ClassID    pgtype.UUID `json:"class_id"`
+	CourseID   pgtype.UUID `json:"course_id"`
+	Assignment string      `json:"assignment"`
+	SortBy     string      `json:"sort_by"`
+	SortOrder  string      `json:"sort_order"`
+	PageOffset int32       `json:"page_offset"`
+	PageLimit  int32       `json:"page_limit"`
 }
 
 type ListAdminTeachersRow struct {
@@ -172,6 +233,11 @@ func (q *Queries) ListAdminTeachers(ctx context.Context, arg ListAdminTeachersPa
 	rows, err := q.db.Query(ctx, listAdminTeachers,
 		arg.Search,
 		arg.Status,
+		arg.ClassID,
+		arg.CourseID,
+		arg.Assignment,
+		arg.SortBy,
+		arg.SortOrder,
 		arg.PageOffset,
 		arg.PageLimit,
 	)

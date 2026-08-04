@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { currentWeekStart, monthRange, WeekCalendar, weekRange } from "../../components/calendar";
 import type { CalendarStat, CalendarView, WeekCalendarEvent } from "../../components/calendar";
 import {
-  DataTable,
   QueryState,
   QuickAction,
   SectionHeader,
@@ -13,6 +12,7 @@ import {
   StatusBadge,
 } from "../../components/data";
 import { Icon } from "../../components/icons";
+import { FilterBar, useDebouncedValue } from "../../components/filters";
 import {
   Button,
   Card,
@@ -20,15 +20,15 @@ import {
   Input,
   PageHeader,
   Select,
-  SuccessBanner,
   Textarea,
 } from "../../components/ui";
 import { ApiRequestError } from "../../lib/apiClient";
-import type { AttendanceStatus, ClassSession, CompetencyRating } from "../../lib/domainTypes";
+import type { CompetencyRating } from "../../lib/domainTypes";
 import { formatDate, formatDateTime, statusLabel } from "../../lib/format";
+import { patchListQuery, readListQuery } from "../../lib/listQuery";
+import type { ListQueryConfig } from "../../lib/listQuery";
 import { teacherApi } from "./teacherApi";
 
-const attendanceStatuses: AttendanceStatus[] = ["present", "absent", "late", "excused"];
 const ratings: CompetencyRating[] = [
   "not_assessed",
   "needs_improvement",
@@ -40,32 +40,6 @@ const errorText = (error: unknown) =>
   error instanceof ApiRequestError
     ? error.message
     : "Không thể thực hiện thao tác. Vui lòng thử lại.";
-
-function vietnamDateKey(value: string | Date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(typeof value === "string" ? new Date(value) : value);
-}
-
-function attendanceEditState(session: ClassSession) {
-  if (session.attendance_locked_at || session.status === "locked") {
-    return { editable: false, label: "Đã khóa" };
-  }
-  if (session.status === "cancelled") {
-    return { editable: false, label: "Đã hủy" };
-  }
-  const now = new Date();
-  if (now < new Date(session.starts_at)) {
-    return { editable: false, label: "Chưa đến giờ" };
-  }
-  if (vietnamDateKey(now) !== vietnamDateKey(session.starts_at)) {
-    return { editable: false, label: "Đã hết ngày" };
-  }
-  return { editable: true, label: "Đang mở" };
-}
 
 export function TeacherDashboardPage() {
   const classes = useQuery({ queryKey: ["teacher", "classes"], queryFn: teacherApi.classes });
@@ -333,7 +307,7 @@ export function TeacherClassDetailPage() {
                 <h2 className="font-bold text-navy">Danh sách học viên</h2>
               </div>
               <div className="divide-y divide-gborder">
-                {query.data.students.map((student) => (
+                {(query.data.students ?? []).map((student) => (
                   <div
                     key={student.id}
                     className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
@@ -362,58 +336,53 @@ export function TeacherClassDetailPage() {
   );
 }
 
-export function TeacherScheduleLegacyPage() {
-  const query = useQuery({
-    queryKey: ["teacher", "schedule"],
-    queryFn: () => teacherApi.schedule({ page: 1, per_page: 100 }),
-  });
-  return (
-    <div>
-      <PageHeader
-        title="Lịch giảng dạy"
-        subtitle="Thời gian được hiển thị theo múi giờ Việt Nam."
-      />
-      <QueryState loading={query.isLoading} error={query.error} empty={!query.data?.items.length}>
-        <DataTable
-          items={query.data?.items ?? []}
-          columns={[
-            {
-              header: "Thời gian",
-              cell: (s) => (
-                <div>
-                  <b>{formatDateTime(s.starts_at)}</b>
-                  <p className="text-xs text-gtext">đến {formatDateTime(s.ends_at)}</p>
-                </div>
-              ),
-            },
-            { header: "Lớp", cell: (s) => `${s.class_code} — ${s.class_name}` },
-            { header: "Nội dung", cell: (s) => s.title },
-            { header: "Địa điểm", cell: (s) => s.location_name ?? "Chưa xếp" },
-            { header: "Trạng thái", cell: (s) => <StatusBadge value={s.status} /> },
-            {
-              header: "",
-              cell: (s) => (
-                <Link to={`/teacher/diem-danh?session=${s.id}`}>
-                  <Button variant="ghost">Điểm danh</Button>
-                </Link>
-              ),
-            },
-          ]}
-        />
-      </QueryState>
-    </div>
-  );
-}
+const teacherScheduleListConfig: ListQueryConfig<string, string> = {
+  filterKeys: ["status", "session_type", "attendance_state", "class_id"],
+  allowedSorts: ["starts_at", "title", "created_at"],
+  defaultSort: "starts_at",
+  defaultOrder: "asc",
+};
 
 export function TeacherSchedulePage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const listState = readListQuery(searchParams, teacherScheduleListConfig);
+  const [searchInput, setSearchInput] = useState(listState.q);
+  const debouncedSearch = useDebouncedValue(searchInput);
   const [weekStart, setWeekStart] = useState(currentWeekStart);
   const [calendarView, setCalendarView] = useState<CalendarView>("week");
   const range = calendarView === "week" ? weekRange(weekStart) : monthRange(weekStart);
+  useEffect(() => setSearchInput(listState.q), [listState.q]);
+  useEffect(() => {
+    if (debouncedSearch.trim() === listState.q) return;
+    setSearchParams(
+      patchListQuery(searchParams, { q: debouncedSearch }, teacherScheduleListConfig),
+      { replace: true },
+    );
+  }, [debouncedSearch, listState.q, searchParams, setSearchParams]);
+  const updateList = (patch: Record<string, string | number | undefined>) =>
+    setSearchParams(patchListQuery(searchParams, patch, teacherScheduleListConfig), {
+      replace: true,
+    });
   const query = useQuery({
-    queryKey: ["teacher", "schedule", "calendar", calendarView, weekStart],
-    queryFn: () => teacherApi.schedule({ page: 1, per_page: 100, from: range.from, to: range.to }),
+    queryKey: ["teacher", "schedule", "calendar", calendarView, weekStart, listState],
+    queryFn: () =>
+      teacherApi.schedule({
+        page: 1,
+        per_page: 100,
+        from: range.from,
+        to: range.to,
+        search: listState.q,
+        status: listState.filters.status,
+        session_type: listState.filters.session_type,
+        attendance_state: (listState.filters.attendance_state || undefined) as
+          "locked" | "unlocked" | undefined,
+        class_id: listState.filters.class_id,
+        sort_by: listState.sort,
+        sort_order: listState.order,
+      }),
   });
+  const classes = useQuery({ queryKey: ["teacher", "classes"], queryFn: teacherApi.classes });
   const events: WeekCalendarEvent[] = (query.data?.items ?? []).map((session) => ({
     id: session.id,
     title: session.title,
@@ -456,12 +425,102 @@ export function TeacherSchedulePage() {
       tone: "red",
     },
   ] satisfies CalendarStat[];
+  const selectedClass = classes.data?.find((item) => item.id === listState.filters.class_id);
+  const activeFilters = [
+    ...(listState.filters.status
+      ? [{ key: "status", label: `Trạng thái: ${statusLabel(listState.filters.status)}` }]
+      : []),
+    ...(listState.filters.session_type
+      ? [
+          {
+            key: "session_type",
+            label: `Loại buổi: ${statusLabel(listState.filters.session_type)}`,
+          },
+        ]
+      : []),
+    ...(listState.filters.attendance_state
+      ? [
+          {
+            key: "attendance_state",
+            label:
+              listState.filters.attendance_state === "locked"
+                ? "Điểm danh đã khóa"
+                : "Điểm danh đang mở",
+          },
+        ]
+      : []),
+    ...(selectedClass ? [{ key: "class_id", label: `Lớp: ${selectedClass.class_code}` }] : []),
+  ];
   return (
     <div>
       <PageHeader
         title="Lịch giảng dạy"
         subtitle="Bấm vào một buổi học để mở danh sách điểm danh. Thời gian hiển thị theo giờ Việt Nam."
       />
+      <FilterBar
+        search={searchInput}
+        onSearch={setSearchInput}
+        resultCount={query.data?.meta.total}
+        activeFilters={activeFilters}
+        onRemoveFilter={(key) => updateList({ [key]: "" })}
+        onClearAll={() => {
+          setSearchInput("");
+          setSearchParams(new URLSearchParams(), { replace: true });
+        }}
+        searchPlaceholder="Nội dung buổi học, mã lớp, phòng…"
+      >
+        <div className="w-full min-w-44 sm:w-48">
+          <Select
+            label="Lớp phụ trách"
+            value={listState.filters.class_id}
+            onChange={(event) => updateList({ class_id: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            {(classes.data ?? []).map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.class_code}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-full min-w-40 sm:w-44">
+          <Select
+            label="Trạng thái"
+            value={listState.filters.status}
+            onChange={(event) => updateList({ status: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="scheduled">Đã lên lịch</option>
+            <option value="completed">Đã diễn ra</option>
+            <option value="locked">Đã khóa</option>
+            <option value="cancelled">Đã hủy</option>
+          </Select>
+        </div>
+        <div className="w-full min-w-40 sm:w-44">
+          <Select
+            label="Loại buổi"
+            value={listState.filters.session_type}
+            onChange={(event) => updateList({ session_type: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="theory">Lý thuyết</option>
+            <option value="workshop">Thực hành</option>
+            <option value="assessment">Đánh giá</option>
+            <option value="other">Khác</option>
+          </Select>
+        </div>
+        <div className="w-full min-w-44 sm:w-48">
+          <Select
+            label="Khóa điểm danh"
+            value={listState.filters.attendance_state}
+            onChange={(event) => updateList({ attendance_state: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="unlocked">Đang mở</option>
+            <option value="locked">Đã khóa</option>
+          </Select>
+        </div>
+      </FilterBar>
       <QueryState loading={query.isLoading} error={query.error}>
         <WeekCalendar
           events={events}
@@ -473,176 +532,6 @@ export function TeacherSchedulePage() {
           onEventClick={(event) => navigate(`/teacher/diem-danh?session=${event.id}`)}
         />
       </QueryState>
-    </div>
-  );
-}
-
-export function AttendancePage() {
-  const client = useQueryClient();
-  const { search } = useLocation();
-  const initial = new URLSearchParams(search).get("session") ?? "";
-  const [sessionId, setSessionId] = useState(initial);
-  const [records, setRecords] = useState<
-    Record<string, { status: AttendanceStatus; note: string }>
-  >({});
-  const schedule = useQuery({
-    queryKey: ["teacher", "schedule", "attendance"],
-    queryFn: () => teacherApi.schedule({ page: 1, per_page: 100 }),
-  });
-  const roster = useQuery({
-    queryKey: ["teacher", "attendance", sessionId],
-    queryFn: () => teacherApi.attendance(sessionId),
-    enabled: !!sessionId,
-  });
-  useEffect(() => {
-    if (roster.data) {
-      const next: typeof records = {};
-      roster.data.items.forEach((item) => {
-        next[item.student_id] = {
-          status: item.attendance_status ?? "present",
-          note: item.note ?? "",
-        };
-      });
-      setRecords(next);
-    }
-  }, [roster.data]);
-  const save = useMutation({
-    mutationFn: () =>
-      teacherApi.recordAttendance(
-        sessionId,
-        roster.data!.items.map((i) => ({
-          student_id: i.student_id,
-          status: records[i.student_id]?.status ?? "present",
-          note: records[i.student_id]?.note || null,
-        })),
-      ),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: ["teacher", "attendance", sessionId] }),
-  });
-  const unrecorded = roster.data?.items.filter((i) => !i.attendance_id).length ?? 0;
-  const editState = roster.data
-    ? attendanceEditState(roster.data.session)
-    : { editable: false, label: "Đang tải" };
-  return (
-    <div>
-      <PageHeader
-        title="Điểm danh"
-        subtitle="Lưu và chỉnh sửa trong ngày. Sau 00:00 giờ Việt Nam, hệ thống tự ghi Vắng cho học viên chưa có kết quả rồi khóa dữ liệu."
-      />
-      <Card className="mb-5">
-        <Select
-          label="Chọn buổi học"
-          value={sessionId}
-          onChange={(e) => setSessionId(e.target.value)}
-        >
-          <option value="">Chọn buổi cần điểm danh</option>
-          {schedule.data?.items.map((s) => (
-            <option key={s.id} value={s.id}>
-              {formatDateTime(s.starts_at)} · {s.class_code} · {s.title}
-            </option>
-          ))}
-        </Select>
-      </Card>
-      {!sessionId ? (
-        <Card>
-          <p className="text-sm text-gtext">Chọn một buổi học để xem danh sách học viên.</p>
-        </Card>
-      ) : (
-        <QueryState loading={roster.isLoading} error={roster.error}>
-          {roster.data && (
-            <>
-              <div className="mb-4 grid gap-3 sm:grid-cols-4">
-                <StatCard label="Tổng" value={roster.data.summary.total} />
-                <StatCard label="Đã ghi" value={roster.data.summary.recorded} />
-                <StatCard label="Chưa ghi" value={roster.data.summary.unrecorded} />
-                <StatCard label="Trạng thái" value={editState.label} />
-              </div>
-              {save.error && <ErrorBanner message={errorText(save.error)} />}
-              {save.isSuccess && !save.isPending && (
-                <div className="mb-4">
-                  <SuccessBanner message="Đã lưu điểm danh. Bạn vẫn có thể chỉnh sửa đến hết ngày." />
-                </div>
-              )}
-              <Card className="p-0">
-                <div className="divide-y divide-gborder">
-                  {roster.data.items.map((item) => (
-                    <div
-                      key={item.student_id}
-                      className="grid gap-3 px-4 py-4 md:grid-cols-[1fr_180px_1fr]"
-                    >
-                      <div>
-                        <b>
-                          {item.student_code} — {item.full_name}
-                        </b>
-                        {item.attendance_id && <p className="text-xs text-gtext">Đã lưu</p>}
-                      </div>
-                      <Select
-                        aria-label={`Trạng thái ${item.full_name}`}
-                        label="Trạng thái"
-                        disabled={!editState.editable}
-                        value={records[item.student_id]?.status ?? "present"}
-                        onChange={(e) =>
-                          setRecords((old) => ({
-                            ...old,
-                            [item.student_id]: {
-                              ...old[item.student_id],
-                              status: e.target.value as AttendanceStatus,
-                            },
-                          }))
-                        }
-                      >
-                        {attendanceStatuses.map((s) => (
-                          <option key={s} value={s}>
-                            {statusLabel(s)}
-                          </option>
-                        ))}
-                      </Select>
-                      <Input
-                        label="Ghi chú"
-                        disabled={!editState.editable}
-                        value={records[item.student_id]?.note ?? ""}
-                        onChange={(e) =>
-                          setRecords((old) => ({
-                            ...old,
-                            [item.student_id]: { ...old[item.student_id], note: e.target.value },
-                          }))
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-              </Card>
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  disabled={!editState.editable}
-                  onClick={() =>
-                    setRecords(
-                      Object.fromEntries(
-                        roster.data!.items.map((i) => [
-                          i.student_id,
-                          { status: "present", note: records[i.student_id]?.note ?? "" },
-                        ]),
-                      ),
-                    )
-                  }
-                >
-                  Đánh dấu tất cả có mặt
-                </Button>
-                <Button
-                  disabled={!editState.editable}
-                  loading={save.isPending}
-                  onClick={() => save.mutate()}
-                >
-                  {!editState.editable
-                    ? editState.label
-                    : `Lưu điểm danh${unrecorded ? ` (${unrecorded} chưa ghi)` : ""}`}
-                </Button>
-              </div>
-            </>
-          )}
-        </QueryState>
-      )}
     </div>
   );
 }
@@ -674,10 +563,12 @@ export function AssessmentPage() {
   const [comments, setComments] = useState<Record<string, string>>({});
   useEffect(() => {
     if (detail.data && !editingId)
-      setRatingMap(Object.fromEntries(detail.data.competencies.map((c) => [c.id, "not_assessed"])));
+      setRatingMap(
+        Object.fromEntries((detail.data.competencies ?? []).map((c) => [c.id, "not_assessed"])),
+      );
   }, [detail.data, editingId]);
   useEffect(() => {
-    const draft = history.data?.items.find((item) => item.status === "draft");
+    const draft = history.data?.items?.find((item) => item.status === "draft");
     if (!draft) {
       setEditingId(null);
       setOverall("");
@@ -689,27 +580,28 @@ export function AssessmentPage() {
     setOverall(draft.overall_comment ?? "");
     setEvidenceURL(draft.evidence_url ?? "");
     setRatingMap(
-      Object.fromEntries(draft.items.map((item) => [item.competency_criterion_id, item.rating])),
+      Object.fromEntries(
+        (draft.items ?? []).map((item) => [item.competency_criterion_id, item.rating]),
+      ),
     );
     setComments(
       Object.fromEntries(
-        draft.items
+        (draft.items ?? [])
           .filter((item) => item.comment)
           .map((item) => [item.competency_criterion_id, item.comment ?? ""]),
       ),
     );
   }, [history.data]);
-  const student = detail.data?.students.find((s) => s.student_id === studentId);
+  const student = (detail.data?.students ?? []).find((s) => s.student_id === studentId);
   const assessmentBody = {
     session_id: null,
     overall_comment: overall || null,
     evidence_url: evidenceURL.trim() || null,
-    items:
-      detail.data?.competencies.map((c) => ({
-        competency_criterion_id: c.id,
-        rating: ratingMap[c.id] ?? ("not_assessed" as CompetencyRating),
-        comment: comments[c.id] || null,
-      })) ?? [],
+    items: (detail.data?.competencies ?? []).map((c) => ({
+      competency_criterion_id: c.id,
+      rating: ratingMap[c.id] ?? ("not_assessed" as CompetencyRating),
+      comment: comments[c.id] || null,
+    })),
   };
   const create = useMutation({
     mutationFn: () =>
@@ -782,7 +674,7 @@ export function AssessmentPage() {
                 <ErrorBanner message={errorText(recordScore.error || correctScore.error)} />
               )}
               <div className="grid gap-4 lg:grid-cols-2">
-                {testResults.data?.tests.map((result) => (
+                {(testResults.data?.tests ?? []).map((result) => (
                   <div key={result.test.id} className="rounded-xl border border-gborder p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -798,7 +690,7 @@ export function AssessmentPage() {
                       <StatusBadge value={result.passed ? "passed" : "pending"} />
                     </div>
                     <div className="mt-3 space-y-2">
-                      {result.attempts.map((attempt) => (
+                      {(result.attempts ?? []).map((attempt) => (
                         <div
                           key={attempt.id}
                           className="flex items-center justify-between rounded-lg bg-gbg2 px-3 py-2 text-sm"
@@ -853,7 +745,7 @@ export function AssessmentPage() {
                     </div>
                   </div>
                 ))}
-                {!testResults.data?.tests.length && (
+                {!(testResults.data?.tests ?? []).length && (
                   <p className="text-sm text-gtext">Khóa học chưa được cấu hình bài kiểm tra.</p>
                 )}
               </div>
@@ -863,7 +755,7 @@ export function AssessmentPage() {
                 <h2 className="mb-4 text-lg font-bold text-navy">Phiếu đánh giá mới</h2>
                 {create.error && <ErrorBanner message={errorText(create.error)} />}
                 <div className="space-y-4">
-                  {detail.data.competencies.map((criterion) => (
+                  {(detail.data.competencies ?? []).map((criterion) => (
                     <div key={criterion.id} className="rounded-xl border border-gborder p-4">
                       <div className="mb-3 flex justify-between gap-2">
                         <div>
@@ -905,6 +797,11 @@ export function AssessmentPage() {
                       </div>
                     </div>
                   ))}
+                  {!(detail.data.competencies ?? []).length && (
+                    <p className="text-sm text-gtext">
+                      Khóa học chưa được cấu hình tiêu chí đánh giá kỹ năng.
+                    </p>
+                  )}
                   <Textarea
                     label="Nhận xét chung"
                     value={overall}
@@ -928,7 +825,7 @@ export function AssessmentPage() {
                 <h2 className="mb-4 text-lg font-bold text-navy">Lịch sử đánh giá</h2>
                 {transition.error && <ErrorBanner message={errorText(transition.error)} />}
                 <div className="space-y-3">
-                  {history.data?.items.map((a) => (
+                  {(history.data?.items ?? []).map((a) => (
                     <div key={a.id} className="rounded-xl border border-gborder p-4">
                       <div className="flex justify-between">
                         <b>Lần #{a.assessment_no}</b>
@@ -949,11 +846,11 @@ export function AssessmentPage() {
                       )}
                       <p className="mt-2 text-xs text-gtext">
                         {
-                          a.items.filter((i) =>
+                          (a.items ?? []).filter((i) =>
                             ["competent", "good", "excellent"].includes(i.rating),
                           ).length
                         }
-                        /{a.items.length} tiêu chí đạt
+                        /{(a.items ?? []).length} tiêu chí đạt
                       </p>
                       <div className="mt-3 flex gap-2">
                         {a.status === "draft" && (
@@ -976,7 +873,7 @@ export function AssessmentPage() {
                       </div>
                     </div>
                   ))}
-                  {!history.data?.items.length && (
+                  {!(history.data?.items ?? []).length && (
                     <p className="text-sm text-gtext">Chưa có đánh giá.</p>
                   )}
                 </div>

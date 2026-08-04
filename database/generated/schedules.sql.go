@@ -41,27 +41,37 @@ WHERE (
   OR c.class_code ILIKE '%' || $1 || '%'
 )
 AND ($2::text = '' OR cs.status::text = $2::text)
-AND ($3::uuid IS NULL OR cs.class_id = $3::uuid)
-AND ($4::uuid IS NULL OR cs.teacher_id = $4::uuid)
-AND ($5::uuid IS NULL OR cs.location_id = $5::uuid)
-AND ($6::timestamptz IS NULL OR cs.ends_at > $6::timestamptz)
-AND ($7::timestamptz IS NULL OR cs.starts_at < $7::timestamptz)
+AND ($3::text = '' OR cs.session_type::text = $3::text)
+AND (
+  $4::text = ''
+  OR ($4::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR ($4::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
+AND ($5::uuid IS NULL OR cs.class_id = $5::uuid)
+AND ($6::uuid IS NULL OR cs.teacher_id = $6::uuid)
+AND ($7::uuid IS NULL OR cs.location_id = $7::uuid)
+AND ($8::timestamptz IS NULL OR cs.ends_at > $8::timestamptz)
+AND ($9::timestamptz IS NULL OR cs.starts_at < $9::timestamptz)
 `
 
 type CountAdminSessionsParams struct {
-	Search     string             `json:"search"`
-	Status     string             `json:"status"`
-	ClassID    pgtype.UUID        `json:"class_id"`
-	TeacherID  pgtype.UUID        `json:"teacher_id"`
-	LocationID pgtype.UUID        `json:"location_id"`
-	FromTime   pgtype.Timestamptz `json:"from_time"`
-	ToTime     pgtype.Timestamptz `json:"to_time"`
+	Search          string             `json:"search"`
+	Status          string             `json:"status"`
+	SessionType     string             `json:"session_type"`
+	AttendanceState string             `json:"attendance_state"`
+	ClassID         pgtype.UUID        `json:"class_id"`
+	TeacherID       pgtype.UUID        `json:"teacher_id"`
+	LocationID      pgtype.UUID        `json:"location_id"`
+	FromTime        pgtype.Timestamptz `json:"from_time"`
+	ToTime          pgtype.Timestamptz `json:"to_time"`
 }
 
 func (q *Queries) CountAdminSessions(ctx context.Context, arg CountAdminSessionsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countAdminSessions,
 		arg.Search,
 		arg.Status,
+		arg.SessionType,
+		arg.AttendanceState,
 		arg.ClassID,
 		arg.TeacherID,
 		arg.LocationID,
@@ -76,7 +86,13 @@ func (q *Queries) CountAdminSessions(ctx context.Context, arg CountAdminSessions
 const countStudentSchedule = `-- name: CountStudentSchedule :one
 SELECT COUNT(*)
 FROM class_sessions cs
-JOIN class_enrollments ce ON ce.class_id = cs.class_id AND ce.status = 'enrolled'
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
 JOIN student_profiles sp ON sp.id = ce.student_id AND sp.user_id = $1
 WHERE ($2::timestamptz IS NULL OR cs.ends_at > $2::timestamptz)
 AND ($3::timestamptz IS NULL OR cs.starts_at < $3::timestamptz)
@@ -99,18 +115,52 @@ const countTeacherSchedule = `-- name: CountTeacherSchedule :one
 SELECT COUNT(*)
 FROM class_sessions cs
 JOIN teacher_profiles tp ON tp.id = cs.teacher_id AND tp.user_id = $1
-WHERE ($2::timestamptz IS NULL OR cs.ends_at > $2::timestamptz)
-AND ($3::timestamptz IS NULL OR cs.starts_at < $3::timestamptz)
+JOIN classes c ON c.id = cs.class_id
+LEFT JOIN training_locations tl ON tl.id = cs.location_id
+WHERE (
+  $2::text = ''
+  OR cs.title ILIKE '%' || $2 || '%'
+  OR c.class_code ILIKE '%' || $2 || '%'
+  OR c.name ILIKE '%' || $2 || '%'
+  OR COALESCE(tl.name, '') ILIKE '%' || $2 || '%'
+)
+AND ($3::text = '' OR cs.status::text = $3::text)
+AND ($4::text = '' OR cs.session_type::text = $4::text)
+AND (
+  $5::text = ''
+  OR ($5::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR ($5::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
+AND ($6::uuid IS NULL OR cs.class_id = $6::uuid)
+AND ($7::uuid IS NULL OR cs.location_id = $7::uuid)
+AND ($8::timestamptz IS NULL OR cs.ends_at > $8::timestamptz)
+AND ($9::timestamptz IS NULL OR cs.starts_at < $9::timestamptz)
 `
 
 type CountTeacherScheduleParams struct {
-	UserID   pgtype.UUID        `json:"user_id"`
-	FromTime pgtype.Timestamptz `json:"from_time"`
-	ToTime   pgtype.Timestamptz `json:"to_time"`
+	UserID          pgtype.UUID        `json:"user_id"`
+	Search          string             `json:"search"`
+	Status          string             `json:"status"`
+	SessionType     string             `json:"session_type"`
+	AttendanceState string             `json:"attendance_state"`
+	ClassID         pgtype.UUID        `json:"class_id"`
+	LocationID      pgtype.UUID        `json:"location_id"`
+	FromTime        pgtype.Timestamptz `json:"from_time"`
+	ToTime          pgtype.Timestamptz `json:"to_time"`
 }
 
 func (q *Queries) CountTeacherSchedule(ctx context.Context, arg CountTeacherScheduleParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countTeacherSchedule, arg.UserID, arg.FromTime, arg.ToTime)
+	row := q.db.QueryRow(ctx, countTeacherSchedule,
+		arg.UserID,
+		arg.Search,
+		arg.Status,
+		arg.SessionType,
+		arg.AttendanceState,
+		arg.ClassID,
+		arg.LocationID,
+		arg.FromTime,
+		arg.ToTime,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -364,25 +414,42 @@ WHERE (
   OR c.class_code ILIKE '%' || $1 || '%'
 )
 AND ($2::text = '' OR cs.status::text = $2::text)
-AND ($3::uuid IS NULL OR cs.class_id = $3::uuid)
-AND ($4::uuid IS NULL OR cs.teacher_id = $4::uuid)
-AND ($5::uuid IS NULL OR cs.location_id = $5::uuid)
-AND ($6::timestamptz IS NULL OR cs.ends_at > $6::timestamptz)
-AND ($7::timestamptz IS NULL OR cs.starts_at < $7::timestamptz)
-ORDER BY cs.starts_at, cs.id
-LIMIT $9 OFFSET $8
+AND ($3::text = '' OR cs.session_type::text = $3::text)
+AND (
+  $4::text = ''
+  OR ($4::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR ($4::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
+AND ($5::uuid IS NULL OR cs.class_id = $5::uuid)
+AND ($6::uuid IS NULL OR cs.teacher_id = $6::uuid)
+AND ($7::uuid IS NULL OR cs.location_id = $7::uuid)
+AND ($8::timestamptz IS NULL OR cs.ends_at > $8::timestamptz)
+AND ($9::timestamptz IS NULL OR cs.starts_at < $9::timestamptz)
+ORDER BY
+  CASE WHEN $10::text = 'starts_at' AND $11::text = 'asc' THEN cs.starts_at END ASC,
+  CASE WHEN $10::text = 'starts_at' AND $11::text = 'desc' THEN cs.starts_at END DESC,
+  CASE WHEN $10::text = 'title' AND $11::text = 'asc' THEN cs.title END ASC,
+  CASE WHEN $10::text = 'title' AND $11::text = 'desc' THEN cs.title END DESC,
+  CASE WHEN $10::text = 'created_at' AND $11::text = 'asc' THEN cs.created_at END ASC,
+  CASE WHEN $10::text = 'created_at' AND $11::text = 'desc' THEN cs.created_at END DESC,
+  cs.id
+LIMIT $13 OFFSET $12
 `
 
 type ListAdminSessionsParams struct {
-	Search     string             `json:"search"`
-	Status     string             `json:"status"`
-	ClassID    pgtype.UUID        `json:"class_id"`
-	TeacherID  pgtype.UUID        `json:"teacher_id"`
-	LocationID pgtype.UUID        `json:"location_id"`
-	FromTime   pgtype.Timestamptz `json:"from_time"`
-	ToTime     pgtype.Timestamptz `json:"to_time"`
-	PageOffset int32              `json:"page_offset"`
-	PageLimit  int32              `json:"page_limit"`
+	Search          string             `json:"search"`
+	Status          string             `json:"status"`
+	SessionType     string             `json:"session_type"`
+	AttendanceState string             `json:"attendance_state"`
+	ClassID         pgtype.UUID        `json:"class_id"`
+	TeacherID       pgtype.UUID        `json:"teacher_id"`
+	LocationID      pgtype.UUID        `json:"location_id"`
+	FromTime        pgtype.Timestamptz `json:"from_time"`
+	ToTime          pgtype.Timestamptz `json:"to_time"`
+	SortBy          string             `json:"sort_by"`
+	SortOrder       string             `json:"sort_order"`
+	PageOffset      int32              `json:"page_offset"`
+	PageLimit       int32              `json:"page_limit"`
 }
 
 type ListAdminSessionsRow struct {
@@ -417,11 +484,15 @@ func (q *Queries) ListAdminSessions(ctx context.Context, arg ListAdminSessionsPa
 	rows, err := q.db.Query(ctx, listAdminSessions,
 		arg.Search,
 		arg.Status,
+		arg.SessionType,
+		arg.AttendanceState,
 		arg.ClassID,
 		arg.TeacherID,
 		arg.LocationID,
 		arg.FromTime,
 		arg.ToTime,
+		arg.SortBy,
+		arg.SortOrder,
 		arg.PageOffset,
 		arg.PageLimit,
 	)
@@ -482,7 +553,13 @@ SELECT
 FROM class_sessions cs
 JOIN classes c ON c.id = cs.class_id
 JOIN courses co ON co.id = cs.course_id
-JOIN class_enrollments ce ON ce.class_id = cs.class_id AND ce.status = 'enrolled'
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
 JOIN student_profiles sp ON sp.id = ce.student_id AND sp.user_id = $1
 LEFT JOIN course_modules cm ON cm.id = cs.module_id
 LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
@@ -597,18 +674,49 @@ JOIN courses co ON co.id = cs.course_id
 JOIN teacher_profiles tp ON tp.id = cs.teacher_id AND tp.user_id = $1
 LEFT JOIN course_modules cm ON cm.id = cs.module_id
 LEFT JOIN training_locations tl ON tl.id = cs.location_id
-WHERE ($2::timestamptz IS NULL OR cs.ends_at > $2::timestamptz)
-AND ($3::timestamptz IS NULL OR cs.starts_at < $3::timestamptz)
-ORDER BY cs.starts_at, cs.id
-LIMIT $5 OFFSET $4
+WHERE (
+  $2::text = ''
+  OR cs.title ILIKE '%' || $2 || '%'
+  OR c.class_code ILIKE '%' || $2 || '%'
+  OR c.name ILIKE '%' || $2 || '%'
+  OR COALESCE(tl.name, '') ILIKE '%' || $2 || '%'
+)
+AND ($3::text = '' OR cs.status::text = $3::text)
+AND ($4::text = '' OR cs.session_type::text = $4::text)
+AND (
+  $5::text = ''
+  OR ($5::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR ($5::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
+AND ($6::uuid IS NULL OR cs.class_id = $6::uuid)
+AND ($7::uuid IS NULL OR cs.location_id = $7::uuid)
+AND ($8::timestamptz IS NULL OR cs.ends_at > $8::timestamptz)
+AND ($9::timestamptz IS NULL OR cs.starts_at < $9::timestamptz)
+ORDER BY
+  CASE WHEN $10::text = 'starts_at' AND $11::text = 'asc' THEN cs.starts_at END ASC,
+  CASE WHEN $10::text = 'starts_at' AND $11::text = 'desc' THEN cs.starts_at END DESC,
+  CASE WHEN $10::text = 'title' AND $11::text = 'asc' THEN cs.title END ASC,
+  CASE WHEN $10::text = 'title' AND $11::text = 'desc' THEN cs.title END DESC,
+  CASE WHEN $10::text = 'created_at' AND $11::text = 'asc' THEN cs.created_at END ASC,
+  CASE WHEN $10::text = 'created_at' AND $11::text = 'desc' THEN cs.created_at END DESC,
+  cs.id
+LIMIT $13 OFFSET $12
 `
 
 type ListTeacherScheduleParams struct {
-	UserID     pgtype.UUID        `json:"user_id"`
-	FromTime   pgtype.Timestamptz `json:"from_time"`
-	ToTime     pgtype.Timestamptz `json:"to_time"`
-	PageOffset int32              `json:"page_offset"`
-	PageLimit  int32              `json:"page_limit"`
+	UserID          pgtype.UUID        `json:"user_id"`
+	Search          string             `json:"search"`
+	Status          string             `json:"status"`
+	SessionType     string             `json:"session_type"`
+	AttendanceState string             `json:"attendance_state"`
+	ClassID         pgtype.UUID        `json:"class_id"`
+	LocationID      pgtype.UUID        `json:"location_id"`
+	FromTime        pgtype.Timestamptz `json:"from_time"`
+	ToTime          pgtype.Timestamptz `json:"to_time"`
+	SortBy          string             `json:"sort_by"`
+	SortOrder       string             `json:"sort_order"`
+	PageOffset      int32              `json:"page_offset"`
+	PageLimit       int32              `json:"page_limit"`
 }
 
 type ListTeacherScheduleRow struct {
@@ -642,8 +750,16 @@ type ListTeacherScheduleRow struct {
 func (q *Queries) ListTeacherSchedule(ctx context.Context, arg ListTeacherScheduleParams) ([]ListTeacherScheduleRow, error) {
 	rows, err := q.db.Query(ctx, listTeacherSchedule,
 		arg.UserID,
+		arg.Search,
+		arg.Status,
+		arg.SessionType,
+		arg.AttendanceState,
+		arg.ClassID,
+		arg.LocationID,
 		arg.FromTime,
 		arg.ToTime,
+		arg.SortBy,
+		arg.SortOrder,
 		arg.PageOffset,
 		arg.PageLimit,
 	)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
@@ -26,6 +27,18 @@ var (
 	ErrStatusReason  = errors.New("status change reason is required")
 )
 
+type ListFilter struct {
+	Search         string
+	Status         string
+	ClassID        string
+	CourseID       string
+	AttendanceRisk string
+	SortBy         string
+	SortOrder      string
+	Page           int
+	PerPage        int
+}
+
 // View is the public administrator representation of a student and account.
 type View struct {
 	ID                    string  `json:"id"`
@@ -34,6 +47,7 @@ type View struct {
 	AccountStatus         string  `json:"account_status"`
 	StudentCode           string  `json:"student_code"`
 	FullName              string  `json:"full_name"`
+	AvatarURL             *string `json:"avatar_url"`
 	Phone                 *string `json:"phone"`
 	DateOfBirth           *string `json:"date_of_birth"`
 	Gender                *string `json:"gender"`
@@ -53,6 +67,7 @@ type WriteInput struct {
 	AccountStatus         db.UserStatus
 	StudentCode           string
 	FullName              string
+	AvatarURL             *string
 	Phone                 *string
 	DateOfBirth           *string
 	Gender                *string
@@ -130,6 +145,7 @@ func (s *Service) Create(ctx context.Context, actorID string, input WriteInput) 
 		UserID:                user.ID,
 		StudentCode:           input.StudentCode,
 		FullName:              input.FullName,
+		AvatarUrl:             data.Text(input.AvatarURL),
 		Phone:                 data.Text(input.Phone),
 		DateOfBirth:           dateOfBirth,
 		Gender:                data.Text(input.Gender),
@@ -155,7 +171,7 @@ func (s *Service) Create(ctx context.Context, actorID string, input WriteInput) 
 		return View{}, fmt.Errorf("read created student: %w", err)
 	}
 	view := viewFromGet(created)
-	if err := audit.Write(ctx, q, actorID, "student.create", "student_profile", profile.ID, nil, view); err != nil {
+	if err := audit.Write(ctx, q, actorID, "student.create", "student_profile", profile.ID, nil, auditStudentView(view)); err != nil {
 		return View{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -213,17 +229,28 @@ func (s *Service) Get(ctx context.Context, id string) (View, error) {
 }
 
 // List returns a filtered page of students.
-func (s *Service) List(ctx context.Context, search, status string, page, perPage int) (pagination.Result[View], error) {
+func (s *Service) List(ctx context.Context, filter ListFilter) (pagination.Result[View], error) {
+	classID, err := optionalListUUID(filter.ClassID)
+	if err != nil {
+		return pagination.Result[View]{}, err
+	}
+	courseID, err := optionalListUUID(filter.CourseID)
+	if err != nil {
+		return pagination.Result[View]{}, err
+	}
 	params := db.ListAdminStudentsParams{
-		Search: strings.TrimSpace(search), Status: status,
-		PageOffset: int32((page - 1) * perPage), PageLimit: int32(perPage),
+		Search: strings.TrimSpace(filter.Search), Status: filter.Status,
+		ClassID: classID, CourseID: courseID, AttendanceRisk: filter.AttendanceRisk,
+		SortBy: filter.SortBy, SortOrder: filter.SortOrder,
+		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
 	}
 	rows, err := s.queries.ListAdminStudents(ctx, params)
 	if err != nil {
 		return pagination.Result[View]{}, fmt.Errorf("list students: %w", err)
 	}
 	total, err := s.queries.CountAdminStudents(ctx, db.CountAdminStudentsParams{
-		Search: params.Search, Status: params.Status,
+		Search: params.Search, Status: params.Status, ClassID: classID, CourseID: courseID,
+		AttendanceRisk: filter.AttendanceRisk,
 	})
 	if err != nil {
 		return pagination.Result[View]{}, fmt.Errorf("count students: %w", err)
@@ -232,13 +259,29 @@ func (s *Service) List(ctx context.Context, search, status string, page, perPage
 	for _, row := range rows {
 		items = append(items, viewFromList(row))
 	}
-	return pagination.New(items, page, perPage, total), nil
+	return pagination.New(items, filter.Page, filter.PerPage, total), nil
+}
+
+func optionalListUUID(value string) (pgtype.UUID, error) {
+	if strings.TrimSpace(value) == "" {
+		return pgtype.UUID{}, nil
+	}
+	return data.UUID(value)
 }
 
 // Export returns all students matching the administrator filters in a stable order.
-func (s *Service) Export(ctx context.Context, search, status string) ([]View, error) {
+func (s *Service) Export(ctx context.Context, filter ListFilter) ([]View, error) {
+	classID, err := optionalListUUID(filter.ClassID)
+	if err != nil {
+		return nil, err
+	}
+	courseID, err := optionalListUUID(filter.CourseID)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.queries.ExportAdminStudents(ctx, db.ExportAdminStudentsParams{
-		Search: strings.TrimSpace(search), Status: status,
+		Search: strings.TrimSpace(filter.Search), Status: filter.Status,
+		ClassID: classID, CourseID: courseID, AttendanceRisk: filter.AttendanceRisk,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("export students: %w", err)
@@ -248,7 +291,7 @@ func (s *Service) Export(ctx context.Context, search, status string) ([]View, er
 		items = append(items, View{
 			ID: data.UUIDString(row.ID), UserID: data.UUIDString(row.UserID),
 			Email: row.Email, AccountStatus: string(row.UserStatus),
-			StudentCode: row.StudentCode, FullName: row.FullName,
+			StudentCode: row.StudentCode, FullName: row.FullName, AvatarURL: data.TextPointer(row.AvatarUrl),
 			Phone: data.TextPointer(row.Phone), DateOfBirth: data.DateString(row.DateOfBirth),
 			Gender: data.TextPointer(row.Gender), Address: data.TextPointer(row.Address),
 			EmergencyContactName:  data.TextPointer(row.EmergencyContactName),
@@ -311,6 +354,7 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInp
 	if _, err := q.UpdateStudentProfile(ctx, db.UpdateStudentProfileParams{
 		ID:                    studentID,
 		FullName:              input.FullName,
+		AvatarUrl:             data.Text(input.AvatarURL),
 		Phone:                 data.Text(input.Phone),
 		DateOfBirth:           dateOfBirth,
 		Gender:                data.Text(input.Gender),
@@ -338,13 +382,22 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInp
 		return View{}, fmt.Errorf("read updated student: %w", err)
 	}
 	view := viewFromGet(updated)
-	if err := audit.Write(ctx, q, actorID, "student.update", "student_profile", studentID, oldView, view); err != nil {
+	if err := audit.Write(ctx, q, actorID, "student.update", "student_profile", studentID, auditStudentView(oldView), auditStudentView(view)); err != nil {
 		return View{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return View{}, fmt.Errorf("commit update student: %w", err)
 	}
 	return view, nil
+}
+
+func auditStudentView(view View) View {
+	if view.AvatarURL == nil {
+		return view
+	}
+	redacted := "[stored WebP image]"
+	view.AvatarURL = &redacted
+	return view
 }
 
 func mapWriteError(err error) error {
@@ -363,7 +416,7 @@ func viewFromGet(row db.GetAdminStudentRow) View {
 	return View{
 		ID: data.UUIDString(row.ID), UserID: data.UUIDString(row.UserID),
 		Email: row.Email, AccountStatus: string(row.UserStatus),
-		StudentCode: row.StudentCode, FullName: row.FullName,
+		StudentCode: row.StudentCode, FullName: row.FullName, AvatarURL: data.TextPointer(row.AvatarUrl),
 		Phone: data.TextPointer(row.Phone), DateOfBirth: data.DateString(row.DateOfBirth),
 		Gender: data.TextPointer(row.Gender), Address: data.TextPointer(row.Address),
 		EmergencyContactName:  data.TextPointer(row.EmergencyContactName),
@@ -378,7 +431,7 @@ func viewFromList(row db.ListAdminStudentsRow) View {
 	return View{
 		ID: data.UUIDString(row.ID), UserID: data.UUIDString(row.UserID),
 		Email: row.Email, AccountStatus: string(row.UserStatus),
-		StudentCode: row.StudentCode, FullName: row.FullName,
+		StudentCode: row.StudentCode, FullName: row.FullName, AvatarURL: data.TextPointer(row.AvatarUrl),
 		Phone: data.TextPointer(row.Phone), DateOfBirth: data.DateString(row.DateOfBirth),
 		Gender: data.TextPointer(row.Gender), Address: data.TextPointer(row.Address),
 		EmergencyContactName:  data.TextPointer(row.EmergencyContactName),

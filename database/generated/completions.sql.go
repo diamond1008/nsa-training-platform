@@ -12,14 +12,69 @@ import (
 )
 
 const countCompletionCandidates = `-- name: CountCompletionCandidates :one
-SELECT COUNT(DISTINCT (ce.student_id,c.course_id))
-FROM class_enrollments ce JOIN classes c ON c.id=ce.class_id JOIN student_profiles sp ON sp.id=ce.student_id
-WHERE ce.status IN ('enrolled','completed')
-  AND ($1::text = '' OR sp.student_code ILIKE '%' || $1 || '%' OR sp.full_name ILIKE '%' || $1 || '%' OR c.class_code ILIKE '%' || $1 || '%')
+WITH candidate_enrollments AS (
+  SELECT DISTINCT ON (ce.student_id,c.course_id)
+    ce.class_id, ce.student_id, c.course_id, c.class_code,
+    co.minimum_attendance_pct
+  FROM class_enrollments ce
+  JOIN classes c ON c.id=ce.class_id
+  JOIN courses co ON co.id=c.course_id
+  WHERE ce.status IN ('enrolled','completed')
+  ORDER BY ce.student_id,c.course_id,CASE WHEN ce.status='enrolled' THEN 0 ELSE 1 END,ce.enrolled_at DESC
+), metrics AS (
+  SELECT
+    ce.class_id, ce.class_code, ce.student_id, sp.student_code, sp.full_name AS student_name,
+    ce.course_id, ce.minimum_attendance_pct,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND cs.status<>'cancelled') AS attendance_records,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status IN ('present','late') AND cs.status<>'cancelled') AS attended_sessions,
+    (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status='excused' AND cs.status<>'cancelled') AS excused_sessions,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
+    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count
+  FROM candidate_enrollments ce
+  JOIN student_profiles sp ON sp.id=ce.student_id
+)
+SELECT COUNT(*)
+FROM metrics
+WHERE ($1::text = '' OR student_code ILIKE '%' || $1 || '%' OR student_name ILIKE '%' || $1 || '%' OR class_code ILIKE '%' || $1 || '%')
+  AND ($2::uuid IS NULL OR course_id = $2::uuid)
+  AND ($3::uuid IS NULL OR class_id = $3::uuid)
+  AND (
+    $4::text = ''
+    OR (
+      $4::text = 'eligible'
+      AND COALESCE(((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+                ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+      AND required_tests_passed >= required_tests_total
+      AND final_exam_count = 1 AND final_exam_score > 5), FALSE)
+    )
+    OR (
+      $4::text = 'ineligible'
+      AND NOT COALESCE((
+        (CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+              ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+        AND required_tests_passed >= required_tests_total
+        AND final_exam_count = 1 AND final_exam_score > 5
+      ), FALSE)
+    )
+  )
 `
 
-func (q *Queries) CountCompletionCandidates(ctx context.Context, search string) (int64, error) {
-	row := q.db.QueryRow(ctx, countCompletionCandidates, search)
+type CountCompletionCandidatesParams struct {
+	Search      string      `json:"search"`
+	CourseID    pgtype.UUID `json:"course_id"`
+	ClassID     pgtype.UUID `json:"class_id"`
+	Eligibility string      `json:"eligibility"`
+}
+
+func (q *Queries) CountCompletionCandidates(ctx context.Context, arg CountCompletionCandidatesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countCompletionCandidates,
+		arg.Search,
+		arg.CourseID,
+		arg.ClassID,
+		arg.Eligibility,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -248,10 +303,10 @@ WITH latest_ratings AS (
 )
 SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number,
   CASE WHEN attendance_records-excused_sessions<=0 THEN 0::numeric(5,2) ELSE ROUND(100.0*attended_sessions/(attendance_records-excused_sessions),2)::numeric(5,2) END AS attendance_pct,
-  ((CASE WHEN attendance_records-excused_sessions<=0 THEN 0
+  COALESCE(((CASE WHEN attendance_records-excused_sessions<=0 THEN 0
              ELSE 100.0*attended_sessions/(attendance_records-excused_sessions) END)>=minimum_attendance_pct
    AND required_tests_passed>=required_tests_total
-   AND final_exam_count=1 AND final_exam_score>5) AS is_eligible
+   AND final_exam_count=1 AND final_exam_score>5), FALSE)::boolean AS is_eligible
 FROM metrics
 `
 
@@ -294,7 +349,7 @@ type GetCompletionCandidateRow struct {
 	CurrentCertificateID      pgtype.UUID          `json:"current_certificate_id"`
 	CurrentCertificateNumber  string               `json:"current_certificate_number"`
 	AttendancePct             pgtype.Numeric       `json:"attendance_pct"`
-	IsEligible                pgtype.Bool          `json:"is_eligible"`
+	IsEligible                bool                 `json:"is_eligible"`
 }
 
 func (q *Queries) GetCompletionCandidate(ctx context.Context, arg GetCompletionCandidateParams) (GetCompletionCandidateRow, error) {
@@ -467,20 +522,51 @@ WITH candidate_enrollments AS (
 SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number,
   CASE WHEN attendance_records - excused_sessions <= 0 THEN 0::numeric(5,2)
        ELSE ROUND(100.0 * attended_sessions / (attendance_records - excused_sessions), 2)::numeric(5,2) END AS attendance_pct,
-  ((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+  COALESCE(((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
              ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
    AND required_tests_passed >= required_tests_total
-   AND final_exam_count=1 AND final_exam_score>5) AS is_eligible
+   AND final_exam_count=1 AND final_exam_score>5), FALSE)::boolean AS is_eligible
 FROM metrics
 WHERE ($1::text = '' OR student_code ILIKE '%' || $1 || '%' OR student_name ILIKE '%' || $1 || '%' OR class_code ILIKE '%' || $1 || '%')
-ORDER BY class_code, student_code
-LIMIT $3 OFFSET $2
+  AND ($2::uuid IS NULL OR course_id = $2::uuid)
+  AND ($3::uuid IS NULL OR class_id = $3::uuid)
+  AND (
+    $4::text = ''
+    OR (
+      $4::text = 'eligible'
+      AND COALESCE(((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+                ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+      AND required_tests_passed >= required_tests_total
+      AND final_exam_count = 1 AND final_exam_score > 5), FALSE)
+    )
+    OR (
+      $4::text = 'ineligible'
+      AND NOT COALESCE((
+        (CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
+              ELSE 100.0 * attended_sessions / (attendance_records - excused_sessions) END) >= minimum_attendance_pct
+        AND required_tests_passed >= required_tests_total
+        AND final_exam_count = 1 AND final_exam_score > 5
+      ), FALSE)
+    )
+  )
+ORDER BY
+  CASE WHEN $5::text = 'class_code' AND $6::text = 'asc' THEN class_code END ASC,
+  CASE WHEN $5::text = 'class_code' AND $6::text = 'desc' THEN class_code END DESC,
+  CASE WHEN $5::text = 'student_code' AND $6::text = 'asc' THEN student_code END ASC,
+  CASE WHEN $5::text = 'student_code' AND $6::text = 'desc' THEN student_code END DESC,
+  class_id, student_id
+LIMIT $8 OFFSET $7
 `
 
 type ListCompletionCandidatesParams struct {
-	Search     string `json:"search"`
-	PageOffset int32  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	Search      string      `json:"search"`
+	CourseID    pgtype.UUID `json:"course_id"`
+	ClassID     pgtype.UUID `json:"class_id"`
+	Eligibility string      `json:"eligibility"`
+	SortBy      string      `json:"sort_by"`
+	SortOrder   string      `json:"sort_order"`
+	PageOffset  int32       `json:"page_offset"`
+	PageLimit   int32       `json:"page_limit"`
 }
 
 type ListCompletionCandidatesRow struct {
@@ -517,12 +603,21 @@ type ListCompletionCandidatesRow struct {
 	CurrentCertificateID      pgtype.UUID          `json:"current_certificate_id"`
 	CurrentCertificateNumber  string               `json:"current_certificate_number"`
 	AttendancePct             pgtype.Numeric       `json:"attendance_pct"`
-	IsEligible                pgtype.Bool          `json:"is_eligible"`
+	IsEligible                bool                 `json:"is_eligible"`
 }
 
 // Course-completion approval, immutable decisions, and certificates.
 func (q *Queries) ListCompletionCandidates(ctx context.Context, arg ListCompletionCandidatesParams) ([]ListCompletionCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listCompletionCandidates, arg.Search, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listCompletionCandidates,
+		arg.Search,
+		arg.CourseID,
+		arg.ClassID,
+		arg.Eligibility,
+		arg.SortBy,
+		arg.SortOrder,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

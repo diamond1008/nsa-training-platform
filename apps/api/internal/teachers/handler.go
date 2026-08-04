@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/request"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/response"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
@@ -67,7 +68,29 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid teacher status")
 		return
 	}
-	result, err := h.service.List(r.Context(), r.URL.Query().Get("search"), status, page, perPage)
+	for _, name := range []string{"class_id", "course_id"} {
+		if value := strings.TrimSpace(r.URL.Query().Get(name)); value != "" {
+			if _, err := data.UUID(value); err != nil {
+				response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", name+" must be a valid UUID")
+				return
+			}
+		}
+	}
+	assignment := strings.TrimSpace(r.URL.Query().Get("assignment"))
+	if assignment != "" && assignment != "assigned" && assignment != "unassigned" {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "assignment must be assigned or unassigned")
+		return
+	}
+	sortBy, sortOrder, err := request.Sort(r, "created_at", "created_at", "full_name", "teacher_code")
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	result, err := h.service.List(r.Context(), ListFilter{
+		Search: r.URL.Query().Get("search"), Status: status,
+		ClassID: r.URL.Query().Get("class_id"), CourseID: r.URL.Query().Get("course_id"),
+		Assignment: assignment, SortBy: sortBy, SortOrder: sortOrder, Page: page, PerPage: perPage,
+	})
 	if err != nil {
 		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
 		return

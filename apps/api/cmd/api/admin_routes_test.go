@@ -99,6 +99,7 @@ func TestAllAdminRoutesRequireAdmin(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/sessions/" + id},
 		{http.MethodPut, "/api/v1/admin/sessions/" + id},
 		{http.MethodGet, "/api/v1/admin/sessions/" + id + "/attendance"},
+		{http.MethodPost, "/api/v1/admin/sessions/" + id + "/students/" + id + "/attendance"},
 		{http.MethodPut, "/api/v1/admin/attendance/" + id},
 		{http.MethodPut, "/api/v1/admin/test-attempts/" + id},
 		{http.MethodGet, "/api/v1/admin/test-attempts/" + id + "/history"},

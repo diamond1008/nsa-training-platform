@@ -341,13 +341,22 @@ AND (
   $2::text = ''
   OR status::text = $2::text
 )
-ORDER BY created_at DESC, id
-LIMIT $4 OFFSET $3
+ORDER BY
+  CASE WHEN $3::text = 'code' AND $4::text = 'asc' THEN code END ASC,
+  CASE WHEN $3::text = 'code' AND $4::text = 'desc' THEN code END DESC,
+  CASE WHEN $3::text = 'name' AND $4::text = 'asc' THEN name END ASC,
+  CASE WHEN $3::text = 'name' AND $4::text = 'desc' THEN name END DESC,
+  CASE WHEN $3::text = 'created_at' AND $4::text = 'asc' THEN created_at END ASC,
+  CASE WHEN $3::text = 'created_at' AND $4::text = 'desc' THEN created_at END DESC,
+  id
+LIMIT $6 OFFSET $5
 `
 
 type ListCoursesParams struct {
 	Search     string `json:"search"`
 	Status     string `json:"status"`
+	SortBy     string `json:"sort_by"`
+	SortOrder  string `json:"sort_order"`
 	PageOffset int32  `json:"page_offset"`
 	PageLimit  int32  `json:"page_limit"`
 }
@@ -356,6 +365,8 @@ func (q *Queries) ListCourses(ctx context.Context, arg ListCoursesParams) ([]Cou
 	rows, err := q.db.Query(ctx, listCourses,
 		arg.Search,
 		arg.Status,
+		arg.SortBy,
+		arg.SortOrder,
 		arg.PageOffset,
 		arg.PageLimit,
 	)

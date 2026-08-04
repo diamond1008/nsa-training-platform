@@ -88,6 +88,17 @@ type DecisionResult struct {
 	Certificate *CertificateView `json:"certificate"`
 }
 
+type ListFilter struct {
+	Search      string
+	Eligibility string
+	CourseID    string
+	ClassID     string
+	SortBy      string
+	SortOrder   string
+	Page        int
+	PerPage     int
+}
+
 type Service struct {
 	pool    *pgxpool.Pool
 	queries *db.Queries
@@ -95,12 +106,27 @@ type Service struct {
 
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool, queries: db.New(pool)} }
 
-func (s *Service) List(ctx context.Context, search string, page, perPage int) (pagination.Result[CandidateView], error) {
-	rows, err := s.queries.ListCompletionCandidates(ctx, db.ListCompletionCandidatesParams{Search: search, PageOffset: int32((page - 1) * perPage), PageLimit: int32(perPage)})
+func (s *Service) List(ctx context.Context, filter ListFilter) (pagination.Result[CandidateView], error) {
+	courseID, err := optionalUUID(filter.CourseID)
+	if err != nil {
+		return pagination.Result[CandidateView]{}, err
+	}
+	classID, err := optionalUUID(filter.ClassID)
+	if err != nil {
+		return pagination.Result[CandidateView]{}, err
+	}
+	params := db.ListCompletionCandidatesParams{
+		Search: filter.Search, CourseID: courseID, ClassID: classID,
+		Eligibility: filter.Eligibility, SortBy: filter.SortBy, SortOrder: filter.SortOrder,
+		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
+	}
+	rows, err := s.queries.ListCompletionCandidates(ctx, params)
 	if err != nil {
 		return pagination.Result[CandidateView]{}, fmt.Errorf("list completion candidates: %w", err)
 	}
-	total, err := s.queries.CountCompletionCandidates(ctx, search)
+	total, err := s.queries.CountCompletionCandidates(ctx, db.CountCompletionCandidatesParams{
+		Search: filter.Search, CourseID: courseID, ClassID: classID, Eligibility: filter.Eligibility,
+	})
 	if err != nil {
 		return pagination.Result[CandidateView]{}, fmt.Errorf("count completion candidates: %w", err)
 	}
@@ -108,7 +134,14 @@ func (s *Service) List(ctx context.Context, search string, page, perPage int) (p
 	for _, row := range rows {
 		items = append(items, candidateFromList(row))
 	}
-	return pagination.New(items, page, perPage, total), nil
+	return pagination.New(items, filter.Page, filter.PerPage, total), nil
+}
+
+func optionalUUID(value string) (pgtype.UUID, error) {
+	if value == "" {
+		return pgtype.UUID{}, nil
+	}
+	return data.UUID(value)
 }
 
 func (s *Service) Decide(ctx context.Context, actorID, classIDValue, studentIDValue, status, note string) (DecisionResult, error) {
@@ -137,7 +170,7 @@ func (s *Service) Decide(ctx context.Context, actorID, classIDValue, studentIDVa
 	if err != nil {
 		return DecisionResult{}, fmt.Errorf("get completion candidate: %w", err)
 	}
-	if status == "approved" && !row.IsEligible.Bool {
+	if status == "approved" && !row.IsEligible {
 		return DecisionResult{}, ErrNotEligible
 	}
 	decisionStatus := db.CompletionStatus(status)
@@ -371,7 +404,7 @@ func candidateFromGet(r db.GetCompletionCandidateRow) CandidateView {
 	return buildCandidate(r.ClassID, r.ClassCode, r.ClassName, r.StudentID, r.StudentCode, r.StudentName, r.CourseCode, r.CourseName, r.CompletedSessions, r.TotalSessions, r.AttendancePct, r.MinimumAttendancePct, r.RequiredCompetenciesMet, r.RequiredCompetenciesTotal, r.RequiredTestsPassed, r.RequiredTestsTotal, r.FinalExamScore, r.CompletedAssessments, r.RequiredAssessments, r.IsEligible, r.PersistedStatus, r.ReviewNote, r.ReviewedAt, r.CurrentCertificateID, r.CurrentCertificateNumber)
 }
 
-func buildCandidate(classID pgtype.UUID, classCode, className string, studentID pgtype.UUID, studentCode, studentName, courseCode, courseName string, completedSessions, totalSessions int32, attendance, minimum pgtype.Numeric, competenciesMet, competenciesTotal, testsPassed, testsTotal int32, finalScore pgtype.Numeric, completedAssessments, requiredAssessments int32, eligible pgtype.Bool, persisted db.NullCompletionStatus, note pgtype.Text, reviewedAt pgtype.Timestamptz, certificateID pgtype.UUID, certificateNumber string) CandidateView {
+func buildCandidate(classID pgtype.UUID, classCode, className string, studentID pgtype.UUID, studentCode, studentName, courseCode, courseName string, completedSessions, totalSessions int32, attendance, minimum pgtype.Numeric, competenciesMet, competenciesTotal, testsPassed, testsTotal int32, finalScore pgtype.Numeric, completedAssessments, requiredAssessments int32, eligible bool, persisted db.NullCompletionStatus, note pgtype.Text, reviewedAt pgtype.Timestamptz, certificateID pgtype.UUID, certificateNumber string) CandidateView {
 	attendancePct := data.NumericFloat(attendance)
 	minimumPct := data.NumericFloat(minimum)
 	final := numericPointer(finalScore)
@@ -388,7 +421,7 @@ func buildCandidate(classID pgtype.UUID, classCode, className string, studentID 
 	} else if !finalPassed {
 		reasons = append(reasons, fmt.Sprintf("Điểm thi kết thúc %.2f, yêu cầu trên 5", *final))
 	}
-	return CandidateView{ClassID: data.UUIDString(classID), ClassCode: classCode, ClassName: className, StudentID: data.UUIDString(studentID), StudentCode: studentCode, StudentName: studentName, CourseCode: courseCode, CourseName: courseName, CompletedSessions: completedSessions, TotalSessions: totalSessions, AttendancePct: attendancePct, MinimumAttendancePct: minimumPct, RequiredCompetenciesMet: competenciesMet, RequiredCompetenciesTotal: competenciesTotal, RequiredTestsPassed: testsPassed, RequiredTestsTotal: testsTotal, FinalExamScore: final, FinalExamPassed: finalPassed, CompletedAssessments: completedAssessments, RequiredAssessments: requiredAssessments, IsEligible: eligible.Bool, Status: candidateStatus(persisted, eligible.Bool), ReviewNote: data.TextPointer(note), ReviewedAt: data.TimeString(reviewedAt), FailureReasons: reasons, CurrentCertificateID: data.UUIDPointer(certificateID), CurrentCertificateNumber: nonEmptyPointer(certificateNumber)}
+	return CandidateView{ClassID: data.UUIDString(classID), ClassCode: classCode, ClassName: className, StudentID: data.UUIDString(studentID), StudentCode: studentCode, StudentName: studentName, CourseCode: courseCode, CourseName: courseName, CompletedSessions: completedSessions, TotalSessions: totalSessions, AttendancePct: attendancePct, MinimumAttendancePct: minimumPct, RequiredCompetenciesMet: competenciesMet, RequiredCompetenciesTotal: competenciesTotal, RequiredTestsPassed: testsPassed, RequiredTestsTotal: testsTotal, FinalExamScore: final, FinalExamPassed: finalPassed, CompletedAssessments: completedAssessments, RequiredAssessments: requiredAssessments, IsEligible: eligible, Status: candidateStatus(persisted, eligible), ReviewNote: data.TextPointer(note), ReviewedAt: data.TimeString(reviewedAt), FailureReasons: reasons, CurrentCertificateID: data.UUIDPointer(certificateID), CurrentCertificateNumber: nonEmptyPointer(certificateNumber)}
 }
 
 func nonEmptyPointer(value string) *string {

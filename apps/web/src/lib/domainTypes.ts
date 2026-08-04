@@ -16,6 +16,7 @@ export interface Student {
   account_status: string;
   student_code: string;
   full_name: string;
+  avatar_url?: string | null;
   phone?: string | null;
   date_of_birth?: string | null;
   gender?: string | null;
@@ -137,6 +138,9 @@ export interface TrainingLocation {
   is_active: boolean;
 }
 
+export type SessionType = "theory" | "workshop" | "assessment" | "other";
+export type SessionStatus = "scheduled" | "completed" | "cancelled" | "locked";
+
 export interface ClassSession {
   id: string;
   class_id: string;
@@ -153,10 +157,10 @@ export interface ClassSession {
   location_code?: string | null;
   location_name?: string | null;
   title: string;
-  session_type: string;
+  session_type: SessionType;
   starts_at: string;
   ends_at: string;
-  status: string;
+  status: SessionStatus;
   attendance_locked_at?: string | null;
 }
 
@@ -166,6 +170,7 @@ export interface AttendanceRosterItem {
   student_id: string;
   student_code: string;
   full_name: string;
+  avatar_url?: string | null;
   enrollment_status: string;
   attendance_id?: string | null;
   attendance_status?: AttendanceStatus | null;
@@ -188,6 +193,20 @@ export interface SessionAttendance {
     late: number;
     excused: number;
   };
+}
+
+export interface AttendanceRecord {
+  id: string;
+  class_session_id: string;
+  class_id: string;
+  student_id: string;
+  student_code?: string;
+  full_name?: string;
+  status: AttendanceStatus;
+  note?: string | null;
+  recorded_by: string;
+  recorded_at: string;
+  updated_at: string;
 }
 
 export interface StudentAttendanceHistoryItem {

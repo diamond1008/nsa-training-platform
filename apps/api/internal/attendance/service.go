@@ -65,6 +65,7 @@ type RosterItemView struct {
 	StudentID        string  `json:"student_id"`
 	StudentCode      string  `json:"student_code"`
 	FullName         string  `json:"full_name"`
+	AvatarURL        *string `json:"avatar_url"`
 	EnrollmentStatus string  `json:"enrollment_status"`
 	AttendanceID     *string `json:"attendance_id"`
 	AttendanceStatus *string `json:"attendance_status"`
@@ -432,6 +433,114 @@ func (s *Service) Correct(
 	return newView, nil
 }
 
+func (s *Service) AdminCorrectStudent(
+	ctx context.Context,
+	adminUserID string,
+	sessionID string,
+	studentID string,
+	input CorrectionInput,
+) (RecordView, error) {
+	sessionUUID, err := data.UUID(sessionID)
+	if err != nil {
+		return RecordView{}, ErrSessionNotFound
+	}
+	studentUUID, err := data.UUID(studentID)
+	if err != nil {
+		return RecordView{}, ErrStudentNotEnrolled
+	}
+	adminUUID, err := data.UUID(adminUserID)
+	if err != nil {
+		return RecordView{}, fmt.Errorf("invalid admin identity")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return RecordView{}, fmt.Errorf("begin admin attendance correction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := s.queries.WithTx(tx)
+
+	row, err := q.GetAttendanceSessionForUpdate(ctx, sessionUUID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RecordView{}, ErrSessionNotFound
+	}
+	if err != nil {
+		return RecordView{}, fmt.Errorf("lock attendance session: %w", err)
+	}
+	session := snapshotFromLocked(row)
+
+	enrolled, err := q.CheckEnrollmentForSession(ctx, db.CheckEnrollmentForSessionParams{
+		SessionID: session.ID, StudentID: studentUUID,
+	})
+	if err != nil {
+		return RecordView{}, fmt.Errorf("check attendance enrollment: %w", err)
+	}
+	if !enrolled {
+		return RecordView{}, ErrStudentNotEnrolled
+	}
+
+	var oldView *RecordView
+	rosterRows, err := q.ListSessionAttendanceRoster(ctx, session.ID)
+	if err != nil {
+		return RecordView{}, fmt.Errorf("read attendance roster for correction: %w", err)
+	}
+	var studentCode, fullName string
+	for _, r := range rosterRows {
+		if r.StudentID == studentUUID {
+			studentCode, fullName = r.StudentCode, r.FullName
+			if r.AttendanceID.Valid {
+				oldView = &RecordView{
+					ID:             data.UUIDString(r.AttendanceID),
+					ClassSessionID: data.UUIDString(session.ID),
+					ClassID:        data.UUIDString(session.ClassID),
+					StudentID:      data.UUIDString(studentUUID),
+					StudentCode:    r.StudentCode,
+					FullName:       r.FullName,
+					Status:         string(r.AttendanceStatus.AttendanceStatus),
+					Note:           data.TextPointer(r.Note),
+				}
+			}
+			break
+		}
+	}
+	if studentCode == "" {
+		return RecordView{}, ErrStudentNotEnrolled
+	}
+
+	updated, err := q.UpsertAttendanceRecord(ctx, db.UpsertAttendanceRecordParams{
+		ClassSessionID: session.ID,
+		ClassID:        session.ClassID,
+		StudentID:      studentUUID,
+		Status:         input.Status,
+		Note:           data.Text(input.Note),
+		RecordedBy:     adminUUID,
+	})
+	if err != nil {
+		return RecordView{}, mapAttendanceWriteError(err)
+	}
+
+	newView := recordView(updated)
+	newView.StudentCode = studentCode
+	newView.FullName = fullName
+
+	if err := audit.WriteWithReason(
+		ctx, q, adminUserID, "attendance.correct", "attendance_record",
+		updated.ID, oldView, newView, input.Reason,
+	); err != nil {
+		return RecordView{}, err
+	}
+	if err := classhistory.Write(
+		ctx, q, adminUserID, session.ClassID, "attendance_corrected", "attendance_record",
+		updated.ID, input.Reason, map[string]any{"before": oldView, "after": newView},
+	); err != nil {
+		return RecordView{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return RecordView{}, fmt.Errorf("commit admin attendance correction: %w", err)
+	}
+	return newView, nil
+}
+
 func (s *Service) StudentHistory(
 	ctx context.Context,
 	userID string,
@@ -638,7 +747,7 @@ func rosterItemView(row db.ListSessionAttendanceRosterRow) RosterItemView {
 	}
 	return RosterItemView{
 		StudentID: data.UUIDString(row.StudentID), StudentCode: row.StudentCode,
-		FullName: row.FullName, EnrollmentStatus: string(row.EnrollmentStatus),
+		FullName: row.FullName, AvatarURL: data.TextPointer(row.AvatarUrl), EnrollmentStatus: string(row.EnrollmentStatus),
 		AttendanceID: attendanceID, AttendanceStatus: status, Note: data.TextPointer(row.Note),
 		RecordedBy: recordedBy, RecordedByEmail: data.TextPointer(row.RecordedByEmail),
 		RecordedAt: data.TimeString(row.RecordedAt), UpdatedAt: data.TimeString(row.UpdatedAt),

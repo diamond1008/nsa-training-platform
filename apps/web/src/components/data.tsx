@@ -75,13 +75,18 @@ export interface Column<T> {
   header: string;
   cell: (item: T) => ReactNode;
   className?: string;
+  sortKey?: string;
 }
 export function DataTable<T extends { id: string }>({
   items,
   columns,
+  sort,
+  onSort,
 }: {
   items: T[];
   columns: Column<T>[];
+  sort?: { key: string; order: "asc" | "desc" };
+  onSort?: (key: string, order: "asc" | "desc") => void;
 }) {
   return (
     <Card className="overflow-hidden p-0">
@@ -114,12 +119,38 @@ export function DataTable<T extends { id: string }>({
               {columns.map((column) => (
                 <th
                   key={column.header}
+                  aria-sort={
+                    column.sortKey && sort?.key === column.sortKey
+                      ? sort.order === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : undefined
+                  }
                   className={clsx(
                     "border-b border-gborder px-5 py-3.5 font-bold",
                     column.className,
                   )}
                 >
-                  {column.header}
+                  {column.sortKey && onSort ? (
+                    <button
+                      type="button"
+                      aria-label={`Sắp xếp theo ${column.header}`}
+                      onClick={() =>
+                        onSort(
+                          column.sortKey!,
+                          sort?.key === column.sortKey && sort?.order === "asc" ? "desc" : "asc",
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-md text-left transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+                    >
+                      {column.header}
+                      {sort?.key === column.sortKey ? (
+                        <span aria-hidden>{sort.order === "asc" ? "↑" : "↓"}</span>
+                      ) : null}
+                    </button>
+                  ) : (
+                    column.header
+                  )}
                 </th>
               ))}
             </tr>

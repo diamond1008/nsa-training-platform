@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 18 complete locally — fixed training slots and paper-test operations**
+**Current phase: Phase 22 complete locally — dense scheduling and temporal re-enrollment**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -29,6 +29,11 @@ Training management platform for an automotive vocational training center. It ma
 | 16 | Reports, notifications, and production hardening | ✅ Completed locally |
 | 17 | Tests, final exam, transfer-safe completion rules | ✅ Completed and validated locally |
 | 18 | Fixed training slots and paper-test operations | ✅ Completed and validated locally |
+| 19 | Student avatar persistence and attendance table polish | Implemented locally |
+| 20 | Admin attendance corrections and audit workflow | Implemented locally |
+| 21 | Operations UX, filters, and focused attendance workspaces | ✅ Completed and validated locally |
+| 22 | Dense schedule cells and withdrawal-safe re-enrollment | ✅ Completed and validated locally |
+| 23 | Two-state roll-call UX with legacy attendance compatibility | Implemented locally |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 
@@ -62,7 +67,7 @@ Create student → Assign class → Schedule training → Record attendance
 - Let assigned teachers save and revise attendance during the Vietnamese calendar day.
 - Automatically fill missing records as Absent and lock attendance at the next `00:00` in `Asia/Ho_Chi_Minh`.
 - Permit audited ADMIN corrections after locking only when a reason is supplied.
-- Provide Present, Late, Excused, and Absent states, attendance rates, and absence-risk warnings.
+- Retain Present, Late, Excused, and Absent in the canonical API/database history while presenting operational roll call as only Có mặt/Vắng; attendance rates and absence-risk warnings keep using the canonical values.
 - Scope visibility to all sessions for ADMIN, assigned classes for TEACHER, and the enrolled class roster for STUDENT.
 
 ### Phase 14 — Practical competency assessment
@@ -113,6 +118,36 @@ ADMIN remains the only role allowed to approve/reject completion and issue, revo
 - Show the weekly calendar as a compact three-row timetable with role-specific counters for Admin, Teacher, and Student.
 - Remove pre-existing sessions that do not match a fixed slot during migration `00007`; linked attendance is removed and optional assessment-session links are detached while assessment results remain.
 - Conduct all in-class tests and final exams on paper. ADMIN configures the required tests, assigned TEACHER users enter scores after marking, and STUDENT users only view results.
+
+### Phase 21 — Operations UX and focused attendance workspaces
+
+- Keep management search, filters, pagination, and sorting in the URL so an operational view survives reload and can be shared.
+- Apply bounded server-side filters to students, teachers, courses, classes, schedules, and completion candidates instead of loading an entire directory into the browser.
+- Let ADMIN identify attendance-risk students by course/class, inspect any session roster, and record or correct a result only after confirming the before/after state with a mandatory reason.
+- Let assigned TEACHER users search their schedule and roster, filter recorded/unrecorded states, mark only Có mặt/Vắng, and save pending rows during the editable Vietnam calendar day.
+- Keep the calendar focused on schedule management. Attendance review and correction use the canonical `/admin/diem-danh` and `/teacher/diem-danh` workspaces.
+- Improve keyboard and screen-reader support with a skip link, sortable-table state, labelled combobox/listbox controls, focus-trapped modals, restored trigger focus, and reduced-motion-safe transitions.
+
+#### List query contract
+
+Management endpoints accept bounded `page`/`per_page`, optional `search`, domain filters, and allow-listed `sort_by`/`sort_order` values. Invalid UUIDs, filter enums, date ranges, and sort fields return the normal validation error envelope. Student CSV export accepts the same course, class, status, search, and attendance-risk filters as the visible directory.
+
+### Phase 22 — Dense schedules and temporal re-enrollment
+
+- Keep the primary schedule filters on one compact toolbar and place class, teacher, and room/workshop selectors in a labelled advanced disclosure.
+- Render at most two class cards in a weekly day/slot cell; `+N lớp khác` opens the complete keyboard-accessible list without a nested scrollbar.
+- Preserve one stable class enrollment while recording each active interval in `class_enrollment_periods`.
+- Let ADMIN return only a withdrawn student to the same class with an effective RFC3339 timestamp and mandatory reason.
+- Treat enrollment periods as half-open intervals `[started_at, ended_at)`, excluding sessions that begin exactly when a withdrawal takes effect as well as every session in the withdrawal gap.
+- Exclude those sessions from Student schedules, attendance rosters, automatic absence, and the attendance denominator while retaining all earlier attendance and scores.
+- Reject re-enrollment when the class is full/inactive, the student is inactive, the timestamp is invalid, or another class in the same course is already active.
+
+### Phase 23 — Two-state roll call
+
+- Keep the backend/database `present`, `late`, `excused`, and `absent` contract unchanged so historical attendance and attendance-rate calculations remain valid.
+- Project `present/late` to **Có mặt** and `absent/excused/unrecorded` to **Vắng** in Teacher and Admin attendance workspaces; legacy `late/excused` records receive an explicit historical-data badge.
+- Default every unrecorded roster row to Vắng in the Teacher draft. The teacher marks attendees Có mặt and saves the batch; unchanged legacy records are not silently rewritten.
+- Use the same operational columns on both workspaces: STT, student code, avatar, learner name, Có mặt, Vắng, note, and recorder. ADMIN corrections still require a reason and remain audited.
 
 ### Explicitly Out of Scope
 
@@ -187,7 +222,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 ## Implemented Features
 
 - **Local infrastructure:** PostgreSQL 16 via Docker Compose with health check and persistent named volume (`make db-up`)
-- **Migrations:** Goose v3 through `00007_fixed_training_slots.sql`; the latest migration removes off-slot sessions and enforces the three Vietnam-time training slots
+- **Migrations:** Goose v3 through `00009_add_enrollment_periods.sql`; fixed training slots and non-overlapping temporal enrollment periods are enforced in PostgreSQL
 - **Seeds:** roles (ADMIN/TEACHER/STUDENT) ship in the baseline; DEV-ONLY demo accounts via `make db-seed`
 - **API docs:** OpenAPI 3.1 at `docs/openapi.yaml` — served by the API at `/docs` + `/openapi.yaml`, or via container (`make swagger` → http://localhost:8081)
 - **ERD:** `database/schema.dbml` for dbdiagram.io
@@ -209,7 +244,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **Training locations (`/api/v1/admin/locations`):** create/list/detail/update workshops and rooms, including capacity and active state; Admin manages them alongside the calendar
 - **Role schedules:** `GET /api/v1/teacher/schedule` returns the authenticated teacher's assigned sessions; `GET /api/v1/student/schedule` returns only active-enrollment sessions
 - **Timezone contract:** API accepts RFC3339 offsets, stores/returns UTC, and evaluates class date boundaries plus fixed-slot validity in `Asia/Ho_Chi_Minh`
-- **Teacher attendance:** assigned teachers can view their class rosters and save or revise transactional Present/Absent/Late/Excused batches only after the session starts and during its Vietnamese calendar day
+- **Teacher attendance:** assigned teachers can view their class rosters and save or revise transactional two-state roll-call batches (Có mặt/Present or Vắng/Absent) only after the session starts and during its Vietnamese calendar day; unrecorded rows begin as an unsaved Vắng draft
 - **Automatic attendance lock:** at 00:00 Asia/Ho_Chi_Minh, unrecorded historical-roster students are saved as Absent and completed sessions are locked; cross-midnight sessions remain writable until the next valid boundary
 - **Attendance corrections:** ADMIN can correct an existing record even after locking; the required reason and old/new values are written to both the audit log and class operation timeline in the same transaction
 - **Attendance visibility:** administrators can inspect and correct every session, assigned teachers can inspect their classes, and students can view classmates' statuses without staff notes or recorder metadata

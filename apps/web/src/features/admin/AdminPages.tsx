@@ -1,9 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import clsx from "clsx";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import {
+  addCalendarDays,
   currentWeekStart,
   inferTrainingSlot,
   monthRange,
@@ -19,7 +21,6 @@ import type {
   WeekCalendarEvent,
 } from "../../components/calendar";
 import {
-  AttendanceRoster,
   DataTable,
   Pagination,
   QueryState,
@@ -29,6 +30,8 @@ import {
   StatusBadge,
 } from "../../components/data";
 import { Icon } from "../../components/icons";
+import { FilterBar, useDebouncedValue } from "../../components/filters";
+import { SearchCombobox } from "../../components/SearchCombobox";
 import {
   Button,
   Badge,
@@ -42,8 +45,6 @@ import {
 } from "../../components/ui";
 import { ApiRequestError } from "../../lib/apiClient";
 import type {
-  AttendanceRosterItem,
-  AttendanceStatus,
   ClassSession,
   CompletionCandidate,
   Course,
@@ -57,8 +58,13 @@ import type {
   TrainingClass,
   TrainingLocation,
 } from "../../lib/domainTypes";
-import { formatDate, formatDateTime } from "../../lib/format";
+import { formatDate, formatDateTime, statusLabel } from "../../lib/format";
+import { patchListQuery, readListQuery } from "../../lib/listQuery";
+import type { ListQueryConfig } from "../../lib/listQuery";
+import { compressImageToWebP } from "../../lib/image";
 import { adminApi } from "./adminApi";
+import { EnrollmentActionButtons } from "./EnrollmentActionButtons";
+import type { EnrollmentAction } from "./EnrollmentActionButtons";
 
 function mutationMessage(error: unknown): string {
   return error instanceof ApiRequestError
@@ -66,8 +72,32 @@ function mutationMessage(error: unknown): string {
     : "Không thể lưu dữ liệu. Vui lòng thử lại.";
 }
 
+function vietnamDateTimeLocal(value = new Date()) {
+  const nextWholeMinute = Math.ceil(value.getTime() / 60_000) * 60_000;
+  return new Date(nextWholeMinute + 7 * 60 * 60 * 1000).toISOString().slice(0, 16);
+}
+
+function vietnamLocalInputToRFC3339(value: string) {
+  return new Date(`${value}:00+07:00`).toISOString();
+}
+
+const completionListConfig: ListQueryConfig<string, string> = {
+  filterKeys: ["eligibility", "course_id", "class_id"],
+  allowedSorts: ["class_code", "student_code"],
+  defaultSort: "class_code",
+  defaultOrder: "asc",
+};
+
 export function AdminOperationsPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const listState = readListQuery(searchParams, completionListConfig);
+  const [searchInput, setSearchInput] = useState(listState.q);
+  const [courseSearch, setCourseSearch] = useState("");
+  const [classSearch, setClassSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput);
+  const debouncedCourseSearch = useDebouncedValue(courseSearch);
+  const debouncedClassSearch = useDebouncedValue(classSearch);
   const [selected, setSelected] = useState<CompletionCandidate | null>(null);
   const [decision, setDecision] = useState<"approved" | "rejected">("approved");
   const [note, setNote] = useState("");
@@ -75,9 +105,82 @@ export function AdminOperationsPage() {
     queryKey: ["admin", "reports", "summary"],
     queryFn: () => adminApi.reportSummary(),
   });
+  useEffect(() => setSearchInput(listState.q), [listState.q]);
+  useEffect(() => {
+    if (debouncedSearch.trim() === listState.q) return;
+    setSearchParams(patchListQuery(searchParams, { q: debouncedSearch }, completionListConfig), {
+      replace: true,
+    });
+  }, [debouncedSearch, listState.q, searchParams, setSearchParams]);
+  const updateList = (patch: Record<string, string | number | undefined>) =>
+    setSearchParams(patchListQuery(searchParams, patch, completionListConfig), { replace: true });
+  const courseOptionsQuery = useQuery({
+    queryKey: ["admin", "courses", "completion-options", debouncedCourseSearch],
+    queryFn: () =>
+      adminApi.courses({
+        page: 1,
+        per_page: 20,
+        search: debouncedCourseSearch,
+        sort_by: "code",
+        sort_order: "asc",
+      }),
+  });
+  const classOptionsQuery = useQuery({
+    queryKey: [
+      "admin",
+      "classes",
+      "completion-options",
+      debouncedClassSearch,
+      listState.filters.course_id,
+    ],
+    queryFn: () =>
+      adminApi.classes({
+        page: 1,
+        per_page: 20,
+        search: debouncedClassSearch,
+        course_id: listState.filters.course_id || undefined,
+        sort_by: "class_code",
+        sort_order: "asc",
+      }),
+  });
+  const selectedCourse = useQuery({
+    queryKey: ["admin", "course", listState.filters.course_id],
+    queryFn: () => adminApi.getCourse(listState.filters.course_id),
+    enabled: Boolean(listState.filters.course_id),
+  });
+  const selectedClass = useQuery({
+    queryKey: ["admin", "class", listState.filters.class_id],
+    queryFn: () => adminApi.getClass(listState.filters.class_id),
+    enabled: Boolean(listState.filters.class_id),
+  });
+  const courseOptions = useMemo(() => {
+    const items = [...(courseOptionsQuery.data?.items ?? [])];
+    if (selectedCourse.data && !items.some((item) => item.id === selectedCourse.data!.id)) {
+      items.unshift(selectedCourse.data);
+    }
+    return items.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}` }));
+  }, [courseOptionsQuery.data?.items, selectedCourse.data]);
+  const classOptions = useMemo(() => {
+    const items = [...(classOptionsQuery.data?.items ?? [])];
+    if (selectedClass.data && !items.some((item) => item.id === selectedClass.data!.id)) {
+      items.unshift(selectedClass.data);
+    }
+    return items.map((item) => ({ value: item.id, label: `${item.class_code} — ${item.name}` }));
+  }, [classOptionsQuery.data?.items, selectedClass.data]);
   const candidates = useQuery({
-    queryKey: ["admin", "completions"],
-    queryFn: () => adminApi.completions({ page: 1, per_page: 100 }),
+    queryKey: ["admin", "completions", listState],
+    queryFn: () =>
+      adminApi.completions({
+        page: listState.page,
+        per_page: 20,
+        search: listState.q,
+        eligibility: (listState.filters.eligibility || undefined) as
+          "eligible" | "ineligible" | undefined,
+        course_id: listState.filters.course_id,
+        class_id: listState.filters.class_id,
+        sort_by: listState.sort,
+        sort_order: listState.order,
+      }),
   });
   const decide = useMutation({
     mutationFn: () =>
@@ -130,6 +233,22 @@ export function AdminOperationsPage() {
     ["classes", "Lớp học"],
     ["completions", "Hoàn thành"],
   ] as const;
+  const eligibilityLabel =
+    listState.filters.eligibility === "eligible"
+      ? "Đủ điều kiện"
+      : listState.filters.eligibility === "ineligible"
+        ? "Chưa đủ điều kiện"
+        : "";
+  const activeCompletionFilters = [
+    ...(eligibilityLabel ? [{ key: "eligibility", label: eligibilityLabel }] : []),
+    ...(selectedCourse.data
+      ? [{ key: "course_id", label: `Khóa: ${selectedCourse.data.code}` }]
+      : []),
+    ...(selectedClass.data
+      ? [{ key: "class_id", label: `Lớp: ${selectedClass.data.class_code}` }]
+      : []),
+  ];
+  const hasCompletionFilter = Boolean(listState.q || activeCompletionFilters.length);
   return (
     <div>
       <PageHeader
@@ -169,6 +288,65 @@ export function AdminOperationsPage() {
           title="Duyệt hoàn thành khóa học"
           subtitle="Chỉ được duyệt khi chuyên cần đạt 80%, đạt toàn bộ bài kiểm tra bắt buộc và điểm thi kết thúc trên 5."
         />
+        <FilterBar
+          search={searchInput}
+          onSearch={setSearchInput}
+          resultCount={candidates.data?.meta.total}
+          activeFilters={activeCompletionFilters}
+          onRemoveFilter={(key) => updateList({ [key]: "" })}
+          onClearAll={() => {
+            setSearchInput("");
+            setSearchParams(new URLSearchParams(), { replace: true });
+          }}
+          searchPlaceholder="Mã hoặc tên học viên, mã lớp…"
+        >
+          <div className="w-full min-w-48 sm:w-52">
+            <Select
+              label="Điều kiện"
+              value={listState.filters.eligibility}
+              onChange={(event) => updateList({ eligibility: event.target.value })}
+            >
+              <option value="">Tất cả</option>
+              <option value="eligible">Đủ điều kiện</option>
+              <option value="ineligible">Chưa đủ điều kiện</option>
+            </Select>
+          </div>
+          <div className="w-full min-w-56 sm:w-64">
+            <SearchCombobox
+              label="Khóa học"
+              value={listState.filters.course_id}
+              onChange={(value) => updateList({ course_id: value, class_id: "" })}
+              onSearch={setCourseSearch}
+              options={courseOptions}
+              loading={courseOptionsQuery.isLoading}
+            />
+          </div>
+          <div className="w-full min-w-56 sm:w-64">
+            <SearchCombobox
+              label="Lớp học"
+              value={listState.filters.class_id}
+              onChange={(value) => updateList({ class_id: value })}
+              onSearch={setClassSearch}
+              options={classOptions}
+              loading={classOptionsQuery.isLoading}
+            />
+          </div>
+          <div className="w-full min-w-44 sm:w-48">
+            <Select
+              label="Sắp xếp"
+              value={`${listState.sort}:${listState.order}`}
+              onChange={(event) => {
+                const [sort, order] = event.target.value.split(":");
+                updateList({ sort, order });
+              }}
+            >
+              <option value="class_code:asc">Mã lớp A–Z</option>
+              <option value="class_code:desc">Mã lớp Z–A</option>
+              <option value="student_code:asc">Mã học viên A–Z</option>
+              <option value="student_code:desc">Mã học viên Z–A</option>
+            </Select>
+          </div>
+        </FilterBar>
         {certificateAction.error && (
           <ErrorBanner message={mutationMessage(certificateAction.error)} />
         )}
@@ -176,6 +354,9 @@ export function AdminOperationsPage() {
           loading={candidates.isLoading}
           error={candidates.error}
           empty={!candidates.data?.items.length}
+          emptyTitle={
+            hasCompletionFilter ? "Không có hồ sơ phù hợp bộ lọc" : "Chưa có hồ sơ hoàn thành"
+          }
         >
           <div className="space-y-3">
             {candidates.data?.items.map((item) => (
@@ -274,6 +455,11 @@ export function AdminOperationsPage() {
               </Card>
             ))}
           </div>
+          <Pagination
+            page={listState.page}
+            totalPages={candidates.data?.meta.total_pages ?? 1}
+            onPage={(page) => updateList({ page })}
+          />
         </QueryState>
       </section>
 
@@ -328,36 +514,138 @@ export function AdminOperationsPage() {
   );
 }
 
-function SearchFilters({
-  search,
-  status,
-  statusOptions,
-  onSearch,
-  onStatus,
-}: {
-  search: string;
-  status: string;
-  statusOptions: Array<[string, string]>;
-  onSearch: (value: string) => void;
-  onStatus: (value: string) => void;
-}) {
+function WeeklySessionChart() {
+  const currentWeek = useMemo(() => currentWeekStart(), []);
+  const range = useMemo(() => weekRange(currentWeek), [currentWeek]);
+  const todayKey = useMemo(() => vietnamDateKey(new Date()), []);
+
+  const weekSessions = useQuery({
+    queryKey: ["admin", "sessions", "weekly-chart", currentWeek],
+    queryFn: () => adminApi.sessions({ page: 1, per_page: 100, from: range.from, to: range.to }),
+  });
+
+  const daysData = useMemo(() => {
+    const days = [
+      { label: "Thứ 2", short: "T2", offset: 0 },
+      { label: "Thứ 3", short: "T3", offset: 1 },
+      { label: "Thứ 4", short: "T4", offset: 2 },
+      { label: "Thứ 5", short: "T5", offset: 3 },
+      { label: "Thứ 6", short: "T6", offset: 4 },
+      { label: "Thứ 7", short: "T7", offset: 5 },
+      { label: "Chủ nhật", short: "CN", offset: 6 },
+    ];
+
+    const items = weekSessions.data?.items ?? [];
+    return days.map((day) => {
+      const dateKey = addCalendarDays(currentWeek, day.offset);
+      const isToday = dateKey === todayKey;
+      const daySessions = items.filter((s) => vietnamDateKey(new Date(s.starts_at)) === dateKey);
+      const total = daySessions.length;
+
+      return {
+        ...day,
+        dateKey,
+        isToday,
+        total,
+      };
+    });
+  }, [currentWeek, todayKey, weekSessions.data?.items]);
+
+  const maxSessions = useMemo(() => Math.max(...daysData.map((d) => d.total), 1), [daysData]);
+
+  const totalWeekSessions = useMemo(
+    () => daysData.reduce((acc, d) => acc + d.total, 0),
+    [daysData],
+  );
+
+  const busiestDay = useMemo(() => {
+    const sorted = [...daysData].sort((a, b) => b.total - a.total);
+    return sorted[0]?.total > 0 ? sorted[0] : null;
+  }, [daysData]);
+
   return (
-    <div className="mb-5 grid gap-3 rounded-2xl border border-gborder bg-white p-4 shadow-card sm:grid-cols-[1fr_220px]">
-      <Input
-        label="Tìm kiếm"
-        value={search}
-        onChange={(e) => onSearch(e.target.value)}
-        placeholder="Nhập mã, tên hoặc email…"
+    <Card className="flex flex-col justify-between">
+      <SectionHeader
+        title="Mật độ buổi học trong tuần"
+        subtitle="Thống kê tần suất lịch giảng dạy theo ngày (Tuần này)"
+        action={
+          <div className="flex items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/5 px-2.5 py-1 text-navy font-semibold">
+              <span className="h-2 w-2 rounded-full bg-navy" /> Tổng:{" "}
+              <strong>{totalWeekSessions} buổi</strong>
+            </span>
+            {busiestDay && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-2.5 py-1 text-navy font-semibold">
+                <span className="h-2 w-2 rounded-full bg-gold" /> Cao điểm:{" "}
+                <strong>
+                  {busiestDay.label} ({busiestDay.total})
+                </strong>
+              </span>
+            )}
+          </div>
+        }
       />
-      <Select label="Trạng thái" value={status} onChange={(e) => onStatus(e.target.value)}>
-        <option value="">Tất cả</option>
-        {statusOptions.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </Select>
-    </div>
+      <QueryState loading={weekSessions.isLoading} error={weekSessions.error}>
+        <div className="flex flex-col justify-between pt-2">
+          <div className="grid h-40 grid-cols-7 items-end gap-2 border-b border-gborder/40 px-2 pb-2 sm:gap-3">
+            {daysData.map((d) => {
+              const heightPercent = Math.max(Math.round((d.total / maxSessions) * 100), 12);
+              return (
+                <div
+                  key={d.dateKey}
+                  className="group relative flex h-full flex-col items-center justify-end"
+                >
+                  <div className="pointer-events-none absolute -top-9 z-30 opacity-0 transition-all duration-200 group-hover:opacity-100 whitespace-nowrap rounded-xl border border-navy/20 bg-navy px-2.5 py-1 text-xs font-semibold text-white shadow-lg">
+                    {d.label}: {d.total} buổi
+                  </div>
+
+                  <span
+                    className={clsx(
+                      "mb-1.5 text-xs font-bold transition-colors",
+                      d.isToday ? "scale-110 font-extrabold text-gold-dark" : "text-navy/70",
+                    )}
+                  >
+                    {d.total}
+                  </span>
+
+                  <div
+                    style={{ height: `${heightPercent}%` }}
+                    className={clsx(
+                      "relative w-full max-w-[2.5rem] overflow-hidden rounded-t-xl shadow-2xs transition-all duration-500 group-hover:scale-105",
+                      d.isToday
+                        ? "bg-gradient-to-t from-gold-dark via-gold to-amber-300 ring-2 ring-gold/40 shadow-xs"
+                        : d.total > 0
+                          ? "bg-gradient-to-t from-navy to-slate-700 group-hover:from-navy group-hover:to-gold-dark"
+                          : "border border-dashed border-gborder bg-gbg2",
+                    )}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-7 gap-2 pt-3 text-center sm:gap-3">
+            {daysData.map((d) => (
+              <div key={d.dateKey} className="flex flex-col items-center">
+                <span
+                  className={clsx(
+                    "text-xs font-bold",
+                    d.isToday ? "font-extrabold text-navy" : "text-gtext",
+                  )}
+                >
+                  {d.short}
+                </span>
+                {d.isToday && (
+                  <span className="mt-0.5 rounded-md bg-gold/20 px-1.5 py-0.5 text-[10px] font-bold text-navy">
+                    Hôm nay
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </QueryState>
+    </Card>
   );
 }
 
@@ -429,6 +717,11 @@ export function AdminDashboardPage() {
             tone="green"
           />
         </div>
+
+        <div className="mt-6">
+          <WeeklySessionChart />
+        </div>
+
         <div className="mt-6 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
           <Card>
             <SectionHeader
@@ -520,26 +813,163 @@ export function AdminDashboardPage() {
 type PersonKind = "student" | "teacher";
 type Person = Student | Teacher;
 
+const personListConfigs: Record<PersonKind, ListQueryConfig<string, string>> = {
+  student: {
+    filterKeys: ["status", "course_id", "class_id", "attendance_risk"],
+    allowedSorts: ["created_at", "student_code", "full_name"],
+    defaultSort: "created_at",
+    defaultOrder: "desc",
+  },
+  teacher: {
+    filterKeys: ["status", "course_id", "class_id", "assignment"],
+    allowedSorts: ["created_at", "teacher_code", "full_name"],
+    defaultSort: "created_at",
+    defaultOrder: "desc",
+  },
+};
+
+const personStatusOptions: Record<PersonKind, Array<[string, string]>> = {
+  student: [
+    ["active", "Hoạt động"],
+    ["pending", "Chờ xử lý"],
+    ["suspended", "Tạm nghỉ"],
+    ["completed", "Đã hoàn thành"],
+    ["withdrawn", "Đã rút"],
+  ],
+  teacher: [
+    ["active", "Hoạt động"],
+    ["inactive", "Không hoạt động"],
+  ],
+};
+
 function PersonDirectory({ kind }: { kind: PersonKind }) {
   const isStudent = kind === "student";
   const queryClient = useQueryClient();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
+  const config = personListConfigs[kind];
+  const [searchParams, setSearchParams] = useSearchParams();
+  const listState = readListQuery(searchParams, config);
+  const [searchInput, setSearchInput] = useState(listState.q);
+  const [courseSearch, setCourseSearch] = useState("");
+  const [classSearch, setClassSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput);
+  const debouncedCourseSearch = useDebouncedValue(courseSearch);
+  const debouncedClassSearch = useDebouncedValue(classSearch);
   const [editing, setEditing] = useState<Person | null>(null);
   const [open, setOpen] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setSearchInput(listState.q), [listState.q]);
+  useEffect(() => {
+    if (debouncedSearch.trim() === listState.q) return;
+    setSearchParams(patchListQuery(searchParams, { q: debouncedSearch }, config), {
+      replace: true,
+    });
+  }, [config, debouncedSearch, listState.q, searchParams, setSearchParams]);
+
+  const updateList = (patch: Record<string, string | number | undefined>) =>
+    setSearchParams(patchListQuery(searchParams, patch, config), { replace: true });
+
+  const courseOptionsQuery = useQuery({
+    queryKey: ["admin", "courses", "filter-options", debouncedCourseSearch],
+    queryFn: () =>
+      adminApi.courses({
+        page: 1,
+        per_page: 20,
+        search: debouncedCourseSearch,
+        sort_by: "code",
+        sort_order: "asc",
+      }),
+  });
+  const classOptionsQuery = useQuery({
+    queryKey: [
+      "admin",
+      "classes",
+      "filter-options",
+      debouncedClassSearch,
+      listState.filters.course_id,
+    ],
+    queryFn: () =>
+      adminApi.classes({
+        page: 1,
+        per_page: 20,
+        search: debouncedClassSearch,
+        course_id: listState.filters.course_id || undefined,
+        sort_by: "class_code",
+        sort_order: "asc",
+      }),
+  });
+  const selectedCourseQuery = useQuery({
+    queryKey: ["admin", "course", listState.filters.course_id],
+    queryFn: () => adminApi.getCourse(listState.filters.course_id),
+    enabled: Boolean(listState.filters.course_id),
+  });
+  const selectedClassQuery = useQuery({
+    queryKey: ["admin", "class", listState.filters.class_id],
+    queryFn: () => adminApi.getClass(listState.filters.class_id),
+    enabled: Boolean(listState.filters.class_id),
+  });
+  const courseOptions = useMemo(() => {
+    const items = [...(courseOptionsQuery.data?.items ?? [])];
+    if (
+      selectedCourseQuery.data &&
+      !items.some((item) => item.id === selectedCourseQuery.data!.id)
+    ) {
+      items.unshift(selectedCourseQuery.data);
+    }
+    return items.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}` }));
+  }, [courseOptionsQuery.data?.items, selectedCourseQuery.data]);
+  const classOptions = useMemo(() => {
+    const items = [...(classOptionsQuery.data?.items ?? [])];
+    if (selectedClassQuery.data && !items.some((item) => item.id === selectedClassQuery.data!.id)) {
+      items.unshift(selectedClassQuery.data);
+    }
+    return items.map((item) => ({
+      value: item.id,
+      label: `${item.class_code} — ${item.name}`,
+      description: item.course_name,
+    }));
+  }, [classOptionsQuery.data?.items, selectedClassQuery.data]);
+
   const query = useQuery<Paginated<Person>>({
-    queryKey: ["admin", kind, page, search, status],
+    queryKey: [
+      "admin",
+      kind,
+      listState.page,
+      listState.q,
+      listState.filters.status,
+      listState.filters.course_id,
+      listState.filters.class_id,
+      listState.filters.assignment,
+      listState.filters.attendance_risk,
+      listState.sort,
+      listState.order,
+    ],
     queryFn: async () => {
       if (isStudent)
         return (await adminApi.students({
-          page,
+          page: listState.page,
           per_page: 10,
-          search,
-          status,
+          search: listState.q,
+          status: listState.filters.status,
+          course_id: listState.filters.course_id,
+          class_id: listState.filters.class_id,
+          attendance_risk: (listState.filters.attendance_risk || undefined) as
+            "at_risk" | "on_track" | undefined,
+          sort_by: listState.sort,
+          sort_order: listState.order,
         })) as Paginated<Person>;
-      return (await adminApi.teachers({ page, per_page: 10, search, status })) as Paginated<Person>;
+      return (await adminApi.teachers({
+        page: listState.page,
+        per_page: 10,
+        search: listState.q,
+        status: listState.filters.status,
+        course_id: listState.filters.course_id,
+        class_id: listState.filters.class_id,
+        assignment: (listState.filters.assignment || undefined) as
+          "assigned" | "unassigned" | undefined,
+        sort_by: listState.sort,
+        sort_order: listState.order,
+      })) as Paginated<Person>;
     },
   });
   const mutation = useMutation<Person, Error, { id?: string; body: unknown }>({
@@ -563,7 +993,15 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin", "students"] }),
   });
   const exportMutation = useMutation({
-    mutationFn: () => adminApi.exportStudents({ search, status }),
+    mutationFn: () =>
+      adminApi.exportStudents({
+        search: listState.q,
+        status: listState.filters.status,
+        course_id: listState.filters.course_id,
+        class_id: listState.filters.class_id,
+        attendance_risk: (listState.filters.attendance_risk || undefined) as
+          "at_risk" | "on_track" | undefined,
+      }),
     onSuccess: (blob) => {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -580,6 +1018,51 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
     setOpen(true);
   };
   const title = isStudent ? "Học viên" : "Giảng viên";
+  const statusLabel = personStatusOptions[kind].find(
+    ([value]) => value === listState.filters.status,
+  )?.[1];
+  const activeFilters = [
+    ...(statusLabel ? [{ key: "status", label: `Trạng thái: ${statusLabel}` }] : []),
+    ...(selectedCourseQuery.data
+      ? [
+          {
+            key: "course_id",
+            label: `Khóa: ${selectedCourseQuery.data.code}`,
+          },
+        ]
+      : []),
+    ...(selectedClassQuery.data
+      ? [
+          {
+            key: "class_id",
+            label: `Lớp: ${selectedClassQuery.data.class_code}`,
+          },
+        ]
+      : []),
+    ...(!isStudent && listState.filters.assignment
+      ? [
+          {
+            key: "assignment",
+            label:
+              listState.filters.assignment === "assigned"
+                ? "Đã được phân công"
+                : "Chưa được phân công",
+          },
+        ]
+      : []),
+    ...(isStudent && listState.filters.attendance_risk
+      ? [
+          {
+            key: "attendance_risk",
+            label:
+              listState.filters.attendance_risk === "at_risk"
+                ? "Chuyên cần: Có nguy cơ"
+                : "Chuyên cần: Đạt tiến độ",
+          },
+        ]
+      : []),
+  ];
+  const hasActiveFilter = Boolean(listState.q || activeFilters.length);
   return (
     <div>
       <PageHeader
@@ -619,32 +1102,80 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
           </div>
         }
       />
-      <SearchFilters
-        search={search}
-        status={status}
-        onSearch={(v) => {
-          setSearch(v);
-          setPage(1);
+      <FilterBar
+        search={searchInput}
+        onSearch={setSearchInput}
+        resultCount={query.data?.meta.total}
+        activeFilters={activeFilters}
+        onRemoveFilter={(key) => updateList({ [key]: "" })}
+        onClearAll={() => {
+          setSearchInput("");
+          setSearchParams(new URLSearchParams(), { replace: true });
         }}
-        onStatus={(v) => {
-          setStatus(v);
-          setPage(1);
-        }}
-        statusOptions={
-          isStudent
-            ? [
-                ["active", "Hoạt động"],
-                ["pending", "Chờ xử lý"],
-                ["suspended", "Tạm nghỉ"],
-                ["completed", "Đã hoàn thành"],
-                ["withdrawn", "Đã rút"],
-              ]
-            : [
-                ["active", "Hoạt động"],
-                ["inactive", "Không hoạt động"],
-              ]
-        }
-      />
+      >
+        <div className="w-full min-w-44 sm:w-48">
+          <Select
+            label="Trạng thái"
+            value={listState.filters.status}
+            onChange={(event) => updateList({ status: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            {personStatusOptions[kind].map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {!isStudent ? (
+          <div className="w-full min-w-44 sm:w-52">
+            <Select
+              label="Phân công"
+              value={listState.filters.assignment}
+              onChange={(event) => updateList({ assignment: event.target.value })}
+            >
+              <option value="">Tất cả</option>
+              <option value="assigned">Đã phân công</option>
+              <option value="unassigned">Chưa phân công</option>
+            </Select>
+          </div>
+        ) : null}
+        {isStudent ? (
+          <div className="w-full min-w-44 sm:w-52">
+            <Select
+              label="Nguy cơ chuyên cần"
+              value={listState.filters.attendance_risk}
+              onChange={(event) => updateList({ attendance_risk: event.target.value })}
+            >
+              <option value="">Tất cả</option>
+              <option value="at_risk">Có nguy cơ dưới 80%</option>
+              <option value="on_track">Đạt tiến độ</option>
+            </Select>
+          </div>
+        ) : null}
+        <div className="w-full min-w-56 sm:w-64">
+          <SearchCombobox
+            label="Khóa học"
+            value={listState.filters.course_id}
+            onChange={(value) => updateList({ course_id: value, class_id: "" })}
+            onSearch={setCourseSearch}
+            options={courseOptions}
+            loading={courseOptionsQuery.isLoading}
+            placeholder="Tìm mã hoặc tên khóa…"
+          />
+        </div>
+        <div className="w-full min-w-56 sm:w-64">
+          <SearchCombobox
+            label="Lớp học"
+            value={listState.filters.class_id}
+            onChange={(value) => updateList({ class_id: value })}
+            onSearch={setClassSearch}
+            options={classOptions}
+            loading={classOptionsQuery.isLoading}
+            placeholder="Tìm mã hoặc tên lớp…"
+          />
+        </div>
+      </FilterBar>
       {isStudent && importMutation.data ? (
         <Card className="mb-5 border-emerald-200 bg-emerald-50 p-4 text-sm">
           Đã nhập <b>{importMutation.data.imported}</b> học viên; lỗi{" "}
@@ -674,19 +1205,53 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
         loading={query.isLoading}
         error={query.error}
         empty={!query.isLoading && items.length === 0}
+        emptyTitle={hasActiveFilter ? "Không có kết quả phù hợp" : `Chưa có ${title.toLowerCase()}`}
       >
         <DataTable
           items={items}
+          sort={{ key: listState.sort, order: listState.order }}
+          onSort={(key, order) => updateList({ sort: key, order })}
           columns={[
+            ...(isStudent
+              ? [
+                  {
+                    header: "Avatar",
+                    cell: (p: Person) => {
+                      const stu = p as Student;
+                      const initials = stu.full_name
+                        .split(" ")
+                        .filter(Boolean)
+                        .slice(-2)
+                        .map((s) => s[0])
+                        .join("")
+                        .toUpperCase();
+                      return stu.avatar_url ? (
+                        <img
+                          src={stu.avatar_url}
+                          alt={stu.full_name}
+                          width={36}
+                          height={36}
+                          className="h-9 w-9 rounded-full object-cover border border-gborder shadow-2xs"
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark shadow-2xs">
+                          {initials}
+                        </div>
+                      );
+                    },
+                  },
+                ]
+              : []),
             {
               header: "Mã",
+              sortKey: isStudent ? "student_code" : "teacher_code",
               cell: (p) => (
                 <span className="font-semibold text-navy">
                   {isStudent ? (p as Student).student_code : (p as Teacher).teacher_code}
                 </span>
               ),
             },
-            { header: "Họ tên", cell: (p) => p.full_name },
+            { header: "Họ tên", sortKey: "full_name", cell: (p) => p.full_name },
             { header: "Email", cell: (p) => p.email },
             ...(isStudent
               ? [
@@ -714,7 +1279,11 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
             },
           ]}
         />
-        <Pagination page={page} totalPages={query.data?.meta.total_pages ?? 0} onPage={setPage} />
+        <Pagination
+          page={listState.page}
+          totalPages={query.data?.meta.total_pages ?? 0}
+          onPage={(page) => updateList({ page })}
+        />
       </QueryState>
       <Modal
         open={open}
@@ -752,6 +1321,26 @@ function PersonForm({
       ? (initial as Student).student_code
       : (initial as Teacher).teacher_code
     : "";
+  const [avatarUrl, setAvatarUrl] = useState<string>(
+    initial && isStudent ? ((initial as Student).avatar_url ?? "") : "",
+  );
+  const [compressing, setCompressing] = useState(false);
+  const [compressError, setCompressError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarFile = async (file: File) => {
+    try {
+      setCompressing(true);
+      setCompressError(null);
+      const webpDataUrl = await compressImageToWebP(file, 400, 400, 0.82);
+      setAvatarUrl(webpDataUrl);
+    } catch (err) {
+      setCompressError(err instanceof Error ? err.message : "Không thể nén ảnh.");
+    } finally {
+      setCompressing(false);
+    }
+  };
+
   const [form, setForm] = useState({
     email: initial?.email ?? "",
     temporary_password: "",
@@ -792,6 +1381,7 @@ function PersonForm({
     const body = isStudent
       ? {
           ...common,
+          avatar_url: avatarUrl || null,
           date_of_birth: form.extra || null,
           enrolled_at: form.enrolled_at || null,
           gender: form.gender || null,
@@ -813,6 +1403,66 @@ function PersonForm({
   return (
     <form className="space-y-4" onSubmit={submit}>
       {error ? <ErrorBanner message={mutationMessage(error)} /> : null}
+      {isStudent && (
+        <div className="rounded-xl border border-gborder bg-gbg2/50 p-4 space-y-3">
+          <label className="block text-xs font-bold uppercase tracking-wider text-gtext">
+            Avatar học viên (Tự động nén WebP)
+          </label>
+          <div className="flex items-center gap-4">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt="Avatar Preview"
+                className="h-16 w-16 rounded-full object-cover border-2 border-gold shadow-xs shrink-0"
+              />
+            ) : (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gold/25 text-lg font-bold text-gold-dark border border-gborder">
+                {form.full_name
+                  ? form.full_name
+                      .split(" ")
+                      .filter(Boolean)
+                      .slice(-2)
+                      .map((p) => p[0])
+                      .join("")
+                      .toUpperCase()
+                  : "HV"}
+              </div>
+            )}
+            <div className="space-y-1.5 flex-1 min-w-0">
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleAvatarFile(file);
+                  e.target.value = "";
+                }}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="soft"
+                  loading={compressing}
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  {avatarUrl ? "Đổi ảnh Avatar" : "Tải ảnh Avatar lên"}
+                </Button>
+                {avatarUrl && (
+                  <Button type="button" variant="ghost" onClick={() => setAvatarUrl("")}>
+                    Xóa ảnh
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-gtext">
+                Tự động tối ưu dung lượng và chuyển đổi sang định dạng WebP siêu nhẹ.
+              </p>
+              {compressError && <p className="text-xs text-error font-medium">{compressError}</p>}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
           required
@@ -981,15 +1631,50 @@ export function TeachersPage() {
 
 export function CoursesPage() {
   const client = useQueryClient();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
+  const config: ListQueryConfig<string, string> = useMemo(
+    () => ({
+      filterKeys: ["status"],
+      allowedSorts: ["created_at", "code", "name"],
+      defaultSort: "created_at",
+      defaultOrder: "desc",
+    }),
+    [],
+  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const listState = readListQuery(searchParams, config);
+  const [searchInput, setSearchInput] = useState(listState.q);
+  const debouncedSearch = useDebouncedValue(searchInput);
   const [editing, setEditing] = useState<Course | null>(null);
   const [testsCourse, setTestsCourse] = useState<Course | null>(null);
   const [open, setOpen] = useState(false);
+  useEffect(() => setSearchInput(listState.q), [listState.q]);
+  useEffect(() => {
+    if (debouncedSearch.trim() === listState.q) return;
+    setSearchParams(patchListQuery(searchParams, { q: debouncedSearch }, config), {
+      replace: true,
+    });
+  }, [config, debouncedSearch, listState.q, searchParams, setSearchParams]);
+  const updateList = (patch: Record<string, string | number | undefined>) =>
+    setSearchParams(patchListQuery(searchParams, patch, config), { replace: true });
   const query = useQuery({
-    queryKey: ["admin", "courses", page, search, status],
-    queryFn: () => adminApi.courses({ page, per_page: 10, search, status }),
+    queryKey: [
+      "admin",
+      "courses",
+      listState.page,
+      listState.q,
+      listState.filters.status,
+      listState.sort,
+      listState.order,
+    ],
+    queryFn: () =>
+      adminApi.courses({
+        page: listState.page,
+        per_page: 10,
+        search: listState.q,
+        status: listState.filters.status,
+        sort_by: listState.sort,
+        sort_order: listState.order,
+      }),
   });
   const mutation = useMutation({
     mutationFn: ({ id, body }: { id?: string; body: unknown }) =>
@@ -1015,24 +1700,55 @@ export function CoursesPage() {
           </Button>
         }
       />
-      <SearchFilters
-        search={search}
-        status={status}
-        onSearch={setSearch}
-        onStatus={setStatus}
-        statusOptions={[
-          ["draft", "Bản nháp"],
-          ["active", "Hoạt động"],
-          ["inactive", "Không hoạt động"],
-          ["archived", "Lưu trữ"],
-        ]}
-      />
-      <QueryState loading={query.isLoading} error={query.error}>
+      <FilterBar
+        search={searchInput}
+        onSearch={setSearchInput}
+        resultCount={query.data?.meta.total}
+        activeFilters={
+          listState.filters.status
+            ? [
+                {
+                  key: "status",
+                  label: `Trạng thái: ${statusLabel(listState.filters.status)}`,
+                },
+              ]
+            : []
+        }
+        onRemoveFilter={() => updateList({ status: "" })}
+        onClearAll={() => {
+          setSearchInput("");
+          setSearchParams(new URLSearchParams(), { replace: true });
+        }}
+      >
+        <div className="w-full min-w-44 sm:w-52">
+          <Select
+            label="Trạng thái"
+            value={listState.filters.status}
+            onChange={(event) => updateList({ status: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="draft">Bản nháp</option>
+            <option value="active">Hoạt động</option>
+            <option value="inactive">Không hoạt động</option>
+            <option value="archived">Lưu trữ</option>
+          </Select>
+        </div>
+      </FilterBar>
+      <QueryState
+        loading={query.isLoading}
+        error={query.error}
+        empty={!query.isLoading && !query.data?.items.length}
+        emptyTitle={
+          listState.q || listState.filters.status ? "Không có kết quả phù hợp" : "Chưa có khóa học"
+        }
+      >
         <DataTable
           items={query.data?.items ?? []}
+          sort={{ key: listState.sort, order: listState.order }}
+          onSort={(key, order) => updateList({ sort: key, order })}
           columns={[
-            { header: "Mã", cell: (c) => <b className="text-navy">{c.code}</b> },
-            { header: "Tên khóa học", cell: (c) => c.name },
+            { header: "Mã", sortKey: "code", cell: (c) => <b className="text-navy">{c.code}</b> },
+            { header: "Tên khóa học", sortKey: "name", cell: (c) => c.name },
             { header: "Số buổi", cell: (c) => c.total_sessions },
             { header: "Chuyên cần tối thiểu", cell: (c) => `${c.minimum_attendance_pct}%` },
             { header: "Trạng thái", cell: (c) => <StatusBadge value={c.status} /> },
@@ -1057,7 +1773,11 @@ export function CoursesPage() {
             },
           ]}
         />
-        <Pagination page={page} totalPages={query.data?.meta.total_pages ?? 0} onPage={setPage} />
+        <Pagination
+          page={listState.page}
+          totalPages={query.data?.meta.total_pages ?? 0}
+          onPage={(page) => updateList({ page })}
+        />
       </QueryState>
       <Modal
         open={open}
@@ -1324,19 +2044,118 @@ function CourseTestsPanel({ course }: { course: Course }) {
 
 export function ClassesPage() {
   const client = useQueryClient();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
+  const config: ListQueryConfig<string, string> = useMemo(
+    () => ({
+      filterKeys: ["status", "course_id", "teacher_id", "capacity", "from_date", "to_date"],
+      allowedSorts: ["created_at", "class_code", "start_date"],
+      defaultSort: "created_at",
+      defaultOrder: "desc",
+    }),
+    [],
+  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const listState = readListQuery(searchParams, config);
+  const [searchInput, setSearchInput] = useState(listState.q);
+  const [courseSearch, setCourseSearch] = useState("");
+  const [teacherSearch, setTeacherSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput);
+  const debouncedCourseSearch = useDebouncedValue(courseSearch);
+  const debouncedTeacherSearch = useDebouncedValue(teacherSearch);
   const [editing, setEditing] = useState<TrainingClass | null>(null);
   const [open, setOpen] = useState(false);
+  useEffect(() => setSearchInput(listState.q), [listState.q]);
+  useEffect(() => {
+    if (debouncedSearch.trim() === listState.q) return;
+    setSearchParams(patchListQuery(searchParams, { q: debouncedSearch }, config), {
+      replace: true,
+    });
+  }, [config, debouncedSearch, listState.q, searchParams, setSearchParams]);
+  const updateList = (patch: Record<string, string | number | undefined>) =>
+    setSearchParams(patchListQuery(searchParams, patch, config), { replace: true });
   const query = useQuery({
-    queryKey: ["admin", "classes", page, search, status],
-    queryFn: () => adminApi.classes({ page, per_page: 10, search, status }),
+    queryKey: [
+      "admin",
+      "classes",
+      listState.page,
+      listState.q,
+      listState.filters.status,
+      listState.filters.course_id,
+      listState.filters.teacher_id,
+      listState.filters.capacity,
+      listState.filters.from_date,
+      listState.filters.to_date,
+      listState.sort,
+      listState.order,
+    ],
+    queryFn: () =>
+      adminApi.classes({
+        page: listState.page,
+        per_page: 10,
+        search: listState.q,
+        status: listState.filters.status,
+        course_id: listState.filters.course_id,
+        teacher_id: listState.filters.teacher_id,
+        capacity: (listState.filters.capacity || undefined) as "available" | "full" | undefined,
+        from_date: listState.filters.from_date,
+        to_date: listState.filters.to_date,
+        sort_by: listState.sort,
+        sort_order: listState.order,
+      }),
   });
   const courses = useQuery({
     queryKey: ["admin", "courses", "options"],
     queryFn: () => adminApi.courses({ page: 1, per_page: 100 }),
   });
+  const courseFilterOptions = useQuery({
+    queryKey: ["admin", "courses", "class-filter-options", debouncedCourseSearch],
+    queryFn: () =>
+      adminApi.courses({
+        page: 1,
+        per_page: 20,
+        search: debouncedCourseSearch,
+        sort_by: "code",
+        sort_order: "asc",
+      }),
+  });
+  const teacherFilterOptions = useQuery({
+    queryKey: ["admin", "teachers", "class-filter-options", debouncedTeacherSearch],
+    queryFn: () =>
+      adminApi.teachers({
+        page: 1,
+        per_page: 20,
+        search: debouncedTeacherSearch,
+        status: "active",
+        sort_by: "teacher_code",
+        sort_order: "asc",
+      }),
+  });
+  const selectedCourse = useQuery({
+    queryKey: ["admin", "course", listState.filters.course_id],
+    queryFn: () => adminApi.getCourse(listState.filters.course_id),
+    enabled: Boolean(listState.filters.course_id),
+  });
+  const selectedTeacher = useQuery({
+    queryKey: ["admin", "teacher", listState.filters.teacher_id],
+    queryFn: () => adminApi.getTeacher(listState.filters.teacher_id),
+    enabled: Boolean(listState.filters.teacher_id),
+  });
+  const courseFilterChoices = useMemo(() => {
+    const items = [...(courseFilterOptions.data?.items ?? [])];
+    if (selectedCourse.data && !items.some((item) => item.id === selectedCourse.data!.id)) {
+      items.unshift(selectedCourse.data);
+    }
+    return items.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}` }));
+  }, [courseFilterOptions.data?.items, selectedCourse.data]);
+  const teacherFilterChoices = useMemo(() => {
+    const items = [...(teacherFilterOptions.data?.items ?? [])];
+    if (selectedTeacher.data && !items.some((item) => item.id === selectedTeacher.data!.id)) {
+      items.unshift(selectedTeacher.data);
+    }
+    return items.map((item) => ({
+      value: item.id,
+      label: `${item.teacher_code} — ${item.full_name}`,
+    }));
+  }, [selectedTeacher.data, teacherFilterOptions.data?.items]);
   const mutation = useMutation({
     mutationFn: ({ id, body }: { id?: string; body: unknown }) =>
       id ? adminApi.updateClass(id, body) : adminApi.createClass(body),
@@ -1361,25 +2180,124 @@ export function ClassesPage() {
           </Button>
         }
       />
-      <SearchFilters
-        search={search}
-        status={status}
-        onSearch={setSearch}
-        onStatus={setStatus}
-        statusOptions={[
-          ["planning", "Chuẩn bị"],
-          ["open", "Đang mở"],
-          ["in_progress", "Đang diễn ra"],
-          ["completed", "Hoàn thành"],
-          ["cancelled", "Đã hủy"],
+      <FilterBar
+        search={searchInput}
+        onSearch={setSearchInput}
+        resultCount={query.data?.meta.total}
+        activeFilters={[
+          ...(listState.filters.status
+            ? [{ key: "status", label: `Trạng thái: ${statusLabel(listState.filters.status)}` }]
+            : []),
+          ...(selectedCourse.data
+            ? [{ key: "course_id", label: `Khóa: ${selectedCourse.data.code}` }]
+            : []),
+          ...(selectedTeacher.data
+            ? [{ key: "teacher_id", label: `GV: ${selectedTeacher.data.teacher_code}` }]
+            : []),
+          ...(listState.filters.capacity
+            ? [
+                {
+                  key: "capacity",
+                  label: listState.filters.capacity === "full" ? "Đã đầy" : "Còn chỗ",
+                },
+              ]
+            : []),
+          ...(listState.filters.from_date
+            ? [{ key: "from_date", label: `Từ ${formatDate(listState.filters.from_date)}` }]
+            : []),
+          ...(listState.filters.to_date
+            ? [{ key: "to_date", label: `Đến ${formatDate(listState.filters.to_date)}` }]
+            : []),
         ]}
-      />
-      <QueryState loading={query.isLoading} error={query.error} empty={!query.data?.items.length}>
+        onRemoveFilter={(key) => updateList({ [key]: "" })}
+        onClearAll={() => {
+          setSearchInput("");
+          setSearchParams(new URLSearchParams(), { replace: true });
+        }}
+        searchPlaceholder="Nhập mã hoặc tên lớp…"
+      >
+        <div className="w-full min-w-44 sm:w-48">
+          <Select
+            label="Trạng thái"
+            value={listState.filters.status}
+            onChange={(event) => updateList({ status: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="planning">Chuẩn bị</option>
+            <option value="open">Đang mở</option>
+            <option value="in_progress">Đang diễn ra</option>
+            <option value="completed">Hoàn thành</option>
+            <option value="cancelled">Đã hủy</option>
+          </Select>
+        </div>
+        <div className="w-full min-w-40 sm:w-44">
+          <Select
+            label="Sĩ số"
+            value={listState.filters.capacity}
+            onChange={(event) => updateList({ capacity: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="available">Còn chỗ</option>
+            <option value="full">Đã đầy</option>
+          </Select>
+        </div>
+        <div className="w-full min-w-56 sm:w-64">
+          <SearchCombobox
+            label="Khóa học"
+            value={listState.filters.course_id}
+            onChange={(value) => updateList({ course_id: value })}
+            onSearch={setCourseSearch}
+            options={courseFilterChoices}
+            loading={courseFilterOptions.isLoading}
+          />
+        </div>
+        <div className="w-full min-w-56 sm:w-64">
+          <SearchCombobox
+            label="Giảng viên"
+            value={listState.filters.teacher_id}
+            onChange={(value) => updateList({ teacher_id: value })}
+            onSearch={setTeacherSearch}
+            options={teacherFilterChoices}
+            loading={teacherFilterOptions.isLoading}
+          />
+        </div>
+        <div className="w-full min-w-40 sm:w-44">
+          <Input
+            label="Từ ngày"
+            name="class-from-date"
+            type="date"
+            value={listState.filters.from_date}
+            onChange={(event) => updateList({ from_date: event.target.value })}
+          />
+        </div>
+        <div className="w-full min-w-40 sm:w-44">
+          <Input
+            label="Đến ngày"
+            name="class-to-date"
+            type="date"
+            value={listState.filters.to_date}
+            onChange={(event) => updateList({ to_date: event.target.value })}
+          />
+        </div>
+      </FilterBar>
+      <QueryState
+        loading={query.isLoading}
+        error={query.error}
+        empty={!query.data?.items.length}
+        emptyTitle={
+          listState.q || Object.values(listState.filters).some(Boolean)
+            ? "Không có kết quả phù hợp"
+            : "Chưa có lớp học"
+        }
+      >
         <DataTable
           items={query.data?.items ?? []}
+          sort={{ key: listState.sort, order: listState.order }}
+          onSort={(key, order) => updateList({ sort: key, order })}
           columns={[
             {
               header: "Lớp",
+              sortKey: "class_code",
               cell: (c) => (
                 <div>
                   <b className="text-navy">{c.class_code}</b>
@@ -1390,6 +2308,7 @@ export function ClassesPage() {
             { header: "Khóa học", cell: (c) => `${c.course_code} — ${c.course_name}` },
             {
               header: "Thời gian",
+              sortKey: "start_date",
               cell: (c) => `${formatDate(c.start_date)} – ${formatDate(c.end_date)}`,
             },
             { header: "Sĩ số", cell: (c) => `${c.enrolled_students}/${c.maximum_students}` },
@@ -1415,7 +2334,11 @@ export function ClassesPage() {
             },
           ]}
         />
-        <Pagination page={page} totalPages={query.data?.meta.total_pages ?? 0} onPage={setPage} />
+        <Pagination
+          page={listState.page}
+          totalPages={query.data?.meta.total_pages ?? 0}
+          onPage={(page) => updateList({ page })}
+        />
       </QueryState>
       <Modal
         open={open}
@@ -1554,11 +2477,18 @@ export function ClassDetailPage() {
   const [teacherId, setTeacherId] = useState("");
   const [role, setRole] = useState("Giảng viên phụ trách");
   const [enrollmentAction, setEnrollmentAction] = useState<Enrollment | null>(null);
-  const [actionType, setActionType] = useState<"transfer" | "completed" | "withdrawn">("transfer");
+  const [actionType, setActionType] = useState<EnrollmentAction>("transfer");
   const [actionReason, setActionReason] = useState("");
+  const [returnEffectiveAt, setReturnEffectiveAt] = useState(vietnamDateTimeLocal);
   const [targetClassId, setTargetClassId] = useState("");
   const [assignmentToRemove, setAssignmentToRemove] = useState<TeacherAssignment | null>(null);
   const [removeReason, setRemoveReason] = useState("");
+  const closeEnrollmentAction = () => {
+    setEnrollmentAction(null);
+    setActionReason("");
+    setTargetClassId("");
+    setReturnEffectiveAt(vietnamDateTimeLocal());
+  };
   const detail = useQuery({
     queryKey: ["admin", "class", classId],
     queryFn: () => adminApi.getClass(classId),
@@ -1619,14 +2549,20 @@ export function ClassDetailPage() {
       if (!enrollmentAction) throw new Error("Chưa chọn học viên");
       return actionType === "transfer"
         ? adminApi.transferEnrollment(classId, enrollmentAction.id, targetClassId, actionReason)
-        : adminApi.updateEnrollment(classId, enrollmentAction.id, actionType, actionReason);
+        : adminApi.updateEnrollment(
+            classId,
+            enrollmentAction.id,
+            actionType === "reenroll" ? "enrolled" : actionType,
+            actionReason,
+            actionType === "reenroll" ? vietnamLocalInputToRFC3339(returnEffectiveAt) : undefined,
+          );
     },
     onSuccess: () => {
-      setEnrollmentAction(null);
-      setActionReason("");
-      setTargetClassId("");
+      closeEnrollmentAction();
       void client.invalidateQueries({ queryKey: ["admin", "class", classId] });
       void client.invalidateQueries({ queryKey: ["admin", "classes"] });
+      void client.invalidateQueries({ queryKey: ["admin", "sessions"] });
+      void client.invalidateQueries({ queryKey: ["admin", "attendance"] });
     },
   });
   return (
@@ -1699,37 +2635,14 @@ export function ClassDetailPage() {
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <StatusBadge value={e.status} />
-                    {e.status === "enrolled" ? (
-                      <>
-                        <Button
-                          variant="soft"
-                          onClick={() => {
-                            setEnrollmentAction(e);
-                            setActionType("transfer");
-                          }}
-                        >
-                          Chuyển lớp
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setEnrollmentAction(e);
-                            setActionType("completed");
-                          }}
-                        >
-                          Hoàn thành
-                        </Button>
-                        <Button
-                          variant="danger"
-                          onClick={() => {
-                            setEnrollmentAction(e);
-                            setActionType("withdrawn");
-                          }}
-                        >
-                          Rút lớp
-                        </Button>
-                      </>
-                    ) : null}
+                    <EnrollmentActionButtons
+                      enrollment={e}
+                      onAction={(action) => {
+                        setEnrollmentAction(e);
+                        setActionType(action);
+                        if (action === "reenroll") setReturnEffectiveAt(vietnamDateTimeLocal());
+                      }}
+                    />
                   </div>
                 </div>
               ))}
@@ -1830,13 +2743,11 @@ export function ClassDetailPage() {
             ? "Chuyển học viên sang lớp khác"
             : actionType === "completed"
               ? "Xác nhận hoàn thành lớp"
-              : "Xác nhận rút khỏi lớp"
+              : actionType === "reenroll"
+                ? "Đưa học viên trở lại lớp"
+                : "Xác nhận rút khỏi lớp"
         }
-        onClose={() => {
-          setEnrollmentAction(null);
-          setActionReason("");
-          setTargetClassId("");
-        }}
+        onClose={closeEnrollmentAction}
       >
         <form
           className="space-y-4"
@@ -1872,6 +2783,19 @@ export function ClassDetailPage() {
                 ))}
             </Select>
           ) : null}
+          {actionType === "reenroll" ? (
+            <Input
+              required
+              type="datetime-local"
+              name="reenrollment-effective-at"
+              label="Có hiệu lực từ"
+              value={returnEffectiveAt}
+              min={detail.data ? `${detail.data.start_date}T00:00` : undefined}
+              max={detail.data ? `${detail.data.end_date}T23:59` : undefined}
+              onChange={(event) => setReturnEffectiveAt(event.target.value)}
+              autoComplete="off"
+            />
+          ) : null}
           <Textarea
             required
             label="Lý do"
@@ -1883,15 +2807,19 @@ export function ClassDetailPage() {
             <ErrorBanner message={mutationMessage(enrollmentOperation.error)} />
           ) : null}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setEnrollmentAction(null)}>
+            <Button type="button" variant="ghost" onClick={closeEnrollmentAction}>
               Hủy
             </Button>
             <Button
               type="submit"
               loading={enrollmentOperation.isPending}
-              disabled={!actionReason.trim() || (actionType === "transfer" && !targetClassId)}
+              disabled={
+                !actionReason.trim() ||
+                (actionType === "transfer" && !targetClassId) ||
+                (actionType === "reenroll" && !returnEffectiveAt)
+              }
             >
-              Xác nhận
+              {actionType === "reenroll" ? "Đưa trở lại lớp" : "Xác nhận"}
             </Button>
           </div>
         </form>
@@ -1945,6 +2873,7 @@ const operationEventLabels: Record<string, string> = {
   class_created: "Tạo lớp học",
   class_updated: "Cập nhật lớp học",
   student_enrolled: "Ghi danh học viên",
+  student_reenrolled: "Đưa học viên trở lại lớp",
   enrollment_status_changed: "Cập nhật ghi danh",
   student_transferred_out: "Chuyển học viên đi",
   student_transferred_in: "Tiếp nhận học viên",
@@ -1975,24 +2904,67 @@ function operationDetails(details: Record<string, unknown>) {
     .join(" · ");
 }
 
+const scheduleListConfig: ListQueryConfig<string, string> = {
+  filterKeys: [
+    "status",
+    "class_id",
+    "teacher_id",
+    "location_id",
+    "session_type",
+    "attendance_state",
+  ],
+  allowedSorts: ["starts_at", "title", "created_at"],
+  defaultSort: "starts_at",
+  defaultOrder: "asc",
+};
+
 export function ScheduleAdminPage() {
   const client = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const listState = readListQuery(searchParams, scheduleListConfig);
+  const [searchInput, setSearchInput] = useState(listState.q);
+  const [classFilterSearch, setClassFilterSearch] = useState("");
+  const [teacherFilterSearch, setTeacherFilterSearch] = useState("");
+  const [locationFilterSearch, setLocationFilterSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput);
+  const debouncedClassFilterSearch = useDebouncedValue(classFilterSearch);
+  const debouncedTeacherFilterSearch = useDebouncedValue(teacherFilterSearch);
+  const debouncedLocationFilterSearch = useDebouncedValue(locationFilterSearch);
   const [open, setOpen] = useState(false);
   const [locationsOpen, setLocationsOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
-  const [attendanceSessionId, setAttendanceSessionId] = useState("");
-  const [correctionItem, setCorrectionItem] = useState<AttendanceRosterItem | null>(null);
-  const [correctionStatus, setCorrectionStatus] = useState<AttendanceStatus>("present");
-  const [correctionNote, setCorrectionNote] = useState("");
-  const [correctionReason, setCorrectionReason] = useState("");
   const [calendarAnchor, setCalendarAnchor] = useState(currentWeekStart);
   const [calendarView, setCalendarView] = useState<CalendarView>("week");
   const calendarRange =
     calendarView === "week" ? weekRange(calendarAnchor) : monthRange(calendarAnchor);
+  useEffect(() => setSearchInput(listState.q), [listState.q]);
+  useEffect(() => {
+    if (debouncedSearch.trim() === listState.q) return;
+    setSearchParams(patchListQuery(searchParams, { q: debouncedSearch }, scheduleListConfig), {
+      replace: true,
+    });
+  }, [debouncedSearch, listState.q, searchParams, setSearchParams]);
+  const updateList = (patch: Record<string, string | number | undefined>) =>
+    setSearchParams(patchListQuery(searchParams, patch, scheduleListConfig), { replace: true });
   const query = useQuery({
-    queryKey: ["admin", "sessions", "calendar", calendarView, calendarAnchor],
+    queryKey: ["admin", "sessions", "calendar", calendarView, calendarAnchor, listState],
     queryFn: () =>
-      adminApi.sessions({ page: 1, per_page: 100, from: calendarRange.from, to: calendarRange.to }),
+      adminApi.sessions({
+        page: 1,
+        per_page: 100,
+        from: calendarRange.from,
+        to: calendarRange.to,
+        search: listState.q,
+        status: listState.filters.status,
+        class_id: listState.filters.class_id,
+        teacher_id: listState.filters.teacher_id,
+        location_id: listState.filters.location_id,
+        session_type: listState.filters.session_type,
+        attendance_state: (listState.filters.attendance_state || undefined) as
+          "locked" | "unlocked" | undefined,
+        sort_by: listState.sort,
+        sort_order: listState.order,
+      }),
   });
   const classes = useQuery({
     queryKey: ["admin", "classes", "options"],
@@ -2006,10 +2978,33 @@ export function ScheduleAdminPage() {
     queryKey: ["admin", "locations", "options"],
     queryFn: () => adminApi.locations({ page: 1, per_page: 100 }),
   });
-  const attendance = useQuery({
-    queryKey: ["admin", "session-attendance", attendanceSessionId],
-    queryFn: () => adminApi.sessionAttendance(attendanceSessionId),
-    enabled: !!attendanceSessionId,
+  const classFilterOptions = useQuery({
+    queryKey: ["admin", "classes", "schedule-filter", debouncedClassFilterSearch],
+    queryFn: () =>
+      adminApi.classes({
+        page: 1,
+        per_page: 20,
+        search: debouncedClassFilterSearch,
+        sort_by: "class_code",
+        sort_order: "asc",
+      }),
+  });
+  const teacherFilterOptions = useQuery({
+    queryKey: ["admin", "teachers", "schedule-filter", debouncedTeacherFilterSearch],
+    queryFn: () =>
+      adminApi.teachers({
+        page: 1,
+        per_page: 20,
+        search: debouncedTeacherFilterSearch,
+        status: "active",
+        sort_by: "teacher_code",
+        sort_order: "asc",
+      }),
+  });
+  const locationFilterOptions = useQuery({
+    queryKey: ["admin", "locations", "schedule-filter", debouncedLocationFilterSearch],
+    queryFn: () =>
+      adminApi.locations({ page: 1, per_page: 20, search: debouncedLocationFilterSearch }),
   });
   const mutation = useMutation({
     mutationFn: adminApi.createSession,
@@ -2026,28 +3021,6 @@ export function ScheduleAdminPage() {
       setSelectedSession(null);
     },
   });
-  const correctionMutation = useMutation({
-    mutationFn: () =>
-      adminApi.correctAttendance(correctionItem!.attendance_id!, {
-        status: correctionStatus,
-        note: correctionNote.trim() || null,
-        reason: correctionReason,
-      }),
-    onSuccess: () => {
-      void client.invalidateQueries({
-        queryKey: ["admin", "session-attendance", attendanceSessionId],
-      });
-      setCorrectionItem(null);
-      setCorrectionReason("");
-    },
-  });
-  const openCorrection = (item: AttendanceRosterItem) => {
-    setCorrectionItem(item);
-    setCorrectionStatus(item.attendance_status ?? "present");
-    setCorrectionNote(item.note ?? "");
-    setCorrectionReason("");
-    correctionMutation.reset();
-  };
   const events: WeekCalendarEvent[] = (query.data?.items ?? []).map((session) => ({
     id: session.id,
     title: session.title,
@@ -2085,6 +3058,132 @@ export function ScheduleAdminPage() {
       tone: "red",
     },
   ] satisfies CalendarStat[];
+  const scheduleClassOptions = (classFilterOptions.data?.items ?? []).map((item) => ({
+    value: item.id,
+    label: `${item.class_code} — ${item.name}`,
+  }));
+  const scheduleTeacherOptions = (teacherFilterOptions.data?.items ?? []).map((item) => ({
+    value: item.id,
+    label: `${item.teacher_code} — ${item.full_name}`,
+  }));
+  const scheduleLocationOptions = (locationFilterOptions.data?.items ?? []).map((item) => ({
+    value: item.id,
+    label: `${item.code} — ${item.name}`,
+  }));
+  const selectedScheduleClass = classes.data?.items.find(
+    (item) => item.id === listState.filters.class_id,
+  );
+  const selectedScheduleTeacher = teachers.data?.items.find(
+    (item) => item.id === listState.filters.teacher_id,
+  );
+  const selectedScheduleLocation = locations.data?.items.find(
+    (item) => item.id === listState.filters.location_id,
+  );
+  const activeScheduleFilters = [
+    ...(listState.filters.status
+      ? [{ key: "status", label: `Trạng thái: ${statusLabel(listState.filters.status)}` }]
+      : []),
+    ...(listState.filters.session_type
+      ? [
+          {
+            key: "session_type",
+            label: `Loại buổi: ${statusLabel(listState.filters.session_type)}`,
+          },
+        ]
+      : []),
+    ...(listState.filters.attendance_state
+      ? [
+          {
+            key: "attendance_state",
+            label:
+              listState.filters.attendance_state === "locked"
+                ? "Điểm danh đã khóa"
+                : "Điểm danh đang mở",
+          },
+        ]
+      : []),
+    ...(selectedScheduleClass
+      ? [{ key: "class_id", label: `Lớp: ${selectedScheduleClass.class_code}` }]
+      : []),
+    ...(selectedScheduleTeacher
+      ? [{ key: "teacher_id", label: `GV: ${selectedScheduleTeacher.teacher_code}` }]
+      : []),
+    ...(selectedScheduleLocation
+      ? [{ key: "location_id", label: `Phòng: ${selectedScheduleLocation.code}` }]
+      : []),
+  ];
+  const advancedScheduleFilterCount = [
+    listState.filters.class_id,
+    listState.filters.teacher_id,
+    listState.filters.location_id,
+  ].filter(Boolean).length;
+  const advancedScheduleFilters = (
+    <>
+      <div className="w-full min-w-56 sm:w-60">
+        <SearchCombobox
+          label="Lớp học"
+          value={listState.filters.class_id}
+          onChange={(value) => updateList({ class_id: value })}
+          onSearch={setClassFilterSearch}
+          options={
+            selectedScheduleClass &&
+            !scheduleClassOptions.some((option) => option.value === selectedScheduleClass.id)
+              ? [
+                  {
+                    value: selectedScheduleClass.id,
+                    label: `${selectedScheduleClass.class_code} — ${selectedScheduleClass.name}`,
+                  },
+                  ...scheduleClassOptions,
+                ]
+              : scheduleClassOptions
+          }
+          loading={classFilterOptions.isLoading}
+        />
+      </div>
+      <div className="w-full min-w-56 sm:w-60">
+        <SearchCombobox
+          label="Giảng viên"
+          value={listState.filters.teacher_id}
+          onChange={(value) => updateList({ teacher_id: value })}
+          onSearch={setTeacherFilterSearch}
+          options={
+            selectedScheduleTeacher &&
+            !scheduleTeacherOptions.some((option) => option.value === selectedScheduleTeacher.id)
+              ? [
+                  {
+                    value: selectedScheduleTeacher.id,
+                    label: `${selectedScheduleTeacher.teacher_code} — ${selectedScheduleTeacher.full_name}`,
+                  },
+                  ...scheduleTeacherOptions,
+                ]
+              : scheduleTeacherOptions
+          }
+          loading={teacherFilterOptions.isLoading}
+        />
+      </div>
+      <div className="w-full min-w-56 sm:w-60">
+        <SearchCombobox
+          label="Phòng / xưởng"
+          value={listState.filters.location_id}
+          onChange={(value) => updateList({ location_id: value })}
+          onSearch={setLocationFilterSearch}
+          options={
+            selectedScheduleLocation &&
+            !scheduleLocationOptions.some((option) => option.value === selectedScheduleLocation.id)
+              ? [
+                  {
+                    value: selectedScheduleLocation.id,
+                    label: `${selectedScheduleLocation.code} — ${selectedScheduleLocation.name}`,
+                  },
+                  ...scheduleLocationOptions,
+                ]
+              : scheduleLocationOptions
+          }
+          loading={locationFilterOptions.isLoading}
+        />
+      </div>
+    </>
+  );
   return (
     <div>
       <PageHeader
@@ -2103,6 +3202,58 @@ export function ScheduleAdminPage() {
           </>
         }
       />
+      <FilterBar
+        search={searchInput}
+        onSearch={setSearchInput}
+        resultCount={query.data?.meta.total}
+        activeFilters={activeScheduleFilters}
+        onRemoveFilter={(key) => updateList({ [key]: "" })}
+        onClearAll={() => {
+          setSearchInput("");
+          setSearchParams(new URLSearchParams(), { replace: true });
+        }}
+        searchPlaceholder="Nội dung buổi học, mã lớp, giảng viên…"
+        advancedFilters={advancedScheduleFilters}
+        advancedFilterCount={advancedScheduleFilterCount}
+      >
+        <div className="w-full min-w-40 sm:w-44">
+          <Select
+            label="Trạng thái"
+            value={listState.filters.status}
+            onChange={(event) => updateList({ status: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="scheduled">Đã lên lịch</option>
+            <option value="completed">Đã diễn ra</option>
+            <option value="locked">Đã khóa</option>
+            <option value="cancelled">Đã hủy</option>
+          </Select>
+        </div>
+        <div className="w-full min-w-40 sm:w-44">
+          <Select
+            label="Loại buổi"
+            value={listState.filters.session_type}
+            onChange={(event) => updateList({ session_type: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="theory">Lý thuyết</option>
+            <option value="workshop">Thực hành</option>
+            <option value="assessment">Đánh giá</option>
+            <option value="other">Khác</option>
+          </Select>
+        </div>
+        <div className="w-full min-w-44 sm:w-48">
+          <Select
+            label="Khóa điểm danh"
+            value={listState.filters.attendance_state}
+            onChange={(event) => updateList({ attendance_state: event.target.value })}
+          >
+            <option value="">Tất cả</option>
+            <option value="unlocked">Đang mở</option>
+            <option value="locked">Đã khóa</option>
+          </Select>
+        </div>
+      </FilterBar>
       <QueryState loading={query.isLoading} error={query.error}>
         <WeekCalendar
           events={events}
@@ -2140,15 +3291,9 @@ export function ScheduleAdminPage() {
                 <span> · {formatDateTime(selectedSession.starts_at)}</span>
                 <p>{selectedSession.location_name || "Chưa xếp phòng"}</p>
               </div>
-              <Button
-                variant="soft"
-                onClick={() => {
-                  setAttendanceSessionId(selectedSession.id);
-                  setSelectedSession(null);
-                }}
-              >
-                Xem điểm danh
-              </Button>
+              <Link to={`/admin/diem-danh?session=${selectedSession.id}`}>
+                <Button variant="soft">Xem điểm danh</Button>
+              </Link>
             </div>
             {selectedSession.status === "locked" || selectedSession.attendance_locked_at ? (
               <div className="rounded-xl border border-gborder p-4 text-sm text-gtext">
@@ -2183,84 +3328,6 @@ export function ScheduleAdminPage() {
             void client.invalidateQueries({ queryKey: ["admin", "locations"] });
           }}
         />
-      </Modal>
-      <Modal
-        open={!!attendanceSessionId}
-        title={
-          query.data?.items.find((item) => item.id === attendanceSessionId)?.title ??
-          "Tình trạng điểm danh"
-        }
-        onClose={() => {
-          setAttendanceSessionId("");
-          setCorrectionItem(null);
-        }}
-      >
-        <QueryState loading={attendance.isLoading} error={attendance.error}>
-          {attendance.data && (
-            <AttendanceRoster data={attendance.data} onCorrect={openCorrection} />
-          )}
-        </QueryState>
-      </Modal>
-      <Modal
-        open={!!correctionItem}
-        title="Hiệu chỉnh điểm danh"
-        onClose={() => {
-          setCorrectionItem(null);
-          setCorrectionReason("");
-        }}
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            correctionMutation.mutate();
-          }}
-        >
-          <div className="rounded-xl bg-gbg2 p-4 text-sm">
-            <b className="text-navy">{correctionItem?.student_code}</b> —{" "}
-            {correctionItem?.full_name}
-            <p className="mt-1 text-xs text-gtext">
-              Kết quả hiện tại: {correctionItem?.attendance_status ?? "Chưa ghi nhận"}
-            </p>
-          </div>
-          <Select
-            label="Trạng thái mới"
-            value={correctionStatus}
-            onChange={(event) => setCorrectionStatus(event.target.value as AttendanceStatus)}
-          >
-            <option value="present">Có mặt</option>
-            <option value="late">Đi trễ</option>
-            <option value="excused">Vắng có phép</option>
-            <option value="absent">Vắng</option>
-          </Select>
-          <Textarea
-            label="Ghi chú"
-            value={correctionNote}
-            onChange={(event) => setCorrectionNote(event.target.value)}
-          />
-          <Textarea
-            required
-            label="Lý do hiệu chỉnh"
-            value={correctionReason}
-            onChange={(event) => setCorrectionReason(event.target.value)}
-            placeholder="Lý do sẽ được lưu vĩnh viễn trong nhật ký kiểm toán"
-          />
-          {correctionMutation.error ? (
-            <ErrorBanner message={mutationMessage(correctionMutation.error)} />
-          ) : null}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setCorrectionItem(null)}>
-              Hủy
-            </Button>
-            <Button
-              type="submit"
-              loading={correctionMutation.isPending}
-              disabled={!correctionReason.trim()}
-            >
-              Lưu hiệu chỉnh
-            </Button>
-          </div>
-        </form>
       </Modal>
     </div>
   );

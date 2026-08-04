@@ -158,7 +158,7 @@ func (h *Handler) UpdateSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) TeacherSchedule(w http.ResponseWriter, r *http.Request) {
-	filter, ok := parseListFilter(w, r, false)
+	filter, ok := parseListFilter(w, r, true)
 	if !ok {
 		return
 	}
@@ -272,6 +272,8 @@ func parseListFilter(w http.ResponseWriter, r *http.Request, admin bool) (ListFi
 	if admin {
 		filter.Search = r.URL.Query().Get("search")
 		filter.Status = strings.TrimSpace(r.URL.Query().Get("status"))
+		filter.SessionType = strings.TrimSpace(r.URL.Query().Get("session_type"))
+		filter.AttendanceState = strings.TrimSpace(r.URL.Query().Get("attendance_state"))
 		filter.ClassID = strings.TrimSpace(r.URL.Query().Get("class_id"))
 		filter.TeacherID = strings.TrimSpace(r.URL.Query().Get("teacher_id"))
 		filter.LocationID = strings.TrimSpace(r.URL.Query().Get("location_id"))
@@ -279,6 +281,23 @@ func parseListFilter(w http.ResponseWriter, r *http.Request, admin bool) (ListFi
 			response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid session status")
 			return ListFilter{}, false
 		}
+		if filter.SessionType != "" && !validSessionType(filter.SessionType) {
+			response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid session type")
+			return ListFilter{}, false
+		}
+		if filter.AttendanceState != "" && filter.AttendanceState != "locked" && filter.AttendanceState != "unlocked" {
+			response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "attendance_state must be locked or unlocked")
+			return ListFilter{}, false
+		}
+		sortBy, sortOrder, err := request.Sort(r, "starts_at", "starts_at", "title", "created_at")
+		if err != nil {
+			response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+			return ListFilter{}, false
+		}
+		if strings.TrimSpace(r.URL.Query().Get("sort_order")) == "" {
+			sortOrder = "asc"
+		}
+		filter.SortBy, filter.SortOrder = sortBy, sortOrder
 		for name, value := range map[string]string{
 			"class_id": filter.ClassID, "teacher_id": filter.TeacherID, "location_id": filter.LocationID,
 		} {

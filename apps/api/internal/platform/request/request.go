@@ -4,6 +4,7 @@ package request
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -43,4 +44,31 @@ func Page(r *http.Request) (page, perPage int, err error) {
 		}
 	}
 	return page, perPage, nil
+}
+
+// Sort parses an allowlisted sort key and direction. It never returns raw,
+// unvalidated column names to callers.
+func Sort(r *http.Request, defaultBy string, allowed ...string) (by, order string, err error) {
+	by = strings.TrimSpace(r.URL.Query().Get("sort_by"))
+	if by == "" {
+		by = defaultBy
+	}
+	valid := false
+	for _, candidate := range allowed {
+		if by == candidate {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return "", "", fmt.Errorf("sort_by must be one of: %s", strings.Join(allowed, ", "))
+	}
+	order = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_order")))
+	if order == "" {
+		order = "desc"
+	}
+	if order != "asc" && order != "desc" {
+		return "", "", errors.New("sort_order must be asc or desc")
+	}
+	return by, order, nil
 }

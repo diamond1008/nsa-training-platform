@@ -96,6 +96,15 @@ type Service struct {
 	queries *db.Queries
 }
 
+type ListFilter struct {
+	Search    string
+	Status    string
+	SortBy    string
+	SortOrder string
+	Page      int
+	PerPage   int
+}
+
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool, queries: db.New(pool)}
 }
@@ -143,10 +152,11 @@ func (s *Service) Get(ctx context.Context, id string) (CourseView, error) {
 	return courseView(course), nil
 }
 
-func (s *Service) List(ctx context.Context, search, status string, page, perPage int) (pagination.Result[CourseView], error) {
+func (s *Service) List(ctx context.Context, filter ListFilter) (pagination.Result[CourseView], error) {
 	params := db.ListCoursesParams{
-		Search: strings.TrimSpace(search), Status: status,
-		PageOffset: int32((page - 1) * perPage), PageLimit: int32(perPage),
+		Search: strings.TrimSpace(filter.Search), Status: filter.Status,
+		SortBy: filter.SortBy, SortOrder: filter.SortOrder,
+		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
 	}
 	rows, err := s.queries.ListCourses(ctx, params)
 	if err != nil {
@@ -160,7 +170,7 @@ func (s *Service) List(ctx context.Context, search, status string, page, perPage
 	for _, row := range rows {
 		items = append(items, courseView(row))
 	}
-	return pagination.New(items, page, perPage, total), nil
+	return pagination.New(items, filter.Page, filter.PerPage, total), nil
 }
 
 func (s *Service) Update(ctx context.Context, actorID, id string, input CourseInput) (CourseView, error) {

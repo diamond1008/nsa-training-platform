@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
@@ -23,6 +24,18 @@ var (
 	ErrEmailConflict = errors.New("email already exists")
 	ErrCodeConflict  = errors.New("teacher code already exists")
 )
+
+type ListFilter struct {
+	Search     string
+	Status     string
+	ClassID    string
+	CourseID   string
+	Assignment string
+	SortBy     string
+	SortOrder  string
+	Page       int
+	PerPage    int
+}
 
 type View struct {
 	ID             string  `json:"id"`
@@ -122,17 +135,28 @@ func (s *Service) Get(ctx context.Context, id string) (View, error) {
 	return viewFromGet(row), nil
 }
 
-func (s *Service) List(ctx context.Context, search, status string, page, perPage int) (pagination.Result[View], error) {
+func (s *Service) List(ctx context.Context, filter ListFilter) (pagination.Result[View], error) {
+	classID, err := optionalListUUID(filter.ClassID)
+	if err != nil {
+		return pagination.Result[View]{}, err
+	}
+	courseID, err := optionalListUUID(filter.CourseID)
+	if err != nil {
+		return pagination.Result[View]{}, err
+	}
 	params := db.ListAdminTeachersParams{
-		Search: strings.TrimSpace(search), Status: status,
-		PageOffset: int32((page - 1) * perPage), PageLimit: int32(perPage),
+		Search: strings.TrimSpace(filter.Search), Status: filter.Status,
+		ClassID: classID, CourseID: courseID, Assignment: filter.Assignment,
+		SortBy: filter.SortBy, SortOrder: filter.SortOrder,
+		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
 	}
 	rows, err := s.queries.ListAdminTeachers(ctx, params)
 	if err != nil {
 		return pagination.Result[View]{}, fmt.Errorf("list teachers: %w", err)
 	}
 	total, err := s.queries.CountAdminTeachers(ctx, db.CountAdminTeachersParams{
-		Search: params.Search, Status: params.Status,
+		Search: params.Search, Status: params.Status, ClassID: classID,
+		CourseID: courseID, Assignment: params.Assignment,
 	})
 	if err != nil {
 		return pagination.Result[View]{}, fmt.Errorf("count teachers: %w", err)
@@ -141,7 +165,14 @@ func (s *Service) List(ctx context.Context, search, status string, page, perPage
 	for _, row := range rows {
 		items = append(items, viewFromList(row))
 	}
-	return pagination.New(items, page, perPage, total), nil
+	return pagination.New(items, filter.Page, filter.PerPage, total), nil
+}
+
+func optionalListUUID(value string) (pgtype.UUID, error) {
+	if strings.TrimSpace(value) == "" {
+		return pgtype.UUID{}, nil
+	}
+	return data.UUID(value)
 }
 
 func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInput) (View, error) {

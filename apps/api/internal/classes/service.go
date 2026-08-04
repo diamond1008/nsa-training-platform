@@ -23,26 +23,43 @@ import (
 )
 
 var (
-	ErrClassNotFound       = errors.New("class not found")
-	ErrCourseNotFound      = errors.New("course not found")
-	ErrClassConflict       = errors.New("class code already exists")
-	ErrCapacityBelowCount  = errors.New("capacity is below current enrollment")
-	ErrClassNotEnrollable  = errors.New("class status does not allow enrollment")
-	ErrStudentNotFound     = errors.New("student not found")
-	ErrStudentInactive     = errors.New("student is not active")
-	ErrEnrollmentNotFound  = errors.New("enrollment not found")
-	ErrDuplicateEnrollment = errors.New("student is already enrolled in class")
-	ErrClassFull           = errors.New("class is full")
-	ErrTeacherNotFound     = errors.New("teacher not found")
-	ErrTeacherInactive     = errors.New("teacher is not active")
-	ErrTeacherNotAssigned  = errors.New("teacher is not assigned to class")
-	ErrAssignmentNotFound  = errors.New("teacher assignment not found")
-	ErrDuplicateAssignment = errors.New("teacher already assigned")
-	ErrAssignmentInUse     = errors.New("teacher assignment is used by sessions")
-	ErrEnrollmentNotActive = errors.New("enrollment is not active")
-	ErrTransferSameClass   = errors.New("source and target classes are the same")
-	ErrTransferCourse      = errors.New("target class belongs to another course")
+	ErrClassNotFound          = errors.New("class not found")
+	ErrCourseNotFound         = errors.New("course not found")
+	ErrClassConflict          = errors.New("class code already exists")
+	ErrCapacityBelowCount     = errors.New("capacity is below current enrollment")
+	ErrClassNotEnrollable     = errors.New("class status does not allow enrollment")
+	ErrStudentNotFound        = errors.New("student not found")
+	ErrStudentInactive        = errors.New("student is not active")
+	ErrEnrollmentNotFound     = errors.New("enrollment not found")
+	ErrDuplicateEnrollment    = errors.New("student is already enrolled in class")
+	ErrClassFull              = errors.New("class is full")
+	ErrTeacherNotFound        = errors.New("teacher not found")
+	ErrTeacherInactive        = errors.New("teacher is not active")
+	ErrTeacherNotAssigned     = errors.New("teacher is not assigned to class")
+	ErrAssignmentNotFound     = errors.New("teacher assignment not found")
+	ErrDuplicateAssignment    = errors.New("teacher already assigned")
+	ErrAssignmentInUse        = errors.New("teacher assignment is used by sessions")
+	ErrEnrollmentNotActive    = errors.New("enrollment is not active")
+	ErrEnrollmentCannotReopen = errors.New("only a withdrawn enrollment can be reopened")
+	ErrReenrollmentDate       = errors.New("reenrollment time is outside the allowed range")
+	ErrActiveCourseEnrollment = errors.New("student already has an active enrollment for this course")
+	ErrTransferSameClass      = errors.New("source and target classes are the same")
+	ErrTransferCourse         = errors.New("target class belongs to another course")
 )
+
+type ListFilter struct {
+	Search    string
+	Status    string
+	CourseID  string
+	TeacherID string
+	Capacity  string
+	FromDate  string
+	ToDate    string
+	SortBy    string
+	SortOrder string
+	Page      int
+	PerPage   int
+}
 
 type View struct {
 	ID               string `json:"id"`
@@ -225,25 +242,36 @@ func (s *Service) OperationHistory(ctx context.Context, id string) ([]OperationH
 	return items, nil
 }
 
-func (s *Service) List(ctx context.Context, search, status, courseIDValue string, page, perPage int) (pagination.Result[View], error) {
-	var courseID pgtype.UUID
-	var err error
-	if courseIDValue != "" {
-		courseID, err = data.UUID(courseIDValue)
-		if err != nil {
-			return pagination.Result[View]{}, ErrCourseNotFound
-		}
+func (s *Service) List(ctx context.Context, filter ListFilter) (pagination.Result[View], error) {
+	courseID, err := optionalFilterUUID(filter.CourseID)
+	if err != nil {
+		return pagination.Result[View]{}, ErrCourseNotFound
+	}
+	teacherID, err := optionalFilterUUID(filter.TeacherID)
+	if err != nil {
+		return pagination.Result[View]{}, ErrTeacherNotFound
+	}
+	fromDate, err := data.Date(&filter.FromDate)
+	if err != nil {
+		return pagination.Result[View]{}, err
+	}
+	toDate, err := data.Date(&filter.ToDate)
+	if err != nil {
+		return pagination.Result[View]{}, err
 	}
 	params := db.ListAdminClassesParams{
-		Search: strings.TrimSpace(search), Status: status, CourseID: courseID,
-		PageOffset: int32((page - 1) * perPage), PageLimit: int32(perPage),
+		Search: strings.TrimSpace(filter.Search), Status: filter.Status, CourseID: courseID,
+		TeacherID: teacherID, Capacity: filter.Capacity, FromDate: fromDate, ToDate: toDate,
+		SortBy: filter.SortBy, SortOrder: filter.SortOrder,
+		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
 	}
 	rows, err := s.queries.ListAdminClasses(ctx, params)
 	if err != nil {
 		return pagination.Result[View]{}, fmt.Errorf("list classes: %w", err)
 	}
 	total, err := s.queries.CountAdminClasses(ctx, db.CountAdminClassesParams{
-		Search: params.Search, Status: params.Status, CourseID: courseID,
+		Search: params.Search, Status: params.Status, CourseID: courseID, TeacherID: teacherID,
+		Capacity: params.Capacity, FromDate: fromDate, ToDate: toDate,
 	})
 	if err != nil {
 		return pagination.Result[View]{}, fmt.Errorf("count classes: %w", err)
@@ -252,7 +280,14 @@ func (s *Service) List(ctx context.Context, search, status, courseIDValue string
 	for _, row := range rows {
 		items = append(items, viewFromList(row))
 	}
-	return pagination.New(items, page, perPage, total), nil
+	return pagination.New(items, filter.Page, filter.PerPage, total), nil
+}
+
+func optionalFilterUUID(value string) (pgtype.UUID, error) {
+	if strings.TrimSpace(value) == "" {
+		return pgtype.UUID{}, nil
+	}
+	return data.UUID(value)
 }
 
 func (s *Service) ListTeacher(ctx context.Context, userIDValue string) ([]View, error) {
@@ -461,6 +496,9 @@ func (s *Service) UpdateEnrollment(ctx context.Context, actorID, classIDValue, e
 }
 
 func (s *Service) UpdateEnrollmentWithReason(ctx context.Context, actorID, classIDValue, enrollmentIDValue string, status db.EnrollmentStatus, reason string) (EnrollmentView, error) {
+	if status == db.EnrollmentStatusEnrolled {
+		return s.Reenroll(ctx, actorID, classIDValue, enrollmentIDValue, time.Now(), reason)
+	}
 	classID, enrollmentID, err := parsePair(classIDValue, enrollmentIDValue)
 	if err != nil {
 		return EnrollmentView{}, ErrEnrollmentNotFound
@@ -471,31 +509,32 @@ func (s *Service) UpdateEnrollmentWithReason(ctx context.Context, actorID, class
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	q := s.queries.WithTx(tx)
-	existing, err := q.GetClassEnrollment(ctx, db.GetClassEnrollmentParams{ID: enrollmentID, ClassID: classID})
+	existing, err := q.GetClassEnrollmentForUpdate(ctx, db.GetClassEnrollmentForUpdateParams{ID: enrollmentID, ClassID: classID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return EnrollmentView{}, ErrEnrollmentNotFound
 	}
 	if err != nil {
 		return EnrollmentView{}, fmt.Errorf("get enrollment for update: %w", err)
 	}
-	if status == db.EnrollmentStatusEnrolled {
-		classRow, err := q.GetAdminClass(ctx, classID)
-		if err != nil {
-			return EnrollmentView{}, fmt.Errorf("get class for reenrollment: %w", err)
-		}
-		if !classAllowsRelations(classRow.Status) {
-			return EnrollmentView{}, ErrClassNotEnrollable
-		}
-		student, err := q.GetAdminStudent(ctx, existing.StudentID)
-		if err != nil {
-			return EnrollmentView{}, fmt.Errorf("get student for reenrollment: %w", err)
-		}
-		if student.StudentStatus != db.StudentStatusActive || student.UserStatus != db.UserStatusActive {
-			return EnrollmentView{}, ErrStudentInactive
-		}
+	if existing.Status != db.EnrollmentStatusEnrolled {
+		return EnrollmentView{}, ErrEnrollmentNotActive
 	}
-	if _, err := q.UpdateClassEnrollmentStatus(ctx, db.UpdateClassEnrollmentStatusParams{
+	endedAt := time.Now().UTC()
+	actor, err := data.UUID(actorID)
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("invalid enrollment actor")
+	}
+	if _, err := q.CloseOpenEnrollmentPeriod(ctx, db.CloseOpenEnrollmentPeriodParams{
+		EnrollmentID: enrollmentID,
+		EndedAt:      pgtype.Timestamptz{Time: endedAt, Valid: true},
+		EndedBy:      actor,
+		EndReason:    pgtype.Text{String: reason, Valid: reason != ""},
+	}); err != nil {
+		return EnrollmentView{}, fmt.Errorf("close enrollment period: %w", err)
+	}
+	if _, err := q.EndClassEnrollmentAt(ctx, db.EndClassEnrollmentAtParams{
 		ID: enrollmentID, ClassID: classID, Status: status,
+		EndedAt: pgtype.Timestamptz{Time: endedAt, Valid: true},
 	}); err != nil {
 		return EnrollmentView{}, mapEnrollmentWriteError(err)
 	}
@@ -510,11 +549,123 @@ func (s *Service) UpdateEnrollmentWithReason(ctx context.Context, actorID, class
 	}); err != nil {
 		return EnrollmentView{}, err
 	}
-	if err := audit.Write(ctx, q, actorID, "class_enrollment.update", "class_enrollment", enrollmentID, enrollmentViewFromGet(existing), view); err != nil {
+	if err := audit.Write(ctx, q, actorID, "class_enrollment.update", "class_enrollment", enrollmentID, enrollmentViewFromLocked(existing), view); err != nil {
 		return EnrollmentView{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return EnrollmentView{}, fmt.Errorf("commit update enrollment: %w", err)
+	}
+	return view, nil
+}
+
+// Reenroll reopens a withdrawn membership while preserving the closed period.
+// Sessions during the gap are excluded by the temporal roster queries.
+func (s *Service) Reenroll(
+	ctx context.Context,
+	actorID, classIDValue, enrollmentIDValue string,
+	effectiveAt time.Time,
+	reason string,
+) (EnrollmentView, error) {
+	classID, enrollmentID, err := parsePair(classIDValue, enrollmentIDValue)
+	if err != nil {
+		return EnrollmentView{}, ErrEnrollmentNotFound
+	}
+	actor, err := data.UUID(actorID)
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("invalid reenrollment actor")
+	}
+	effectiveAt = effectiveAt.UTC()
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("begin reenrollment: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := s.queries.WithTx(tx)
+
+	existing, err := q.GetClassEnrollmentForUpdate(ctx, db.GetClassEnrollmentForUpdateParams{
+		ID: enrollmentID, ClassID: classID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return EnrollmentView{}, ErrEnrollmentNotFound
+	}
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("get enrollment for reenrollment: %w", err)
+	}
+	if existing.Status != db.EnrollmentStatusWithdrawn {
+		return EnrollmentView{}, ErrEnrollmentCannotReopen
+	}
+	if _, err := q.LockStudentForEnrollment(ctx, existing.StudentID); err != nil {
+		return EnrollmentView{}, fmt.Errorf("lock reenrollment student: %w", err)
+	}
+	classRow, err := q.GetAdminClass(ctx, classID)
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("get class for reenrollment: %w", err)
+	}
+	if !classAllowsRelations(classRow.Status) {
+		return EnrollmentView{}, ErrClassNotEnrollable
+	}
+	student, err := q.GetAdminStudent(ctx, existing.StudentID)
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("get student for reenrollment: %w", err)
+	}
+	if student.StudentStatus != db.StudentStatusActive || student.UserStatus != db.UserStatusActive {
+		return EnrollmentView{}, ErrStudentInactive
+	}
+	location := time.FixedZone("Asia/Ho_Chi_Minh", 7*60*60)
+	effectiveDate := effectiveAt.In(location).Format("2006-01-02")
+	if effectiveDate < classRow.StartDate.Time.Format("2006-01-02") ||
+		effectiveDate > classRow.EndDate.Time.Format("2006-01-02") {
+		return EnrollmentView{}, ErrReenrollmentDate
+	}
+	latest, err := q.GetLatestEnrollmentPeriod(ctx, enrollmentID)
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("get latest enrollment period: %w", err)
+	}
+	if !latest.EndedAt.Valid || effectiveAt.Before(latest.EndedAt.Time) {
+		return EnrollmentView{}, ErrReenrollmentDate
+	}
+	otherActive, err := q.HasOtherActiveEnrollmentForCourse(ctx, db.HasOtherActiveEnrollmentForCourseParams{
+		StudentID: existing.StudentID, CourseID: classRow.CourseID, EnrollmentID: enrollmentID,
+	})
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("check active course enrollment: %w", err)
+	}
+	if otherActive {
+		return EnrollmentView{}, ErrActiveCourseEnrollment
+	}
+	period, err := q.CreateEnrollmentPeriod(ctx, db.CreateEnrollmentPeriodParams{
+		EnrollmentID: enrollmentID,
+		StartedAt:    pgtype.Timestamptz{Time: effectiveAt, Valid: true},
+		CreatedBy:    actor,
+		StartReason:  pgtype.Text{String: reason, Valid: reason != ""},
+	})
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("create reenrollment period: %w", err)
+	}
+	if _, err := q.ReopenClassEnrollment(ctx, db.ReopenClassEnrollmentParams{
+		ID: enrollmentID, ClassID: classID,
+	}); err != nil {
+		return EnrollmentView{}, mapEnrollmentWriteError(err)
+	}
+	updated, err := q.GetClassEnrollment(ctx, db.GetClassEnrollmentParams{ID: enrollmentID, ClassID: classID})
+	if err != nil {
+		return EnrollmentView{}, fmt.Errorf("read reenrolled membership: %w", err)
+	}
+	view := enrollmentViewFromGet(updated)
+	details := map[string]any{
+		"from_status": existing.Status, "to_status": updated.Status,
+		"student_id": data.UUIDString(existing.StudentID), "student_code": existing.StudentCode,
+		"effective_at": effectiveAt.Format(time.RFC3339Nano), "period_id": data.UUIDString(period.ID),
+	}
+	if err := classhistory.Write(ctx, q, actorID, classID, "student_reenrolled", "class_enrollment", enrollmentID, reason, details); err != nil {
+		return EnrollmentView{}, err
+	}
+	if err := audit.Write(ctx, q, actorID, "class_enrollment.reopen", "class_enrollment", enrollmentID, enrollmentViewFromLocked(existing), view); err != nil {
+		return EnrollmentView{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return EnrollmentView{}, fmt.Errorf("commit reenrollment: %w", err)
 	}
 	return view, nil
 }
@@ -575,8 +726,18 @@ func (s *Service) TransferEnrollment(ctx context.Context, actorID, sourceClassID
 	if err != nil {
 		return TransferView{}, err
 	}
-	if _, err := q.UpdateClassEnrollmentStatus(ctx, db.UpdateClassEnrollmentStatusParams{
+	endedAt := time.Now().UTC()
+	if _, err := q.CloseOpenEnrollmentPeriod(ctx, db.CloseOpenEnrollmentPeriodParams{
+		EnrollmentID: enrollmentID,
+		EndedAt:      pgtype.Timestamptz{Time: endedAt, Valid: true},
+		EndedBy:      actor,
+		EndReason:    pgtype.Text{String: reason, Valid: reason != ""},
+	}); err != nil {
+		return TransferView{}, fmt.Errorf("close source enrollment period: %w", err)
+	}
+	if _, err := q.EndClassEnrollmentAt(ctx, db.EndClassEnrollmentAtParams{
 		ID: enrollmentID, ClassID: sourceClassID, Status: db.EnrollmentStatusTransferred,
+		EndedAt: pgtype.Timestamptz{Time: endedAt, Valid: true},
 	}); err != nil {
 		return TransferView{}, mapEnrollmentWriteError(err)
 	}
@@ -899,6 +1060,18 @@ func criterionView(row db.CompetencyCriterium) CriterionView {
 }
 
 func enrollmentViewFromGet(row db.GetClassEnrollmentRow) EnrollmentView {
+	return EnrollmentView{
+		ID: data.UUIDString(row.ID), ClassID: data.UUIDString(row.ClassID),
+		StudentID: data.UUIDString(row.StudentID), StudentCode: row.StudentCode,
+		FullName: row.FullName, Status: string(row.Status),
+		EnrolledAt: row.EnrolledAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		EndedAt:    data.TimeString(row.EndedAt),
+		CreatedAt:  row.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		UpdatedAt:  row.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+	}
+}
+
+func enrollmentViewFromLocked(row db.GetClassEnrollmentForUpdateRow) EnrollmentView {
 	return EnrollmentView{
 		ID: data.UUIDString(row.ID), ClassID: data.UUIDString(row.ClassID),
 		StudentID: data.UUIDString(row.StudentID), StudentCode: row.StudentCode,

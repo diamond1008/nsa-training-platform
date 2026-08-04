@@ -273,7 +273,7 @@ func (s *Service) results(ctx context.Context, courseID, studentID pgtype.UUID) 
 			continue
 		}
 		tv := testView(test)
-		testAttempts := byTest[tv.ID]
+		testAttempts := attemptsForTest(byTest, tv.ID)
 		var best *float64
 		passed := false
 		for _, attempt := range testAttempts {
@@ -289,6 +289,14 @@ func (s *Service) results(ctx context.Context, courseID, studentID pgtype.UUID) 
 		items = append(items, TestResultView{Test: tv, Attempts: testAttempts, Passed: passed, BestScore: best})
 	}
 	return CourseResultsView{CourseID: data.UUIDString(courseID), StudentID: data.UUIDString(studentID), Tests: items}, nil
+}
+
+func attemptsForTest(byTest map[string][]AttemptView, testID string) []AttemptView {
+	attempts := byTest[testID]
+	if attempts == nil {
+		return []AttemptView{}
+	}
+	return attempts
 }
 
 func (s *Service) RecordAttempt(ctx context.Context, userID, classIDValue, studentIDValue, testIDValue string, input AttemptInput) (AttemptView, error) {

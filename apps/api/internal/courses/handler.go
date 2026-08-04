@@ -75,7 +75,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid course status")
 		return
 	}
-	result, err := h.service.List(r.Context(), r.URL.Query().Get("search"), status, page, perPage)
+	sortBy, sortOrder, err := request.Sort(r, "created_at", "created_at", "code", "name")
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	result, err := h.service.List(r.Context(), ListFilter{
+		Search: r.URL.Query().Get("search"), Status: status,
+		SortBy: sortBy, SortOrder: sortOrder, Page: page, PerPage: perPage,
+	})
 	if err != nil {
 		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
 		return

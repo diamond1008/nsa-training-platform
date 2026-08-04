@@ -704,6 +704,18 @@ type ClassEnrollment struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ClassEnrollmentPeriod struct {
+	ID           pgtype.UUID        `json:"id"`
+	EnrollmentID pgtype.UUID        `json:"enrollment_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	EndedAt      pgtype.Timestamptz `json:"ended_at"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	EndedBy      pgtype.UUID        `json:"ended_by"`
+	StartReason  pgtype.Text        `json:"start_reason"`
+	EndReason    pgtype.Text        `json:"end_reason"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
 type ClassOperationHistory struct {
 	ID          pgtype.UUID        `json:"id"`
 	ClassID     pgtype.UUID        `json:"class_id"`
@@ -883,6 +895,7 @@ type StudentProfile struct {
 	Address               pgtype.Text        `json:"address"`
 	EmergencyContactName  pgtype.Text        `json:"emergency_contact_name"`
 	EmergencyContactPhone pgtype.Text        `json:"emergency_contact_phone"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
 }
 
 type StudentStatusHistory struct {

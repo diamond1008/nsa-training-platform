@@ -24,6 +24,10 @@ export default {
           DEFAULT: "#BA1A1A",
           bg: "#FFDAD6",
         },
+        danger: {
+          DEFAULT: "#DC2626",
+          bg: "#FEE2E2",
+        },
         success: {
           DEFAULT: "#137A4B",
           bg: "#DDF7E9",

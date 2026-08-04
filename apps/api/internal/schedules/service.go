@@ -104,15 +104,19 @@ type SessionInput struct {
 }
 
 type ListFilter struct {
-	Search     string
-	Status     string
-	ClassID    string
-	TeacherID  string
-	LocationID string
-	From       *time.Time
-	To         *time.Time
-	Page       int
-	PerPage    int
+	Search          string
+	Status          string
+	SessionType     string
+	AttendanceState string
+	ClassID         string
+	TeacherID       string
+	LocationID      string
+	From            *time.Time
+	To              *time.Time
+	SortBy          string
+	SortOrder       string
+	Page            int
+	PerPage         int
 }
 
 type Service struct {
@@ -355,8 +359,10 @@ func (s *Service) ListAdmin(ctx context.Context, filter ListFilter) (pagination.
 	fromTime, toTime := nullableTime(filter.From), nullableTime(filter.To)
 	params := db.ListAdminSessionsParams{
 		Search: strings.TrimSpace(filter.Search), Status: filter.Status,
+		SessionType: filter.SessionType, AttendanceState: filter.AttendanceState,
 		ClassID: classID, TeacherID: teacherID, LocationID: locationID,
 		FromTime: fromTime, ToTime: toTime,
+		SortBy: filter.SortBy, SortOrder: filter.SortOrder,
 		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
 	}
 	rows, err := s.queries.ListAdminSessions(ctx, params)
@@ -364,7 +370,8 @@ func (s *Service) ListAdmin(ctx context.Context, filter ListFilter) (pagination.
 		return pagination.Result[SessionView]{}, fmt.Errorf("list admin sessions: %w", err)
 	}
 	total, err := s.queries.CountAdminSessions(ctx, db.CountAdminSessionsParams{
-		Search: params.Search, Status: params.Status, ClassID: classID,
+		Search: params.Search, Status: params.Status,
+		SessionType: params.SessionType, AttendanceState: params.AttendanceState, ClassID: classID,
 		TeacherID: teacherID, LocationID: locationID, FromTime: fromTime, ToTime: toTime,
 	})
 	if err != nil {
@@ -382,8 +389,20 @@ func (s *Service) ListTeacher(ctx context.Context, userIDValue string, filter Li
 	if err != nil {
 		return pagination.Result[SessionView]{}, ErrTeacherNotFound
 	}
+	classID, err := optionalUUIDString(filter.ClassID)
+	if err != nil {
+		return pagination.Result[SessionView]{}, err
+	}
+	locationID, err := optionalUUIDString(filter.LocationID)
+	if err != nil {
+		return pagination.Result[SessionView]{}, err
+	}
 	params := db.ListTeacherScheduleParams{
-		UserID: userID, FromTime: nullableTime(filter.From), ToTime: nullableTime(filter.To),
+		UserID: userID, Search: strings.TrimSpace(filter.Search), Status: filter.Status,
+		SessionType: filter.SessionType, AttendanceState: filter.AttendanceState,
+		ClassID: classID, LocationID: locationID,
+		FromTime: nullableTime(filter.From), ToTime: nullableTime(filter.To),
+		SortBy: filter.SortBy, SortOrder: filter.SortOrder,
 		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
 	}
 	rows, err := s.queries.ListTeacherSchedule(ctx, params)
@@ -391,7 +410,10 @@ func (s *Service) ListTeacher(ctx context.Context, userIDValue string, filter Li
 		return pagination.Result[SessionView]{}, fmt.Errorf("list teacher schedule: %w", err)
 	}
 	total, err := s.queries.CountTeacherSchedule(ctx, db.CountTeacherScheduleParams{
-		UserID: userID, FromTime: params.FromTime, ToTime: params.ToTime,
+		UserID: userID, Search: params.Search, Status: params.Status,
+		SessionType: params.SessionType, AttendanceState: params.AttendanceState,
+		ClassID: classID, LocationID: locationID,
+		FromTime: params.FromTime, ToTime: params.ToTime,
 	})
 	if err != nil {
 		return pagination.Result[SessionView]{}, fmt.Errorf("count teacher schedule: %w", err)

@@ -42,8 +42,9 @@ type enrollmentRequest struct {
 }
 
 type enrollmentStatusRequest struct {
-	Status string `json:"status"`
-	Reason string `json:"reason"`
+	Status      string `json:"status"`
+	Reason      string `json:"reason"`
+	EffectiveAt string `json:"effective_at"`
 }
 
 type enrollmentTransferRequest struct {
@@ -101,17 +102,47 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid class status")
 		return
 	}
-	courseID := strings.TrimSpace(r.URL.Query().Get("course_id"))
-	if courseID != "" {
-		if _, err := data.UUID(courseID); err != nil {
-			response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "course_id must be a valid UUID")
+	for _, name := range []string{"course_id", "teacher_id"} {
+		if value := strings.TrimSpace(r.URL.Query().Get(name)); value != "" {
+			if _, err := data.UUID(value); err != nil {
+				response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", name+" must be a valid UUID")
+				return
+			}
+		}
+	}
+	capacity := strings.TrimSpace(r.URL.Query().Get("capacity"))
+	if capacity != "" && capacity != "available" && capacity != "full" {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "capacity must be available or full")
+		return
+	}
+	for _, name := range []string{"from_date", "to_date"} {
+		if value := strings.TrimSpace(r.URL.Query().Get(name)); value != "" {
+			if _, err := time.Parse("2006-01-02", value); err != nil {
+				response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", name+" must use YYYY-MM-DD")
+				return
+			}
+		}
+	}
+	fromDate, toDate := strings.TrimSpace(r.URL.Query().Get("from_date")), strings.TrimSpace(r.URL.Query().Get("to_date"))
+	if fromDate != "" && toDate != "" {
+		from, _ := time.Parse("2006-01-02", fromDate)
+		to, _ := time.Parse("2006-01-02", toDate)
+		if to.Before(from) {
+			response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "to_date must be on or after from_date")
 			return
 		}
 	}
-	result, err := h.service.List(
-		r.Context(), r.URL.Query().Get("search"), status,
-		courseID, page, perPage,
-	)
+	sortBy, sortOrder, err := request.Sort(r, "created_at", "created_at", "class_code", "start_date")
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	result, err := h.service.List(r.Context(), ListFilter{
+		Search: r.URL.Query().Get("search"), Status: status,
+		CourseID: r.URL.Query().Get("course_id"), TeacherID: r.URL.Query().Get("teacher_id"),
+		Capacity: capacity, FromDate: r.URL.Query().Get("from_date"), ToDate: r.URL.Query().Get("to_date"),
+		SortBy: sortBy, SortOrder: sortOrder, Page: page, PerPage: perPage,
+	})
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -184,15 +215,37 @@ func (h *Handler) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Reason = strings.TrimSpace(body.Reason)
+	body.EffectiveAt = strings.TrimSpace(body.EffectiveAt)
 	if !validEnrollmentStatus(body.Status) || !validRequiredReason(body.Reason) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "A valid enrollment status and reason are required")
 		return
 	}
 	actorID, _ := auth.UserIDFrom(r.Context())
-	view, err := h.service.UpdateEnrollmentWithReason(
-		r.Context(), actorID, chi.URLParam(r, "classID"), chi.URLParam(r, "enrollmentID"),
-		db.EnrollmentStatus(body.Status), body.Reason,
-	)
+	var view EnrollmentView
+	var err error
+	if body.Status == string(db.EnrollmentStatusEnrolled) {
+		effectiveAt := time.Now()
+		if body.EffectiveAt != "" {
+			effectiveAt, err = time.Parse(time.RFC3339, body.EffectiveAt)
+			if err != nil {
+				response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "effective_at must be a valid RFC3339 timestamp")
+				return
+			}
+		}
+		view, err = h.service.Reenroll(
+			r.Context(), actorID, chi.URLParam(r, "classID"), chi.URLParam(r, "enrollmentID"),
+			effectiveAt, body.Reason,
+		)
+	} else {
+		if body.EffectiveAt != "" {
+			response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "effective_at is only valid when returning a withdrawn student")
+			return
+		}
+		view, err = h.service.UpdateEnrollmentWithReason(
+			r.Context(), actorID, chi.URLParam(r, "classID"), chi.URLParam(r, "enrollmentID"),
+			db.EnrollmentStatus(body.Status), body.Reason,
+		)
+	}
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -407,6 +460,12 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Fail(w, http.StatusConflict, "CLASS_STATUS_INVALID", "Class status does not allow enrollment or assignment")
 	case errors.Is(err, ErrEnrollmentNotActive):
 		response.Fail(w, http.StatusConflict, "ENROLLMENT_NOT_ACTIVE", "Only an active enrollment can be transferred")
+	case errors.Is(err, ErrEnrollmentCannotReopen):
+		response.Fail(w, http.StatusConflict, "ENROLLMENT_CANNOT_REOPEN", "Only a withdrawn enrollment can return to class")
+	case errors.Is(err, ErrReenrollmentDate):
+		response.Fail(w, http.StatusConflict, "REENROLLMENT_DATE_INVALID", "Return time must follow the previous withdrawal and fall within the class dates")
+	case errors.Is(err, ErrActiveCourseEnrollment):
+		response.Fail(w, http.StatusConflict, "ACTIVE_COURSE_ENROLLMENT", "Student is already active in another class for this course; use class transfer instead")
 	case errors.Is(err, ErrTransferSameClass):
 		response.Fail(w, http.StatusConflict, "TRANSFER_SAME_CLASS", "Target class must differ from source class")
 	case errors.Is(err, ErrTransferCourse):

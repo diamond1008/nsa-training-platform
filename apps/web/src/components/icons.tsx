@@ -14,6 +14,7 @@ export type IconName =
   | "close"
   | "logout"
   | "search"
+  | "filter"
   | "plus"
   | "arrow-left"
   | "arrow-right"
@@ -24,11 +25,13 @@ export type IconName =
   | "alert"
   | "info"
   | "chevron-right"
+  | "chevron-down"
   | "sidebar"
   | "sidebar-collapse"
   | "sidebar-expand";
 
 const paths: Record<IconName, JSX.Element> = {
+  filter: <path d="M4 6h16M7 12h10M10 18h4" />,
   sidebar: (
     <>
       <rect x="3" y="3" width="18" height="18" rx="4" />
@@ -173,11 +176,8 @@ const paths: Record<IconName, JSX.Element> = {
       <path d="M12 11v5M12 8h.01" />
     </>
   ),
-  "chevron-right": (
-    <>
-      <path d="m9 18 6-6-6-6" />
-    </>
-  ),
+  "chevron-right": <path d="m9 18 6-6-6-6" />,
+  "chevron-down": <path d="m6 9 6 6 6-6" />,
 };
 
 export function Icon({ name, className, ...props }: SVGProps<SVGSVGElement> & { name: IconName }) {

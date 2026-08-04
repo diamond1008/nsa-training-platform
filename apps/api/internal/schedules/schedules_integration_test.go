@@ -295,6 +295,13 @@ func TestIntegration_SchedulingConflictsAndRoleViews(t *testing.T) {
 	if err != nil || adminSchedule.Meta.Total != 2 {
 		t.Fatalf("admin filtered schedule: result=%+v err=%v", adminSchedule, err)
 	}
+	workshopSchedule, err := env.schedules.ListAdmin(ctx, schedulemodule.ListFilter{
+		ClassID: classA.ID, SessionType: "workshop", AttendanceState: "unlocked",
+		From: &from, To: &to, SortBy: "starts_at", SortOrder: "desc", Page: 1, PerPage: 20,
+	})
+	if err != nil || workshopSchedule.Meta.Total != 1 || workshopSchedule.Items[0].ID != first.ID {
+		t.Fatalf("admin session type/lock filters: result=%+v err=%v", workshopSchedule, err)
+	}
 	active := true
 	locationPage, err := env.schedules.ListLocations(ctx, env.prefix, &active, 1, 20)
 	if err != nil || locationPage.Meta.Total != 2 {

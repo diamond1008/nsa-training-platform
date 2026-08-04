@@ -178,7 +178,24 @@ Table class_enrollments {
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
   indexes { (class_id, student_id) [unique] }
-  note: 'A student cannot enroll twice in the same class. status/ended_at must stay consistent; enrolled_at/ended_at define historical attendance-roster membership.'
+  note: 'Stable class/student membership. status/ended_at describe the current aggregate state; temporal attendance membership is defined by class_enrollment_periods.'
+}
+
+Table class_enrollment_periods {
+  id uuid [pk, default: `gen_random_uuid()`]
+  enrollment_id uuid [not null, ref: > class_enrollments.id]
+  started_at timestamptz [not null]
+  ended_at timestamptz
+  created_by uuid [ref: > users.id]
+  ended_by uuid [ref: > users.id]
+  start_reason text
+  end_reason text
+  created_at timestamptz [not null, default: `now()`]
+  indexes {
+    (enrollment_id) [unique, note: 'Partial unique index where ended_at IS NULL']
+    (enrollment_id, started_at, ended_at)
+  }
+  note: 'Non-overlapping active intervals. Sessions during a closed withdrawal gap are excluded from schedule and attendance rosters.'
 }
 
 Table teacher_assignments {

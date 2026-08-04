@@ -42,3 +42,13 @@ func TestValidateFinalExamRule(t *testing.T) {
 		}
 	}
 }
+
+func TestAttemptsForTestReturnsEmptyArray(t *testing.T) {
+	attempts := attemptsForTest(map[string][]AttemptView{}, "test-without-attempts")
+	if attempts == nil {
+		t.Fatal("attemptsForTest() returned nil; JSON clients require an empty array")
+	}
+	if len(attempts) != 0 {
+		t.Fatalf("attemptsForTest() length = %d, want 0", len(attempts))
+	}
+}

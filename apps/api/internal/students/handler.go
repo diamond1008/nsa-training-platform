@@ -1,6 +1,7 @@
 package students
 
 import (
+	"encoding/base64"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -14,12 +15,17 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/request"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/response"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
-const maxStudentCSVBytes = 2 << 20
+const (
+	maxStudentCSVBytes  = 2 << 20
+	maxAvatarBytes      = 256 << 10
+	avatarDataURLPrefix = "data:image/webp;base64,"
+)
 
 type Handler struct {
 	service *Service
@@ -35,6 +41,7 @@ type writeRequest struct {
 	Password              string  `json:"temporary_password,omitempty"`
 	AccountStatus         string  `json:"account_status"`
 	FullName              string  `json:"full_name"`
+	AvatarURL             *string `json:"avatar_url"`
 	Phone                 *string `json:"phone"`
 	DateOfBirth           *string `json:"date_of_birth"`
 	Gender                *string `json:"gender"`
@@ -91,7 +98,30 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid student status")
 		return
 	}
-	result, err := h.service.List(r.Context(), r.URL.Query().Get("search"), status, page, perPage)
+	attendanceRisk := strings.TrimSpace(r.URL.Query().Get("attendance_risk"))
+	if attendanceRisk != "" && attendanceRisk != "at_risk" && attendanceRisk != "on_track" {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "attendance_risk must be at_risk or on_track")
+		return
+	}
+	for _, name := range []string{"class_id", "course_id"} {
+		if value := strings.TrimSpace(r.URL.Query().Get(name)); value != "" {
+			if _, err := data.UUID(value); err != nil {
+				response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", name+" must be a valid UUID")
+				return
+			}
+		}
+	}
+	sortBy, sortOrder, err := request.Sort(r, "created_at", "created_at", "full_name", "student_code")
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	result, err := h.service.List(r.Context(), ListFilter{
+		Search: r.URL.Query().Get("search"), Status: status,
+		ClassID: r.URL.Query().Get("class_id"), CourseID: r.URL.Query().Get("course_id"),
+		AttendanceRisk: attendanceRisk,
+		SortBy:         sortBy, SortOrder: sortOrder, Page: page, PerPage: perPage,
+	})
 	if err != nil {
 		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
 		return
@@ -105,7 +135,24 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid student status")
 		return
 	}
-	items, err := h.service.Export(r.Context(), r.URL.Query().Get("search"), status)
+	attendanceRisk := strings.TrimSpace(r.URL.Query().Get("attendance_risk"))
+	if attendanceRisk != "" && attendanceRisk != "at_risk" && attendanceRisk != "on_track" {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "attendance_risk must be at_risk or on_track")
+		return
+	}
+	for _, name := range []string{"class_id", "course_id"} {
+		if value := strings.TrimSpace(r.URL.Query().Get(name)); value != "" {
+			if _, err := data.UUID(value); err != nil {
+				response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", name+" must be a valid UUID")
+				return
+			}
+		}
+	}
+	items, err := h.service.Export(r.Context(), ListFilter{
+		Search: r.URL.Query().Get("search"), Status: status,
+		ClassID: r.URL.Query().Get("class_id"), CourseID: r.URL.Query().Get("course_id"),
+		AttendanceRisk: attendanceRisk,
+	})
 	if err != nil {
 		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
 		return
@@ -258,6 +305,7 @@ func validateWrite(body writeRequest, create bool) (WriteInput, string) {
 	body.FullName = strings.TrimSpace(body.FullName)
 	body.AccountStatus = strings.TrimSpace(body.AccountStatus)
 	body.Status = strings.TrimSpace(body.Status)
+	body.AvatarURL = normalizedOptional(body.AvatarURL)
 	body.Phone = normalizedOptional(body.Phone)
 	body.DateOfBirth = normalizedOptional(body.DateOfBirth)
 	body.Gender = normalizedOptional(body.Gender)
@@ -285,6 +333,9 @@ func validateWrite(body writeRequest, create bool) (WriteInput, string) {
 	if body.Phone != nil && len(*body.Phone) > 30 {
 		return WriteInput{}, "phone must be at most 30 characters"
 	}
+	if !validAvatarDataURL(body.AvatarURL) {
+		return WriteInput{}, "avatar_url must be a WebP data URL no larger than 256 KiB"
+	}
 	if body.Gender != nil && !validGender(*body.Gender) {
 		return WriteInput{}, "gender must be male, female, other, or unspecified"
 	}
@@ -310,6 +361,7 @@ func validateWrite(body writeRequest, create bool) (WriteInput, string) {
 		Email: body.Email, Password: body.Password,
 		AccountStatus: db.UserStatus(body.AccountStatus),
 		FullName:      body.FullName,
+		AvatarURL:     body.AvatarURL,
 		Phone:         body.Phone, DateOfBirth: body.DateOfBirth,
 		Gender: body.Gender, Address: body.Address,
 		EmergencyContactName:  body.EmergencyContactName,
@@ -317,6 +369,24 @@ func validateWrite(body writeRequest, create bool) (WriteInput, string) {
 		Status:                db.StudentStatus(body.Status), EnrolledAt: body.EnrolledAt,
 		StatusChangeReason: body.StatusChangeReason,
 	}, ""
+}
+
+func validAvatarDataURL(value *string) bool {
+	if value == nil {
+		return true
+	}
+	if !strings.HasPrefix(*value, avatarDataURLPrefix) {
+		return false
+	}
+	encoded := strings.TrimPrefix(*value, avatarDataURLPrefix)
+	if encoded == "" || base64.StdEncoding.DecodedLen(len(encoded)) > maxAvatarBytes {
+		return false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(decoded) < 12 || len(decoded) > maxAvatarBytes {
+		return false
+	}
+	return string(decoded[:4]) == "RIFF" && string(decoded[8:12]) == "WEBP"
 }
 
 func normalizedOptional(value *string) *string {

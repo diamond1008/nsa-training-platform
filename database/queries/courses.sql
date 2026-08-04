@@ -27,7 +27,14 @@ AND (
   sqlc.arg(status)::text = ''
   OR status::text = sqlc.arg(status)::text
 )
-ORDER BY created_at DESC, id
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'code' AND sqlc.arg(sort_order)::text = 'asc' THEN code END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'code' AND sqlc.arg(sort_order)::text = 'desc' THEN code END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_order)::text = 'asc' THEN name END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_order)::text = 'desc' THEN name END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'asc' THEN created_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'desc' THEN created_at END DESC,
+  id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountCourses :one

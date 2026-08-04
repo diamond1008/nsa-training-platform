@@ -120,6 +120,33 @@ describe("WeekCalendar", () => {
     );
   });
 
+  it("keeps a busy slot compact and opens the remaining classes", () => {
+    const onEventClick = vi.fn();
+    const events = Array.from({ length: 4 }, (_, index) => ({
+      id: `session-${index + 1}`,
+      title: `Lớp ${index + 1}`,
+      subtitle: `GV ${index + 1} · P.00${index + 1}`,
+      startsAt: "2026-07-28T01:00:00Z",
+      endsAt: "2026-07-28T05:00:00Z",
+    }));
+    render(
+      <WeekCalendar
+        weekStart="2026-07-27"
+        onWeekStartChange={vi.fn()}
+        onEventClick={onEventClick}
+        events={events}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "+2 lớp khác" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mở Lớp 3" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "+2 lớp khác" }));
+    expect(screen.getByRole("dialog", { name: "4 lớp · Sáng" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mở Lớp 3" }));
+    expect(onEventClick).toHaveBeenCalledWith(expect.objectContaining({ id: "session-3" }));
+  });
+
   it("switches between week and month views", () => {
     const onViewChange = vi.fn();
     render(

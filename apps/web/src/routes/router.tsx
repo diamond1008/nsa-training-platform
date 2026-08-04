@@ -14,9 +14,10 @@ import {
   StudentsPage,
   TeachersPage,
 } from "../features/admin/AdminPages";
+import { AdminAttendancePage } from "../features/admin/AdminAttendancePage";
+import { TeacherAttendancePage } from "../features/teacher/TeacherAttendancePage";
 import {
   AssessmentPage,
-  AttendancePage,
   TeacherAssessmentLandingPage,
   TeacherClassDetailPage,
   TeacherClassesPage,
@@ -167,6 +168,14 @@ export const router = createBrowserRouter([
             ),
           },
           {
+            path: "/admin/diem-danh",
+            element: (
+              <RequireRole role="ADMIN">
+                <AdminAttendancePage />
+              </RequireRole>
+            ),
+          },
+          {
             path: "/teacher",
             element: (
               <RequireRole role="TEACHER">
@@ -202,7 +211,7 @@ export const router = createBrowserRouter([
             path: "/teacher/diem-danh",
             element: (
               <RequireRole role="TEACHER">
-                <AttendancePage />
+                <TeacherAttendancePage />
               </RequireRole>
             ),
           },

@@ -101,12 +101,25 @@ WHERE (
   OR c.class_code ILIKE '%' || sqlc.arg(search) || '%'
 )
 AND (sqlc.arg(status)::text = '' OR cs.status::text = sqlc.arg(status)::text)
+AND (sqlc.arg(session_type)::text = '' OR cs.session_type::text = sqlc.arg(session_type)::text)
+AND (
+  sqlc.arg(attendance_state)::text = ''
+  OR (sqlc.arg(attendance_state)::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR (sqlc.arg(attendance_state)::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
 AND (sqlc.narg(class_id)::uuid IS NULL OR cs.class_id = sqlc.narg(class_id)::uuid)
 AND (sqlc.narg(teacher_id)::uuid IS NULL OR cs.teacher_id = sqlc.narg(teacher_id)::uuid)
 AND (sqlc.narg(location_id)::uuid IS NULL OR cs.location_id = sqlc.narg(location_id)::uuid)
 AND (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
 AND (sqlc.narg(to_time)::timestamptz IS NULL OR cs.starts_at < sqlc.narg(to_time)::timestamptz)
-ORDER BY cs.starts_at, cs.id
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'starts_at' AND sqlc.arg(sort_order)::text = 'asc' THEN cs.starts_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'starts_at' AND sqlc.arg(sort_order)::text = 'desc' THEN cs.starts_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'title' AND sqlc.arg(sort_order)::text = 'asc' THEN cs.title END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'title' AND sqlc.arg(sort_order)::text = 'desc' THEN cs.title END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'asc' THEN cs.created_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'desc' THEN cs.created_at END DESC,
+  cs.id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountAdminSessions :one
@@ -119,6 +132,12 @@ WHERE (
   OR c.class_code ILIKE '%' || sqlc.arg(search) || '%'
 )
 AND (sqlc.arg(status)::text = '' OR cs.status::text = sqlc.arg(status)::text)
+AND (sqlc.arg(session_type)::text = '' OR cs.session_type::text = sqlc.arg(session_type)::text)
+AND (
+  sqlc.arg(attendance_state)::text = ''
+  OR (sqlc.arg(attendance_state)::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR (sqlc.arg(attendance_state)::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
 AND (sqlc.narg(class_id)::uuid IS NULL OR cs.class_id = sqlc.narg(class_id)::uuid)
 AND (sqlc.narg(teacher_id)::uuid IS NULL OR cs.teacher_id = sqlc.narg(teacher_id)::uuid)
 AND (sqlc.narg(location_id)::uuid IS NULL OR cs.location_id = sqlc.narg(location_id)::uuid)
@@ -141,16 +160,57 @@ JOIN courses co ON co.id = cs.course_id
 JOIN teacher_profiles tp ON tp.id = cs.teacher_id AND tp.user_id = sqlc.arg(user_id)
 LEFT JOIN course_modules cm ON cm.id = cs.module_id
 LEFT JOIN training_locations tl ON tl.id = cs.location_id
-WHERE (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
+WHERE (
+  sqlc.arg(search)::text = ''
+  OR cs.title ILIKE '%' || sqlc.arg(search) || '%'
+  OR c.class_code ILIKE '%' || sqlc.arg(search) || '%'
+  OR c.name ILIKE '%' || sqlc.arg(search) || '%'
+  OR COALESCE(tl.name, '') ILIKE '%' || sqlc.arg(search) || '%'
+)
+AND (sqlc.arg(status)::text = '' OR cs.status::text = sqlc.arg(status)::text)
+AND (sqlc.arg(session_type)::text = '' OR cs.session_type::text = sqlc.arg(session_type)::text)
+AND (
+  sqlc.arg(attendance_state)::text = ''
+  OR (sqlc.arg(attendance_state)::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR (sqlc.arg(attendance_state)::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
+AND (sqlc.narg(class_id)::uuid IS NULL OR cs.class_id = sqlc.narg(class_id)::uuid)
+AND (sqlc.narg(location_id)::uuid IS NULL OR cs.location_id = sqlc.narg(location_id)::uuid)
+AND (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
 AND (sqlc.narg(to_time)::timestamptz IS NULL OR cs.starts_at < sqlc.narg(to_time)::timestamptz)
-ORDER BY cs.starts_at, cs.id
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'starts_at' AND sqlc.arg(sort_order)::text = 'asc' THEN cs.starts_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'starts_at' AND sqlc.arg(sort_order)::text = 'desc' THEN cs.starts_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'title' AND sqlc.arg(sort_order)::text = 'asc' THEN cs.title END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'title' AND sqlc.arg(sort_order)::text = 'desc' THEN cs.title END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'asc' THEN cs.created_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created_at' AND sqlc.arg(sort_order)::text = 'desc' THEN cs.created_at END DESC,
+  cs.id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountTeacherSchedule :one
 SELECT COUNT(*)
 FROM class_sessions cs
 JOIN teacher_profiles tp ON tp.id = cs.teacher_id AND tp.user_id = sqlc.arg(user_id)
-WHERE (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
+JOIN classes c ON c.id = cs.class_id
+LEFT JOIN training_locations tl ON tl.id = cs.location_id
+WHERE (
+  sqlc.arg(search)::text = ''
+  OR cs.title ILIKE '%' || sqlc.arg(search) || '%'
+  OR c.class_code ILIKE '%' || sqlc.arg(search) || '%'
+  OR c.name ILIKE '%' || sqlc.arg(search) || '%'
+  OR COALESCE(tl.name, '') ILIKE '%' || sqlc.arg(search) || '%'
+)
+AND (sqlc.arg(status)::text = '' OR cs.status::text = sqlc.arg(status)::text)
+AND (sqlc.arg(session_type)::text = '' OR cs.session_type::text = sqlc.arg(session_type)::text)
+AND (
+  sqlc.arg(attendance_state)::text = ''
+  OR (sqlc.arg(attendance_state)::text = 'locked' AND (cs.attendance_locked_at IS NOT NULL OR cs.status = 'locked'))
+  OR (sqlc.arg(attendance_state)::text = 'unlocked' AND cs.attendance_locked_at IS NULL AND cs.status <> 'locked')
+)
+AND (sqlc.narg(class_id)::uuid IS NULL OR cs.class_id = sqlc.narg(class_id)::uuid)
+AND (sqlc.narg(location_id)::uuid IS NULL OR cs.location_id = sqlc.narg(location_id)::uuid)
+AND (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
 AND (sqlc.narg(to_time)::timestamptz IS NULL OR cs.starts_at < sqlc.narg(to_time)::timestamptz);
 
 -- name: ListStudentSchedule :many
@@ -166,7 +226,13 @@ SELECT
 FROM class_sessions cs
 JOIN classes c ON c.id = cs.class_id
 JOIN courses co ON co.id = cs.course_id
-JOIN class_enrollments ce ON ce.class_id = cs.class_id AND ce.status = 'enrolled'
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
 JOIN student_profiles sp ON sp.id = ce.student_id AND sp.user_id = sqlc.arg(user_id)
 LEFT JOIN course_modules cm ON cm.id = cs.module_id
 LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
@@ -179,7 +245,13 @@ LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 -- name: CountStudentSchedule :one
 SELECT COUNT(*)
 FROM class_sessions cs
-JOIN class_enrollments ce ON ce.class_id = cs.class_id AND ce.status = 'enrolled'
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
 JOIN student_profiles sp ON sp.id = ce.student_id AND sp.user_id = sqlc.arg(user_id)
 WHERE (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
 AND (sqlc.narg(to_time)::timestamptz IS NULL OR cs.starts_at < sqlc.narg(to_time)::timestamptz);

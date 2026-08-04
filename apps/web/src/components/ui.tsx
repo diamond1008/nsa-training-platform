@@ -1,7 +1,9 @@
-import { forwardRef, useEffect } from "react";
+import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState } from "react";
 import type {
   ButtonHTMLAttributes,
+  ChangeEvent,
   InputHTMLAttributes,
+  KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
@@ -37,7 +39,7 @@ export function Button({
   return (
     <button
       className={clsx(
-        "inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-all duration-200",
+        "inline-flex h-10 touch-manipulation items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-[background-color,border-color,color,box-shadow,transform] duration-200 motion-reduce:transition-none",
         "disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none",
         buttonStyles[variant],
         className,
@@ -86,28 +88,177 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   );
 });
 
+function extractText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (isValidElement<{ children?: ReactNode }>(node) && node.props.children) {
+    return extractText(node.props.children);
+  }
+  return "";
+}
+
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement>, FieldProps {}
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { label, error, id, className, children, ...rest },
+  { label, error, id, className, children, value, onChange, disabled, ...rest },
   ref,
 ) {
   const inputId = id ?? rest.name ?? label;
+  const listboxId = `${useId()}-listbox`;
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const options: Array<{ value: string; label: string }> = [];
+  Children.forEach(children, (child) => {
+    if (isValidElement(child) && child.type === "option") {
+      const val = String(child.props.value ?? "");
+      const txt = extractText(child.props.children);
+      options.push({ value: val, label: txt });
+    }
+  });
+
+  const stringVal = String(value ?? "");
+  const selectedOption = options.find((o) => o.value === stringVal) ?? options[0];
+  const selectedIndex = options.findIndex((option) => option.value === selectedOption?.value);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSelect = (val: string) => {
+    setIsOpen(false);
+    if (onChange) {
+      const event = {
+        target: { value: val, name: rest.name ?? id },
+        currentTarget: { value: val, name: rest.name ?? id },
+      } as ChangeEvent<HTMLSelectElement>;
+      onChange(event);
+    }
+  };
+
   return (
-    <div className="space-y-2">
-      <label htmlFor={inputId} className="block text-sm font-semibold text-navy-heading">
-        {label}
-      </label>
+    <div className="space-y-2 relative" ref={containerRef}>
+      {label && (
+        <label htmlFor={inputId} className="block text-sm font-semibold text-navy-heading">
+          {label}
+        </label>
+      )}
+      <button
+        type="button"
+        id={inputId}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          isOpen && options[activeIndex] ? `${listboxId}-${activeIndex}` : undefined
+        }
+        aria-invalid={!!error}
+        aria-describedby={error ? `${inputId}-error` : undefined}
+        onClick={() => {
+          setIsOpen((current) => {
+            if (!current) setActiveIndex(Math.max(selectedIndex, 0));
+            return !current;
+          });
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setIsOpen(true);
+            setActiveIndex((index) =>
+              index < 0 ? Math.max(selectedIndex, 0) : Math.min(index + 1, options.length - 1),
+            );
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setIsOpen(true);
+            setActiveIndex((index) =>
+              index < 0 ? Math.max(selectedIndex, 0) : Math.max(index - 1, 0),
+            );
+          }
+          if (event.key === "Escape") setIsOpen(false);
+          if (event.key === "Enter" && isOpen && options[activeIndex]) {
+            event.preventDefault();
+            handleSelect(options[activeIndex].value);
+          }
+        }}
+        className={clsx(
+          fieldClass,
+          "flex cursor-pointer select-none items-center justify-between pr-3.5 text-left font-medium transition-[border-color,box-shadow] motion-reduce:transition-none",
+          isOpen ? "border-gold ring-2 ring-gold/20" : error ? "border-error" : "border-gborder",
+          className,
+        )}
+      >
+        <span className={clsx("truncate", !selectedOption?.value && "text-gtext")}>
+          {selectedOption ? selectedOption.label : "-- Chọn --"}
+        </span>
+        <Icon
+          name="chevron-down"
+          className={clsx(
+            "h-4 w-4 shrink-0 text-gtext transition-transform duration-200 motion-reduce:transition-none",
+            isOpen && "rotate-180 text-navy",
+          )}
+        />
+      </button>
+
+      {isOpen && (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute top-full left-0 mt-1.5 w-full z-50 max-h-64 overflow-y-auto overscroll-contain rounded-2xl border border-gborder bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none"
+        >
+          {options.map((opt, idx) => {
+            const isSelected = opt.value === stringVal;
+            return (
+              <div
+                id={`${listboxId}-${idx}`}
+                key={`${opt.value}-${idx}`}
+                role="option"
+                aria-selected={isSelected}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(idx)}
+                onClick={() => handleSelect(opt.value)}
+                className={clsx(
+                  "flex w-full cursor-pointer items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-colors motion-reduce:transition-none",
+                  idx === activeIndex || isSelected
+                    ? "bg-gold/15 text-navy font-bold"
+                    : "hover:bg-gbg2 hover:text-navy text-navy/80",
+                )}
+              >
+                <span className="truncate">{opt.label}</span>
+                {isSelected && (
+                  <Icon name="check" className="h-4 w-4 text-gold-dark shrink-0 ml-2" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Hidden native select for form refs or Accessibility compatibility */}
       <select
         ref={ref}
-        id={inputId}
-        aria-invalid={!!error}
-        className={clsx(fieldClass, error ? "border-error" : "border-gborder", className)}
+        id={inputId ? `${inputId}-hidden` : undefined}
+        value={value}
+        onChange={onChange}
+        tabIndex={-1}
+        aria-hidden="true"
+        hidden
+        className="sr-only"
         {...rest}
       >
         {children}
       </select>
+
       {error && (
-        <p role="alert" className="text-xs text-error">
+        <p id={`${inputId}-error`} role="alert" className="text-xs text-error">
           {error}
         </p>
       )}
@@ -130,6 +281,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         ref={ref}
         id={inputId}
         aria-invalid={!!error}
+        aria-describedby={error ? `${inputId}-error` : undefined}
         className={clsx(
           fieldClass,
           "min-h-24 resize-y py-3",
@@ -139,7 +291,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         {...rest}
       />
       {error && (
-        <p role="alert" className="text-xs text-error">
+        <p id={`${inputId}-error`} role="alert" className="text-xs text-error">
           {error}
         </p>
       )}
@@ -320,39 +472,76 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", onKeyDown);
+    const focusable = dialogRef.current?.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    focusable?.focus();
     return () => {
       document.body.style.overflow = previous;
       window.removeEventListener("keydown", onKeyDown);
+      previousFocusRef.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
+  const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const focusable = [
+      ...dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-navy/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="modal-title"
+      aria-labelledby={titleId}
     >
-      <div className="max-h-[92dvh] w-full max-w-2xl overflow-hidden rounded-t-3xl bg-white shadow-elevated sm:max-h-[90vh] sm:rounded-3xl">
+      <div
+        ref={dialogRef}
+        onKeyDown={trapFocus}
+        className="max-h-[92dvh] w-full max-w-2xl overscroll-contain overflow-hidden rounded-t-3xl bg-white shadow-elevated sm:max-h-[90vh] sm:rounded-3xl"
+      >
         <div className="flex items-center justify-between border-b border-gborder px-5 py-4 sm:px-6">
           <div className="min-w-0">
             <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-gold-dark">
               NSA Training
             </p>
-            <h2 id="modal-title" className="truncate text-lg font-bold text-navy">
+            <h2 id={titleId} className="truncate text-lg font-bold text-navy">
               {title}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-gtext transition hover:bg-gbg2 hover:text-navy"
+            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-colors hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
             aria-label="Đóng"
           >
             <Icon name="close" className="h-5 w-5" />

@@ -11,9 +11,50 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const closeOpenEnrollmentPeriod = `-- name: CloseOpenEnrollmentPeriod :one
+UPDATE class_enrollment_periods
+SET ended_at = $2, ended_by = $3, end_reason = $4
+WHERE enrollment_id = $1
+  AND ended_at IS NULL
+  AND started_at <= $2
+RETURNING id, enrollment_id, started_at, ended_at, created_by, ended_by,
+  start_reason, end_reason, created_at
+`
+
+type CloseOpenEnrollmentPeriodParams struct {
+	EnrollmentID pgtype.UUID        `json:"enrollment_id"`
+	EndedAt      pgtype.Timestamptz `json:"ended_at"`
+	EndedBy      pgtype.UUID        `json:"ended_by"`
+	EndReason    pgtype.Text        `json:"end_reason"`
+}
+
+func (q *Queries) CloseOpenEnrollmentPeriod(ctx context.Context, arg CloseOpenEnrollmentPeriodParams) (ClassEnrollmentPeriod, error) {
+	row := q.db.QueryRow(ctx, closeOpenEnrollmentPeriod,
+		arg.EnrollmentID,
+		arg.EndedAt,
+		arg.EndedBy,
+		arg.EndReason,
+	)
+	var i ClassEnrollmentPeriod
+	err := row.Scan(
+		&i.ID,
+		&i.EnrollmentID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.EndedBy,
+		&i.StartReason,
+		&i.EndReason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const countAdminClasses = `-- name: CountAdminClasses :one
-SELECT COUNT(*)
+SELECT COUNT(*) FROM (
+SELECT c.id
 FROM classes c
+LEFT JOIN class_enrollments ce ON ce.class_id = c.id
 WHERE (
   $1::text = ''
   OR c.class_code ILIKE '%' || $1 || '%'
@@ -27,16 +68,44 @@ AND (
   $3::uuid IS NULL
   OR c.course_id = $3::uuid
 )
+AND (
+  $4::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.class_id = c.id AND ta.teacher_id = $4::uuid
+  )
+)
+AND ($5::date IS NULL OR c.end_date >= $5::date)
+AND ($6::date IS NULL OR c.start_date <= $6::date)
+GROUP BY c.id
+HAVING (
+  $7::text = ''
+  OR ($7::text = 'available' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') < c.maximum_students)
+  OR ($7::text = 'full' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') >= c.maximum_students)
+)
+) filtered_classes
 `
 
 type CountAdminClassesParams struct {
-	Search   string      `json:"search"`
-	Status   string      `json:"status"`
-	CourseID pgtype.UUID `json:"course_id"`
+	Search    string      `json:"search"`
+	Status    string      `json:"status"`
+	CourseID  pgtype.UUID `json:"course_id"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+	FromDate  pgtype.Date `json:"from_date"`
+	ToDate    pgtype.Date `json:"to_date"`
+	Capacity  string      `json:"capacity"`
 }
 
 func (q *Queries) CountAdminClasses(ctx context.Context, arg CountAdminClassesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAdminClasses, arg.Search, arg.Status, arg.CourseID)
+	row := q.db.QueryRow(ctx, countAdminClasses,
+		arg.Search,
+		arg.Status,
+		arg.CourseID,
+		arg.TeacherID,
+		arg.FromDate,
+		arg.ToDate,
+		arg.Capacity,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -166,6 +235,44 @@ func (q *Queries) CreateClassOperationEvent(ctx context.Context, arg CreateClass
 	return i, err
 }
 
+const createEnrollmentPeriod = `-- name: CreateEnrollmentPeriod :one
+INSERT INTO class_enrollment_periods (
+  enrollment_id, started_at, created_by, start_reason
+)
+VALUES ($1, $2, $3, $4)
+RETURNING id, enrollment_id, started_at, ended_at, created_by, ended_by,
+  start_reason, end_reason, created_at
+`
+
+type CreateEnrollmentPeriodParams struct {
+	EnrollmentID pgtype.UUID        `json:"enrollment_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	StartReason  pgtype.Text        `json:"start_reason"`
+}
+
+func (q *Queries) CreateEnrollmentPeriod(ctx context.Context, arg CreateEnrollmentPeriodParams) (ClassEnrollmentPeriod, error) {
+	row := q.db.QueryRow(ctx, createEnrollmentPeriod,
+		arg.EnrollmentID,
+		arg.StartedAt,
+		arg.CreatedBy,
+		arg.StartReason,
+	)
+	var i ClassEnrollmentPeriod
+	err := row.Scan(
+		&i.ID,
+		&i.EnrollmentID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.EndedBy,
+		&i.StartReason,
+		&i.EndReason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createTeacherAssignment = `-- name: CreateTeacherAssignment :one
 INSERT INTO teacher_assignments (
   class_id, teacher_id, assignment_role, assigned_by
@@ -219,6 +326,43 @@ func (q *Queries) DeleteTeacherAssignment(ctx context.Context, arg DeleteTeacher
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const endClassEnrollmentAt = `-- name: EndClassEnrollmentAt :one
+UPDATE class_enrollments
+SET status = $3, ended_at = $4
+WHERE id = $1 AND class_id = $2
+RETURNING id, class_id, student_id, status, enrolled_at, ended_at,
+  created_by, created_at, updated_at
+`
+
+type EndClassEnrollmentAtParams struct {
+	ID      pgtype.UUID        `json:"id"`
+	ClassID pgtype.UUID        `json:"class_id"`
+	Status  EnrollmentStatus   `json:"status"`
+	EndedAt pgtype.Timestamptz `json:"ended_at"`
+}
+
+func (q *Queries) EndClassEnrollmentAt(ctx context.Context, arg EndClassEnrollmentAtParams) (ClassEnrollment, error) {
+	row := q.db.QueryRow(ctx, endClassEnrollmentAt,
+		arg.ID,
+		arg.ClassID,
+		arg.Status,
+		arg.EndedAt,
+	)
+	var i ClassEnrollment
+	err := row.Scan(
+		&i.ID,
+		&i.ClassID,
+		&i.StudentID,
+		&i.Status,
+		&i.EnrolledAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getAdminClass = `-- name: GetAdminClass :one
@@ -386,6 +530,32 @@ func (q *Queries) GetEnrollmentByClassStudent(ctx context.Context, arg GetEnroll
 	return id, err
 }
 
+const getLatestEnrollmentPeriod = `-- name: GetLatestEnrollmentPeriod :one
+SELECT id, enrollment_id, started_at, ended_at, created_by, ended_by,
+  start_reason, end_reason, created_at
+FROM class_enrollment_periods
+WHERE enrollment_id = $1
+ORDER BY started_at DESC, id DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestEnrollmentPeriod(ctx context.Context, enrollmentID pgtype.UUID) (ClassEnrollmentPeriod, error) {
+	row := q.db.QueryRow(ctx, getLatestEnrollmentPeriod, enrollmentID)
+	var i ClassEnrollmentPeriod
+	err := row.Scan(
+		&i.ID,
+		&i.EnrollmentID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.EndedBy,
+		&i.StartReason,
+		&i.EndReason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getTeacherAssignment = `-- name: GetTeacherAssignment :one
 SELECT
   ta.id, ta.class_id, ta.teacher_id, tp.teacher_code, tp.full_name,
@@ -432,6 +602,31 @@ func (q *Queries) GetTeacherAssignment(ctx context.Context, arg GetTeacherAssign
 	return i, err
 }
 
+const hasOtherActiveEnrollmentForCourse = `-- name: HasOtherActiveEnrollmentForCourse :one
+SELECT EXISTS(
+  SELECT 1
+  FROM class_enrollments ce
+  JOIN classes c ON c.id = ce.class_id
+  WHERE ce.student_id = $1
+    AND c.course_id = $2
+    AND ce.status = 'enrolled'
+    AND ce.id <> $3
+)
+`
+
+type HasOtherActiveEnrollmentForCourseParams struct {
+	StudentID    pgtype.UUID `json:"student_id"`
+	CourseID     pgtype.UUID `json:"course_id"`
+	EnrollmentID pgtype.UUID `json:"enrollment_id"`
+}
+
+func (q *Queries) HasOtherActiveEnrollmentForCourse(ctx context.Context, arg HasOtherActiveEnrollmentForCourseParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOtherActiveEnrollmentForCourse, arg.StudentID, arg.CourseID, arg.EnrollmentID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listAdminClasses = `-- name: ListAdminClasses :many
 SELECT
   c.id, c.course_id, co.code AS course_code, co.name AS course_name,
@@ -454,15 +649,42 @@ AND (
   $3::uuid IS NULL
   OR c.course_id = $3::uuid
 )
+AND (
+  $4::uuid IS NULL
+  OR EXISTS (
+    SELECT 1 FROM teacher_assignments ta
+    WHERE ta.class_id = c.id AND ta.teacher_id = $4::uuid
+  )
+)
+AND ($5::date IS NULL OR c.end_date >= $5::date)
+AND ($6::date IS NULL OR c.start_date <= $6::date)
 GROUP BY c.id, co.code, co.name
-ORDER BY c.created_at DESC, c.id
-LIMIT $5 OFFSET $4
+HAVING (
+  $7::text = ''
+  OR ($7::text = 'available' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') < c.maximum_students)
+  OR ($7::text = 'full' AND COUNT(ce.id) FILTER (WHERE ce.status = 'enrolled') >= c.maximum_students)
+)
+ORDER BY
+  CASE WHEN $8::text = 'class_code' AND $9::text = 'asc' THEN c.class_code END ASC,
+  CASE WHEN $8::text = 'class_code' AND $9::text = 'desc' THEN c.class_code END DESC,
+  CASE WHEN $8::text = 'start_date' AND $9::text = 'asc' THEN c.start_date END ASC,
+  CASE WHEN $8::text = 'start_date' AND $9::text = 'desc' THEN c.start_date END DESC,
+  CASE WHEN $8::text = 'created_at' AND $9::text = 'asc' THEN c.created_at END ASC,
+  CASE WHEN $8::text = 'created_at' AND $9::text = 'desc' THEN c.created_at END DESC,
+  c.id
+LIMIT $11 OFFSET $10
 `
 
 type ListAdminClassesParams struct {
 	Search     string      `json:"search"`
 	Status     string      `json:"status"`
 	CourseID   pgtype.UUID `json:"course_id"`
+	TeacherID  pgtype.UUID `json:"teacher_id"`
+	FromDate   pgtype.Date `json:"from_date"`
+	ToDate     pgtype.Date `json:"to_date"`
+	Capacity   string      `json:"capacity"`
+	SortBy     string      `json:"sort_by"`
+	SortOrder  string      `json:"sort_order"`
 	PageOffset int32       `json:"page_offset"`
 	PageLimit  int32       `json:"page_limit"`
 }
@@ -488,6 +710,12 @@ func (q *Queries) ListAdminClasses(ctx context.Context, arg ListAdminClassesPara
 		arg.Search,
 		arg.Status,
 		arg.CourseID,
+		arg.TeacherID,
+		arg.FromDate,
+		arg.ToDate,
+		arg.Capacity,
+		arg.SortBy,
+		arg.SortOrder,
 		arg.PageOffset,
 		arg.PageLimit,
 	)
@@ -754,6 +982,50 @@ func (q *Queries) ListTeacherClasses(ctx context.Context, userID pgtype.UUID) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockStudentForEnrollment = `-- name: LockStudentForEnrollment :one
+SELECT id
+FROM student_profiles
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockStudentForEnrollment(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, lockStudentForEnrollment, id)
+	var id_2 pgtype.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const reopenClassEnrollment = `-- name: ReopenClassEnrollment :one
+UPDATE class_enrollments
+SET status = 'enrolled', ended_at = NULL
+WHERE id = $1 AND class_id = $2
+RETURNING id, class_id, student_id, status, enrolled_at, ended_at,
+  created_by, created_at, updated_at
+`
+
+type ReopenClassEnrollmentParams struct {
+	ID      pgtype.UUID `json:"id"`
+	ClassID pgtype.UUID `json:"class_id"`
+}
+
+func (q *Queries) ReopenClassEnrollment(ctx context.Context, arg ReopenClassEnrollmentParams) (ClassEnrollment, error) {
+	row := q.db.QueryRow(ctx, reopenClassEnrollment, arg.ID, arg.ClassID)
+	var i ClassEnrollment
+	err := row.Scan(
+		&i.ID,
+		&i.ClassID,
+		&i.StudentID,
+		&i.Status,
+		&i.EnrolledAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateClass = `-- name: UpdateClass :one

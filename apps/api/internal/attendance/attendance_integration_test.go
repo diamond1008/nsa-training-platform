@@ -207,6 +207,136 @@ func (e *attendanceEnv) cleanup(t *testing.T) {
 	}
 }
 
+func TestIntegration_AdminRecordsMissingAttendanceWithRosterIdentity(t *testing.T) {
+	env := setupAttendance(t)
+	ctx := context.Background()
+
+	recorded, err := env.service.AdminCorrectStudent(
+		ctx,
+		env.adminUserID,
+		env.sessionID,
+		env.studentB,
+		attendancemodule.CorrectionInput{
+			Status: db.AttendanceStatusExcused,
+			Reason: "Approved absence request",
+		},
+	)
+	if err != nil {
+		t.Fatalf("admin record missing attendance: %v", err)
+	}
+	if recorded.StudentID != env.studentB || recorded.StudentCode == "" || recorded.FullName == "" || recorded.Status != "excused" {
+		t.Fatalf("recorded attendance identity/status = %+v", recorded)
+	}
+
+	var beforeWasNull bool
+	if err := env.pool.QueryRow(ctx,
+		`SELECT old_values IS NULL OR old_values = 'null'::jsonb
+		 FROM audit_logs
+		 WHERE action = 'attendance.correct' AND entity_id = $1
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		recorded.ID,
+	).Scan(&beforeWasNull); err != nil || !beforeWasNull {
+		t.Fatalf("missing-attendance audit old_values null=%v err=%v", beforeWasNull, err)
+	}
+}
+
+func TestIntegration_WithdrawalBoundaryAndGapAreExcludedFromAttendanceRoster(t *testing.T) {
+	env := setupAttendance(t)
+	ctx := context.Background()
+
+	var enrollmentID string
+	if err := env.pool.QueryRow(ctx,
+		`SELECT id FROM class_enrollments WHERE student_id = $1`, env.studentB,
+	).Scan(&enrollmentID); err != nil {
+		t.Fatalf("find enrollment: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx,
+		`UPDATE class_enrollment_periods
+		 SET ended_at = NOW() - INTERVAL '36 hours', end_reason = 'Temporary withdrawal'
+		 WHERE enrollment_id = $1 AND ended_at IS NULL`, enrollmentID,
+	); err != nil {
+		t.Fatalf("close first enrollment period: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx,
+		`UPDATE class_enrollments
+		 SET status = 'enrolled', ended_at = NULL
+		 WHERE id = $1`, enrollmentID,
+	); err != nil {
+		t.Fatalf("prepare aggregate enrollment: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx,
+		`INSERT INTO class_enrollment_periods (
+		   enrollment_id, started_at, created_by, start_reason
+		 ) VALUES ($1, NOW() - INTERVAL '12 hours', $2, 'Returned to class')`,
+		enrollmentID, env.adminUserID,
+	); err != nil {
+		t.Fatalf("create return period: %v", err)
+	}
+
+	var gapSessionID, returnSessionID string
+	if err := env.pool.QueryRow(ctx,
+		`INSERT INTO class_sessions (
+		   class_id, course_id, teacher_id, title, session_type,
+		   starts_at, ends_at, status, created_by
+		 )
+		 SELECT class_id, course_id, teacher_id, 'Withdrawal gap', 'theory',
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 1) + TIME '13:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 1) + TIME '17:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		   'completed', created_by
+		 FROM class_sessions WHERE id = $1
+		 RETURNING id`, env.sessionID,
+	).Scan(&gapSessionID); err != nil {
+		t.Fatalf("insert gap session: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx,
+		`UPDATE class_enrollment_periods
+		 SET ended_at = (SELECT starts_at FROM class_sessions WHERE id = $2)
+		 WHERE enrollment_id = $1 AND ended_at IS NOT NULL`,
+		enrollmentID, gapSessionID,
+	); err != nil {
+		t.Fatalf("align withdrawal with session boundary: %v", err)
+	}
+	if err := env.pool.QueryRow(ctx,
+		`INSERT INTO class_sessions (
+		   class_id, course_id, teacher_id, title, session_type,
+		   starts_at, ends_at, status, created_by
+		 )
+		 SELECT class_id, course_id, teacher_id, 'After return', 'theory',
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 1) + TIME '18:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		   ((((NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 1) + TIME '21:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),
+		   'scheduled', created_by
+		 FROM class_sessions WHERE id = $1
+		 RETURNING id`, env.sessionID,
+	).Scan(&returnSessionID); err != nil {
+		t.Fatalf("insert return session: %v", err)
+	}
+
+	gap, err := env.service.GetAdminSession(ctx, gapSessionID)
+	if err != nil {
+		t.Fatalf("get gap roster: %v", err)
+	}
+	returned, err := env.service.GetAdminSession(ctx, returnSessionID)
+	if err != nil {
+		t.Fatalf("get returned roster: %v", err)
+	}
+	if rosterHasStudent(gap.Items, env.studentB) {
+		t.Fatalf("withdrawn student unexpectedly appears in gap roster: %+v", gap.Items)
+	}
+	if !rosterHasStudent(returned.Items, env.studentB) {
+		t.Fatalf("returned student missing from later roster: %+v", returned.Items)
+	}
+}
+
+func rosterHasStudent(items []attendancemodule.RosterItemView, studentID string) bool {
+	for _, item := range items {
+		if item.StudentID == studentID {
+			return true
+		}
+	}
+	return false
+}
+
 func TestIntegration_AttendanceLifecycleAndOwnership(t *testing.T) {
 	env := setupAttendance(t)
 	ctx := context.Background()

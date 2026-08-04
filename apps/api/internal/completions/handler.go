@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/request"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/response"
 )
@@ -38,7 +39,29 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
-	result, err := h.service.List(r.Context(), strings.TrimSpace(r.URL.Query().Get("search")), page, perPage)
+	eligibility := strings.TrimSpace(r.URL.Query().Get("eligibility"))
+	if eligibility != "" && eligibility != "eligible" && eligibility != "ineligible" {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "eligibility must be eligible or ineligible")
+		return
+	}
+	for _, name := range []string{"course_id", "class_id"} {
+		if value := strings.TrimSpace(r.URL.Query().Get(name)); value != "" {
+			if _, err := data.UUID(value); err != nil {
+				response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", name+" must be a valid UUID")
+				return
+			}
+		}
+	}
+	sortBy, sortOrder, err := request.Sort(r, "class_code", "class_code", "student_code")
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	result, err := h.service.List(r.Context(), ListFilter{
+		Search: strings.TrimSpace(r.URL.Query().Get("search")), Eligibility: eligibility,
+		CourseID: r.URL.Query().Get("course_id"), ClassID: r.URL.Query().Get("class_id"),
+		SortBy: sortBy, SortOrder: sortOrder, Page: page, PerPage: perPage,
+	})
 	if err != nil {
 		h.writeError(w, r, err)
 		return

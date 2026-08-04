@@ -2,8 +2,8 @@
 
 ## Current Phase
 
-- Phase 18 — Fixed training slots and paper-test operations
-- Status: implementation and local validation complete; migration 00007 and the DB integration suite pass
+- Phase 22 — Dense scheduling and withdrawal-safe temporal re-enrollment
+- Status: implementation and full local validation complete in the working tree
 
 ## Completed
 
@@ -73,15 +73,46 @@
   - The Admin form now accepts a date plus Morning/Afternoon/Evening rather than free-form datetimes.
   - The shared desktop week calendar is a compact seven-day by three-slot grid. Month and mobile agenda modes remain, and Admin/Teacher/Student pages provide role-specific summary counters for the loaded range.
   - Course tests and final exams are explicitly paper-only. ADMIN owns test configuration, assigned TEACHER users enter marked scores and reasoned corrections, and STUDENT users have result-only access. No online testing subsystem exists.
+- Phase 19 implementation (Student Avatar Persistence & Attendance UX Polish):
+  - Migration `00008_add_student_avatar_url.sql` adds `avatar_url TEXT` column to the PostgreSQL `student_profiles` table with full `sqlc` type-safe query integration.
+  - Go API service and HTTP handlers for `students` and `attendance` packages support `avatar_url` persistence in DB and payload JSON contracts.
+  - Client-side WebP compression utility `compressImageToWebP` converts uploaded avatar images to lightweight WebP data URLs before saving.
+  - The API accepts only structurally valid WebP data URLs up to 256 KiB; original browser uploads are capped at 10 MiB, and audit payloads replace image data with a redacted marker.
+  - Admin Student Management features an Avatar table column and Avatar file picker with preview and WebP compression badge.
+  - Teacher Attendance Page redesigned into a structured table layout with quick action toggle buttons (Có mặt / Vắng) and backend default alignment.
+- Phase 20 implementation:
+  - ADMIN has a dedicated attendance route and may record a missing result or correct an existing result, including after lock, only with a mandatory reason.
+  - Every correction retains before/after values in the audit and class-operation histories; calendar selection links into the focused attendance workspace instead of duplicating the correction form.
+- Phase 21 implementation:
+  - Admin students, teachers, courses, classes, schedules, and completion candidates use URL-backed search/filter/sort/pagination with allow-listed server-side query contracts.
+  - Student attendance-risk filtering is course-aware and class-aware; filtered CSV export uses the same operational scope as the directory.
+  - ADMIN completion filters expose eligible/ineligible, course, class, stable sorting, and accurate filtered totals.
+  - ADMIN and assigned TEACHER schedule endpoints support bounded search, domain filters, attendance lock state, and stable sorting.
+  - The Teacher attendance workspace supports session and roster search, recorded/unrecorded filters, dirty-row tracking, confirmed bulk absence, and the canonical four backend statuses.
+  - The Admin attendance workspace supports bounded session lookup, roster search/status filters, reasoned before/after confirmation, corrections for both missing and recorded rows, and the immutable correction timeline.
+  - Shared frontend primitives provide URL query normalization, filter chips, bounded searchable selectors, accessible sorting, focus-managed modals, a skip link, and reduced-motion-safe transitions.
+  - `docs/openapi.yaml` documents the expanded list/filter contracts; SQL remains source-controlled under `database/queries` and generated code is refreshed with `sqlc generate`.
+- Phase 22 implementation:
+  - Migration `00009_add_enrollment_periods.sql` backfills and maintains non-overlapping active intervals beneath each stable `class_enrollments` membership.
+  - Attendance and Student schedule queries resolve membership from the half-open period `[started_at, ended_at)` containing the session start; the exact withdrawal boundary and later gap do not enter rosters or absence calculations.
+  - ADMIN can reopen only `withdrawn -> enrolled`, with a mandatory reason and optional RFC3339 `effective_at`; capacity, class/student status, class dates, prior period end, and another active same-course enrollment are checked transactionally.
+  - Withdrawal, completion, and transfer close the open period atomically with aggregate enrollment state, audit, and class-operation history.
+  - The Admin schedule keeps common filters compact, moves class/teacher/location into an advanced disclosure, and renders at most two session cards per week slot with an accessible `+N lớp khác` modal.
+  - The class detail page exposes `Đưa trở lại lớp` only for withdrawn memberships and records the effective Vietnam date/time plus reason.
+- Phase 23 implementation (Two-State Roll Call UX):
+  - Teacher and Admin attendance workspaces intentionally expose only `Có mặt` and `Vắng`; the API, PostgreSQL enum, OpenAPI contract, reports, and historical calculations continue to support `present`, `late`, `excused`, and `absent`.
+  - Frontend projection maps `present/late → Có mặt` and `absent/excused/null → Vắng`. Existing `late` and `excused` values show a legacy-data badge and are not silently rewritten when their projected selection is unchanged.
+  - Every unrecorded Teacher roster row initializes as an unsaved `Vắng` draft. The teacher marks attendees `Có mặt`, may add notes, and saves the pending batch during the editable Vietnam calendar day.
+  - Teacher and Admin use the same horizontally responsive table columns: STT, student code, avatar, learner name, Có mặt, Vắng, note, and recorder. The Admin must still confirm every creation/correction with a mandatory reason so the audit and class-operation histories remain authoritative.
 
 ## In Progress
 
-- Phase 18 is implemented and validated on `codex/fixed-training-slots`; use Git history for the exact delivery commit.
+- Operator acceptance with realistic center data; no additional product feature phase is currently approved.
 
 ## Next
 
-- Phase 18 visual acceptance of all three role calendars and a real center timetable rehearsal.
-- After acceptance: maintenance, real center-data rehearsal, and deployment preparation only.
+- Real center-data rehearsal and operator acceptance for ADMIN attendance correction, re-enrollment, dense multi-class slots, TEACHER same-day attendance, filtered directories, and completion review.
+- After acceptance: maintenance, backups/restore rehearsal, monitoring, and deployment preparation only.
 - Payments, tuition, debt tracking, third-party payment integrations, and category-based student-code prefixes remain explicitly out of scope.
 
 ## Architecture Decisions
@@ -90,6 +121,9 @@
 - Teacher class screens use dedicated assignment-scoped read endpoints instead of composing ADMIN APIs or exposing all classes.
 - A Teacher class detail response intentionally combines the class, roster, and course competencies needed by attendance/assessment screens.
 - TanStack Query owns server state and invalidation; forms keep only transient local input state.
+- Operational list state is canonical in the URL; backend validation and RBAC remain authoritative for every filter and mutation.
+- Schedule calendars link to the dedicated attendance workspaces; do not reintroduce independent attendance editors inside calendar pages.
+- Teacher batch attendance treats every unrecorded row as a pending Absent draft, never as Present. Saving persists those pending defaults plus explicit Có mặt selections; reconciliation remains the safety net that marks any still-missing records Absent at the next Vietnam midnight.
 - Shared API errors retain backend codes/messages and surface predictable loading, error, and empty states.
 - Browser access tokens remain memory-only; the secure HttpOnly refresh cookie restores sessions after reload.
 - sqlc generated output remains committed under `database/generated`.
@@ -122,6 +156,9 @@
 - `apps/web/src/features/student/{studentApi,StudentPages}.tsx` — Student self-service screens.
 - `apps/web/src/components/calendar.tsx` — shared compact three-slot week calendar, month view, mobile agenda, and role counters.
 - `apps/web/src/components/{ui,data}.tsx` — shared UI and server-state presentation.
+- `apps/web/src/components/{filters,SearchCombobox}.tsx` — URL-filter presentation and bounded searchable selectors.
+- `apps/web/src/lib/listQuery.ts` — normalized query-string parsing and patching for management screens.
+- `apps/web/src/features/{admin,teacher}/*AttendancePage.tsx` — canonical role-scoped attendance workspaces.
 - `apps/web/src/lib/{apiClient,domainTypes,format}.ts` — transport, contracts, and display helpers.
 - `apps/web/src/routes/router.tsx` — role-protected Phase 9 route tree.
 - `apps/api/internal/classes/{service,handler}.go` — Admin class workflows and Teacher assignment-scoped reads.
@@ -135,7 +172,7 @@
 - `database/queries/{tests,completions,progress}.sql` — score workflows and transfer-safe formal eligibility.
 - `apps/api/internal/testscores` — ADMIN/Teacher/Student score configuration and attempt workflows.
 - `apps/api/internal/{completions,notifications,reports}` — Phase 15–16 business modules.
-- `docs/openapi.yaml` — external API contract, version 1.1.0.
+- `docs/openapi.yaml` — external API contract, version 1.2.0.
 - `.github/workflows/ci.yml` — API, web, migration, E2E, and image-build gates.
 - `compose.production.yaml` and `infra/caddy/Caddyfile` — production topology and TLS edge.
 - `apps/web/e2e/critical-path.spec.ts` and `database/seeds/e2e.sql` — deterministic role journeys.
@@ -151,11 +188,11 @@
 
 ## Database and API State
 
-- Latest migration: `00007_fixed_training_slots.sql`; local Goose up/down/up passes, and the development database now enforces the fixed-slot constraint.
+- Latest migration: `00008_add_student_avatar_url.sql`; the test database migrates through version 8 and retains the fixed-slot constraint from migration 00007.
 - Teacher class reads are assignment scoped by authenticated Teacher user ID.
 - Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`; test results/attempts use the adjacent `/test-results` and `/tests/{testID}/attempts` routes.
 - Student self-service APIs include `/api/v1/student/{schedule,attendance,assessments,test-results,progress,certificates}`; public certificate verification is `/api/v1/certificates/{verificationCode}`.
-- OpenAPI version: 1.1.0, including Phase 17 score routes plus the Phase 18 fixed-slot scheduling contract.
+- OpenAPI version: 1.2.0, including Phase 17–18 training contracts plus Phase 20–21 attendance and operational-filter routes.
 
 ## Web State
 
@@ -163,6 +200,20 @@
 - All sidebar routes render connected feature screens rather than placeholders.
 - Role-specific dashboards, responsive navigation, mobile card tables, improved forms/modals/feedback, compact three-slot week calendars, month views, mobile agendas, and role-specific calendar counters are implemented.
 - Phase 18 validation: sqlc generation, Go format/vet/unit tests, Goose up/down/up, the complete DB integration suite, ESLint, Prettier, 23/23 Vitest tests, TypeScript, Vite production build, OpenAPI lint, and 3/3 Playwright role journeys pass. A 1440x900 browser smoke test confirmed that the schedule page has no document overflow.
+- Phase 21 validation: `make check`, sqlc generation, test-database migration through version 8, the complete DB integration suite, 41/41 Vitest tests, TypeScript/Vite production build, OpenAPI lint, local and production Compose configuration, and 3/3 Playwright role journeys pass. Production Compose used `.env.production.example` because no secret-bearing `.env.production` file is stored in the workspace.
+
+## Phase 19 & 20 Handoff (2026-07-30)
+
+- **Student Avatar Persistence & WebP Compression (Phase 19)**:
+  - Goose migration `00008_add_student_avatar_url.sql` added `avatar_url TEXT` column to `student_profiles`.
+  - Client-side WebP 400x400 compression (`compressImageToWebP`) added to Student Management admin UI.
+- **Stationary 34px Axis Sidebar Navigation**:
+  - Unified single DOM tree architecture for `AppLayout.tsx` locking all icons (N logo, nav items, student profile avatar, logout button) to a fixed `X = 34px` axis across expand/collapse width transitions.
+  - Hover transition on collapsed top logo smoothly swaps N badge with expand icon without shifting layout coordinates.
+- **Admin Attendance Management & Audit Corrections (Phase 20)**:
+  - Added Admin Attendance Page (`/admin/diem-danh`) and API endpoint `POST /api/v1/admin/sessions/{sessionID}/students/{studentID}/attendance`.
+  - Administrative attendance modifications mandatorily require a non-empty `reason` field in the confirmation modal before saving.
+  - All admin corrections are saved to PostgreSQL audit log (`audit.WriteWithReason`) and class history log (`classhistory.Write`) with before/after state diffs.
 
 ## Git State
 
