@@ -47,6 +47,7 @@ AND (
   OR EXISTS (
     SELECT 1 FROM teacher_assignments ta
     WHERE ta.class_id = c.id AND ta.teacher_id = sqlc.narg(teacher_id)::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND (sqlc.narg(from_date)::date IS NULL OR c.end_date >= sqlc.narg(from_date)::date)
@@ -90,6 +91,7 @@ AND (
   OR EXISTS (
     SELECT 1 FROM teacher_assignments ta
     WHERE ta.class_id = c.id AND ta.teacher_id = sqlc.narg(teacher_id)::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND (sqlc.narg(from_date)::date IS NULL OR c.end_date >= sqlc.narg(from_date)::date)
@@ -114,6 +116,10 @@ JOIN teacher_assignments ta ON ta.class_id = c.id
 JOIN teacher_profiles tp ON tp.id = ta.teacher_id
 LEFT JOIN class_enrollments ce ON ce.class_id = c.id
 WHERE tp.user_id = $1
+  AND EXISTS (
+    SELECT 1 FROM teacher_assignment_periods tap
+    WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+  )
 GROUP BY c.id, co.code, co.name
 ORDER BY c.start_date DESC, c.class_code;
 
@@ -251,7 +257,11 @@ SELECT
   ta.created_at, ta.updated_at
 FROM teacher_assignments ta
 JOIN teacher_profiles tp ON tp.id = ta.teacher_id
-WHERE ta.id = $1 AND ta.class_id = $2;
+WHERE ta.id = $1 AND ta.class_id = $2
+  AND EXISTS (
+    SELECT 1 FROM teacher_assignment_periods tap
+    WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+  );
 
 -- name: ListTeacherAssignments :many
 SELECT
@@ -261,7 +271,61 @@ SELECT
 FROM teacher_assignments ta
 JOIN teacher_profiles tp ON tp.id = ta.teacher_id
 WHERE ta.class_id = $1
+  AND EXISTS (
+    SELECT 1 FROM teacher_assignment_periods tap
+    WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+  )
 ORDER BY ta.assigned_at, ta.id;
+
+-- name: GetTeacherAssignmentByPair :one
+SELECT id, class_id, teacher_id, assignment_role, assigned_at,
+  assigned_by, created_at, updated_at
+FROM teacher_assignments
+WHERE class_id = $1 AND teacher_id = $2
+FOR UPDATE;
+
+-- name: HasOpenTeacherAssignmentPeriod :one
+SELECT EXISTS (
+  SELECT 1 FROM teacher_assignment_periods
+  WHERE assignment_id = $1 AND ended_at IS NULL
+);
+
+-- name: CreateTeacherAssignmentPeriod :one
+INSERT INTO teacher_assignment_periods (
+  assignment_id, started_at, created_by, start_reason
+)
+VALUES ($1, $2, $3, $4)
+RETURNING id, assignment_id, started_at, ended_at, created_by,
+  ended_by, start_reason, end_reason, created_at;
+
+-- name: EndTeacherAssignmentPeriod :one
+UPDATE teacher_assignment_periods
+SET ended_at = $2, ended_by = $3, end_reason = $4
+WHERE assignment_id = $1 AND ended_at IS NULL
+RETURNING id, assignment_id, started_at, ended_at, created_by,
+  ended_by, start_reason, end_reason, created_at;
+
+-- name: ListTeacherAssignmentPeriods :many
+SELECT id, assignment_id, started_at, ended_at, created_by,
+  ended_by, start_reason, end_reason, created_at
+FROM teacher_assignment_periods
+WHERE assignment_id = $1
+ORDER BY started_at DESC, id DESC;
+
+-- name: ReopenTeacherAssignment :one
+UPDATE teacher_assignments
+SET assignment_role = $2, assigned_at = $3, assigned_by = $4
+WHERE id = $1
+RETURNING id, class_id, teacher_id, assignment_role, assigned_at,
+  assigned_by, created_at, updated_at;
+
+-- name: CheckTeacherAssignmentHasUpcomingSessions :one
+SELECT EXISTS (
+  SELECT 1 FROM class_sessions
+  WHERE class_id = $1 AND teacher_id = $2
+    AND status <> 'cancelled'
+    AND ends_at > NOW()
+);
 
 -- name: UpdateTeacherAssignment :one
 UPDATE teacher_assignments
@@ -269,10 +333,6 @@ SET assignment_role = $3
 WHERE id = $1 AND class_id = $2
 RETURNING id, class_id, teacher_id, assignment_role, assigned_at,
   assigned_by, created_at, updated_at;
-
--- name: DeleteTeacherAssignment :execrows
-DELETE FROM teacher_assignments
-WHERE id = $1 AND class_id = $2;
 
 -- name: CreateClassOperationEvent :one
 INSERT INTO class_operation_history (

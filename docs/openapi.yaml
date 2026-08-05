@@ -326,6 +326,187 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/admin/students/{studentID}/profile-summary:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: Get the student's 360-degree core profile and operating metrics
+      operationId: getAdminStudentProfileSummary
+      responses:
+        "200":
+          description: Student profile summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentProfileSummaryResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/students/{studentID}/class-history:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: List all current and historical class enrollment periods for a student
+      operationId: listAdminStudentClassHistory
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+      responses:
+        "200":
+          description: Paginated student class history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentClassHistoryResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/students/{studentID}/attendance-breakdown:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: Get student attendance breakdown and absence-risk status per class
+      operationId: getAdminStudentAttendanceBreakdown
+      responses:
+        "200":
+          description: List of class attendance breakdown items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    class_id: { type: string }
+                    class_code: { type: string }
+                    class_name: { type: string }
+                    course_name: { type: string }
+                    minimum_attendance_pct: { type: number }
+                    total_sessions: { type: integer }
+                    attended_sessions: { type: integer }
+                    absent_sessions: { type: integer }
+                    attendance_pct: { type: number }
+                    at_risk: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/students/{studentID}/academic-summary:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: Get student academic test score summary
+      operationId: getAdminStudentAcademicSummary
+      responses:
+        "200":
+          description: List of academic test scores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    test_id: { type: string }
+                    test_title: { type: string }
+                    pass_score: { type: number }
+                    class_id: { type: string }
+                    class_name: { type: string }
+                    course_name: { type: string }
+                    score: { type: number }
+                    graded_at: { type: string }
+                    passed: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/students/{studentID}/audit-logs:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: List audit logs for student
+      operationId: getAdminStudentAuditLogs
+      responses:
+        "200":
+          description: Paginated audit log items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        actor_user_id: { type: string }
+                        actor_email: { type: string }
+                        action: { type: string }
+                        entity_type: { type: string }
+                        entity_id: { type: string }
+                        old_values: { type: string }
+                        new_values: { type: string }
+                        reason: { type: string }
+                        created_at: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/admin/students/{studentID}/account-status:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    patch:
+      tags: [admin]
+      summary: Lock/unlock or change student account status with mandatory reason
+      operationId: updateAdminStudentAccountStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account_status, reason]
+              properties:
+                account_status: { type: string }
+                reason: { type: string }
+      responses:
+        "200":
+          description: Updated student profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/students/{studentID}/schedule:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+    get:
+      tags: [admin]
+      summary: List sessions within all effective enrollment periods for a student
+      operationId: listAdminStudentSchedule
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: Paginated student schedule
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/admin/students/export:
     get:
       tags: [admin]
@@ -444,6 +625,43 @@ paths:
         "400": { $ref: "#/components/responses/ValidationError" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/admin/teachers/{teacherID}/profile-summary:
+    parameters:
+      - { $ref: "#/components/parameters/TeacherID" }
+    get:
+      tags: [admin]
+      summary: Get the teacher's 360-degree core profile and operating metrics
+      operationId: getAdminTeacherProfileSummary
+      responses:
+        "200":
+          description: Teacher profile summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherProfileSummaryResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/admin/teachers/{teacherID}/class-history:
+    parameters:
+      - { $ref: "#/components/parameters/TeacherID" }
+    get:
+      tags: [admin]
+      summary: List all current and historical class assignment periods for a teacher
+      operationId: listAdminTeacherClassHistory
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PerPage" }
+      responses:
+        "200":
+          description: Paginated teacher class history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeacherClassHistoryResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/admin/courses:
     get:
@@ -2128,6 +2346,56 @@ components:
             meta: { $ref: "#/components/schemas/PaginationMeta" }
         message: { type: string }
 
+    PersonClassPeriod:
+      type: object
+      required: [id, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: [string, "null"], format: date-time }
+        start_reason: { type: [string, "null"] }
+        end_reason: { type: [string, "null"] }
+    StudentProfileSummaryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [profile, current_classes, total_classes, attendance_risk_classes, upcoming_sessions]
+          properties:
+            profile: { $ref: "#/components/schemas/Student" }
+            current_classes: { type: integer, minimum: 0 }
+            total_classes: { type: integer, minimum: 0 }
+            attendance_risk_classes: { type: integer, minimum: 0 }
+            upcoming_sessions: { type: integer, minimum: 0 }
+        message: { type: string }
+    StudentClassHistory:
+      type: object
+      required: [enrollment_id, class_id, class_code, class_name, course_id, course_code, course_name, enrollment_status, enrolled_at, periods]
+      properties:
+        enrollment_id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        enrollment_status: { type: string }
+        enrolled_at: { type: string, format: date-time }
+        ended_at: { type: [string, "null"], format: date-time }
+        periods: { type: array, items: { $ref: "#/components/schemas/PersonClassPeriod" } }
+    StudentClassHistoryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/StudentClassHistory" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
     StudentStatusHistory:
       type: object
       required: [id, student_id, to_status, reason, changed_at]
@@ -2178,6 +2446,11 @@ components:
         account_status: { $ref: "#/components/schemas/UserStatus" }
         teacher_code: { type: string, maxLength: 30 }
         full_name: { type: string, maxLength: 160 }
+        avatar_url:
+          type: [string, "null"]
+          pattern: '^data:image/webp;base64,'
+          maxLength: 349550
+          description: Optional WebP data URL; decoded image data must not exceed 256 KiB
         phone: { type: [string, "null"], maxLength: 30 }
         specialization: { type: [string, "null"], maxLength: 200 }
         status: { $ref: "#/components/schemas/TeacherStatus" }
@@ -2189,6 +2462,11 @@ components:
         account_status: { $ref: "#/components/schemas/UserStatus" }
         teacher_code: { type: string, maxLength: 30 }
         full_name: { type: string, maxLength: 160 }
+        avatar_url:
+          type: [string, "null"]
+          pattern: '^data:image/webp;base64,'
+          maxLength: 349550
+          description: Optional WebP data URL; decoded image data must not exceed 256 KiB
         phone: { type: [string, "null"], maxLength: 30 }
         specialization: { type: [string, "null"], maxLength: 200 }
         status: { $ref: "#/components/schemas/TeacherStatus" }
@@ -2202,6 +2480,9 @@ components:
         account_status: { $ref: "#/components/schemas/UserStatus" }
         teacher_code: { type: string }
         full_name: { type: string }
+        avatar_url:
+          type: [string, "null"]
+          description: Validated WebP data URL when a profile photo is present
         phone: { type: [string, "null"] }
         specialization: { type: [string, "null"] }
         status: { $ref: "#/components/schemas/TeacherStatus" }
@@ -2222,6 +2503,47 @@ components:
           required: [items, meta]
           properties:
             items: { type: array, items: { $ref: "#/components/schemas/Teacher" } }
+            meta: { $ref: "#/components/schemas/PaginationMeta" }
+        message: { type: string }
+
+    TeacherProfileSummaryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [profile, current_classes, total_classes, completed_sessions, upcoming_sessions]
+          properties:
+            profile: { $ref: "#/components/schemas/Teacher" }
+            current_classes: { type: integer, minimum: 0 }
+            total_classes: { type: integer, minimum: 0 }
+            completed_sessions: { type: integer, minimum: 0 }
+            upcoming_sessions: { type: integer, minimum: 0 }
+        message: { type: string }
+    TeacherClassHistory:
+      type: object
+      required: [assignment_id, class_id, class_code, class_name, course_id, course_code, course_name, assignment_role, assigned_at, is_current, periods]
+      properties:
+        assignment_id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        class_code: { type: string }
+        class_name: { type: string }
+        course_id: { type: string, format: uuid }
+        course_code: { type: string }
+        course_name: { type: string }
+        assignment_role: { type: string }
+        assigned_at: { type: string, format: date-time }
+        is_current: { type: boolean }
+        periods: { type: array, items: { $ref: "#/components/schemas/PersonClassPeriod" } }
+    TeacherClassHistoryResponse:
+      type: object
+      required: [data, message]
+      properties:
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/TeacherClassHistory" } }
             meta: { $ref: "#/components/schemas/PaginationMeta" }
         message: { type: string }
 

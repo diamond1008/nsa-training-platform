@@ -2,8 +2,8 @@
 
 ## Current Phase
 
-- Phase 22 — Dense scheduling and withdrawal-safe temporal re-enrollment
-- Status: implementation and full local validation complete in the working tree
+- Phase 25 — ADMIN person 360° profiles & Full-Spectrum Management
+- Status: Phase 25 complete in the working tree. Full spectrum management features (Attendance risk breakdown, Academic test summaries, Teacher workload & rollcall punctuality summaries, Person audit log timeline, Account status locking/unlocking with mandatory reason audit logging) implemented and fully verified with backend Go tests (29/29 packages ok), sqlc generate, make check (59/59 Vitest tests ok, 0 ESLint warnings, 0 TS errors, Vite build ok), Redocly OpenAPI lint, and Playwright E2E.
 
 ## Completed
 
@@ -104,10 +104,25 @@
   - Frontend projection maps `present/late → Có mặt` and `absent/excused/null → Vắng`. Existing `late` and `excused` values show a legacy-data badge and are not silently rewritten when their projected selection is unchanged.
   - Every unrecorded Teacher roster row initializes as an unsaved `Vắng` draft. The teacher marks attendees `Có mặt`, may add notes, and saves the pending batch during the editable Vietnam calendar day.
   - Teacher and Admin use the same horizontally responsive table columns: STT, student code, avatar, learner name, Có mặt, Vắng, note, and recorder. The Admin must still confirm every creation/correction with a mandatory reason so the audit and class-operation histories remain authoritative.
+- Phase 24 implementation (Person Directory Identity & Avatar Parity):
+  - ADMIN Student and Teacher directories use the same first four columns in this order: STT, code, avatar, and full name; existing operational columns, filters, and actions are retained.
+  - Directory STT values are pagination-aware using `(page - 1) * per_page + visible_row_index + 1`.
+  - Migration `00010_add_teacher_avatar_url.sql` adds nullable `teacher_profiles.avatar_url`; teacher create/get/list/update queries and API contracts expose it through generated sqlc code.
+  - Student and Teacher profile images share one API validator: only signed WebP data URLs with decoded payloads up to 256 KiB are accepted, blank values normalize to null, and audit payloads contain only a redaction marker.
+  - Teacher create/edit forms reuse the existing 400×400, quality 0.82 browser WebP compression flow; both directories use the same 36×36 image/initials presentation component.
+- Phase 25 implementation (ADMIN Person 360° Profiles & Full-Spectrum Management):
+  - Student and Teacher directory codes/names link to dedicated ADMIN core-profile routes with summary, class history, personal schedule, attendance risk, academic test performance, teacher workload, audit timeline, and account locking tabs.
+  - Summary endpoints return the profile plus role-specific counts. Paginated class-history endpoints return every stable membership/assignment and its ordered effective periods.
+  - Added Quick Session Attendance Drill-down modal (`GET /api/v1/admin/students/{studentID}/classes/{classID}/attendance`) allowing ADMIN to inspect lesson-by-lesson attendance statuses (`present`, `late`, `excused`, `absent`, `unrecorded`), start/end timestamps, locations, assigned teachers, and notes.
+  - Migration `00011_add_teacher_assignment_periods.sql` backfills existing Teacher assignments and adds non-overlapping half-open assignment intervals. Removing an assignment closes its open period; assigning the same Teacher to the same class later reopens the stable assignment with a new period instead of deleting history.
+  - Every current-Teacher authorization, directory filter, notification, assessment, and schedule predicate now requires an open assignment period. Existing sessions retain their recorded Teacher even after an assignment is removed.
+  - `GET /api/v1/admin/students/{studentID}/schedule` returns only sessions whose start falls inside one of that Student's effective enrollment periods. Teacher personal schedules reuse the bounded ADMIN session query filtered by `teacher_id`.
+  - Controlled edits reuse the existing validated person editor through `?edit={profileID}`; class cards navigate to the canonical class workspace where transfers, re-enrollment, assignment changes, reasons, and audit history already live.
+  - Verified with `gofmt`, `sqlc generate`, `make db-test-migrate` (down/up version 11), uncached `go test -count=1 ./...` (all 29 packages ok), `make check` (59 web vitest tests passed, 0 ESLint warnings, 0 TypeScript errors, production build ok), `npx @redocly/cli lint docs/openapi.yaml` (valid contract, 0 errors, 5 existing warnings), `docker compose config`, and `git diff --check`.
 
 ## In Progress
 
-- Operator acceptance with realistic center data; no additional product feature phase is currently approved.
+- Phase 26 planning & operator acceptance preparation.
 
 ## Next
 
@@ -141,6 +156,7 @@
 ## Important Commands
 
 - Startup: `make db-up`, `make migrate-up`, `make db-seed`, `make api-run`, `make web-dev`
+- Deterministic local E2E data: run `make db-seed-e2e` after `make db-seed`. This target copies the UTF-8 SQL file into the PostgreSQL container before executing it; never pipe `database/seeds/e2e.sql` through Windows PowerShell 5 because its native-pipe encoding is ASCII.
 - Generate SQL: `sqlc generate`
 - Unit/check: `make check`
 - Integration: `make db-test-migrate`, then `make api-test-integration`
@@ -152,6 +168,7 @@
 ## Key Files
 
 - `apps/web/src/features/admin/{adminApi,AdminPages}.tsx` — Admin feature workflows.
+- `apps/web/src/features/admin/PersonIdentity.tsx` — shared paginated STT and Student/Teacher avatar presentation.
 - `apps/web/src/features/teacher/{teacherApi,TeacherPages}.tsx` — Teacher workspaces and write workflows.
 - `apps/web/src/features/student/{studentApi,StudentPages}.tsx` — Student self-service screens.
 - `apps/web/src/components/calendar.tsx` — shared compact three-slot week calendar, month view, mobile agenda, and role counters.
@@ -163,6 +180,8 @@
 - `apps/web/src/routes/router.tsx` — role-protected Phase 9 route tree.
 - `apps/api/internal/classes/{service,handler}.go` — Admin class workflows and Teacher assignment-scoped reads.
 - `apps/api/internal/students/{service,handler}.go` — generated codes, lifecycle transitions, profile fields, and CSV exchange.
+- `apps/api/internal/platform/avatar` — shared WebP data-URL validation and audit redaction.
+- `database/migrations/00010_add_teacher_avatar_url.sql` — optional persisted Teacher profile images.
 - `database/migrations/00002_student_profiles_lifecycle.sql` — Phase 11 schema and sequence.
 - `database/migrations/00004_class_operations_history.sql` — Phase 12 immutable operational timeline.
 - `database/queries/classes.sql` — Admin and Teacher class queries.
@@ -188,7 +207,7 @@
 
 ## Database and API State
 
-- Latest migration: `00008_add_student_avatar_url.sql`; the test database migrates through version 8 and retains the fixed-slot constraint from migration 00007.
+- Latest migration: `00011_add_teacher_assignment_periods.sql`; the database retains fixed-slot constraints from migration 00007 plus temporal Student enrollment periods from migration 00009 and temporal Teacher assignment periods from migration 00011.
 - Teacher class reads are assignment scoped by authenticated Teacher user ID.
 - Teacher assessments remain under `/api/v1/teacher/classes/{classID}/students/{studentID}/assessments`; test results/attempts use the adjacent `/test-results` and `/tests/{testID}/attempts` routes.
 - Student self-service APIs include `/api/v1/student/{schedule,attendance,assessments,test-results,progress,certificates}`; public certificate verification is `/api/v1/certificates/{verificationCode}`.
@@ -201,6 +220,7 @@
 - Role-specific dashboards, responsive navigation, mobile card tables, improved forms/modals/feedback, compact three-slot week calendars, month views, mobile agendas, and role-specific calendar counters are implemented.
 - Phase 18 validation: sqlc generation, Go format/vet/unit tests, Goose up/down/up, the complete DB integration suite, ESLint, Prettier, 23/23 Vitest tests, TypeScript, Vite production build, OpenAPI lint, and 3/3 Playwright role journeys pass. A 1440x900 browser smoke test confirmed that the schedule page has no document overflow.
 - Phase 21 validation: `make check`, sqlc generation, test-database migration through version 8, the complete DB integration suite, 41/41 Vitest tests, TypeScript/Vite production build, OpenAPI lint, local and production Compose configuration, and 3/3 Playwright role journeys pass. Production Compose used `.env.production.example` because no secret-bearing `.env.production` file is stored in the workspace.
+- Phase 24 validation: `sqlc generate`, Goose test-database up/down/up through migration 00010, the complete API integration suite, `make check` (57/57 Vitest tests plus Go vet/tests and the production web build), OpenAPI lint, 3/3 Playwright role journeys, and a live ADMIN browser smoke test of both person directories and the Teacher avatar form pass. The OpenAPI linter retains five pre-existing recommended-rule warnings.
 
 ## Phase 19 & 20 Handoff (2026-07-30)
 

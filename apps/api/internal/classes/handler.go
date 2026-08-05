@@ -451,7 +451,7 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 	case errors.Is(err, ErrDuplicateAssignment):
 		response.Fail(w, http.StatusConflict, "DUPLICATE_TEACHER_ASSIGNMENT", "Teacher is already assigned to this class")
 	case errors.Is(err, ErrAssignmentInUse):
-		response.Fail(w, http.StatusConflict, "ASSIGNMENT_IN_USE", "Teacher assignment is referenced by class sessions")
+		response.Fail(w, http.StatusConflict, "ASSIGNMENT_IN_USE", "Reschedule or cancel the teacher's upcoming sessions before removing the assignment")
 	case errors.Is(err, ErrStudentInactive):
 		response.Fail(w, http.StatusConflict, "STUDENT_INACTIVE", "Only active students can be enrolled")
 	case errors.Is(err, ErrTeacherInactive):

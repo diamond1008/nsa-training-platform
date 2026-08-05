@@ -47,8 +47,12 @@ RETURNING id, code, name, location_type, capacity, is_active, created_at, update
 -- name: CheckTeacherProfileAssignedToClass :one
 SELECT EXISTS(
   SELECT 1
-  FROM teacher_assignments
-  WHERE class_id = $1 AND teacher_id = $2
+  FROM teacher_assignments ta
+  WHERE ta.class_id = $1 AND ta.teacher_id = $2
+    AND EXISTS (
+      SELECT 1 FROM teacher_assignment_periods tap
+      WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+    )
 );
 
 -- name: CreateClassSession :one
@@ -253,6 +257,49 @@ JOIN class_enrollments ce ON ce.class_id = cs.class_id
       AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
   )
 JOIN student_profiles sp ON sp.id = ce.student_id AND sp.user_id = sqlc.arg(user_id)
+WHERE (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
+AND (sqlc.narg(to_time)::timestamptz IS NULL OR cs.starts_at < sqlc.narg(to_time)::timestamptz);
+
+-- name: ListAdminStudentSchedule :many
+SELECT
+  cs.id, cs.class_id, c.class_code, c.name AS class_name,
+  cs.course_id, co.code AS course_code, co.name AS course_name,
+  cs.module_id, cm.code AS module_code, cm.name AS module_name,
+  cs.teacher_id, tp.teacher_code, tp.full_name AS teacher_name,
+  cs.location_id, tl.code AS location_code, tl.name AS location_name,
+  tl.location_type,
+  cs.title, cs.session_type, cs.starts_at, cs.ends_at, cs.status,
+  cs.attendance_locked_at, cs.created_at, cs.updated_at
+FROM class_sessions cs
+JOIN classes c ON c.id = cs.class_id
+JOIN courses co ON co.id = cs.course_id
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND ce.student_id = sqlc.arg(student_id)
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
+LEFT JOIN course_modules cm ON cm.id = cs.module_id
+LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
+LEFT JOIN training_locations tl ON tl.id = cs.location_id
+WHERE (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
+AND (sqlc.narg(to_time)::timestamptz IS NULL OR cs.starts_at < sqlc.narg(to_time)::timestamptz)
+ORDER BY cs.starts_at, cs.id
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
+
+-- name: CountAdminStudentSchedule :one
+SELECT COUNT(*)
+FROM class_sessions cs
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND ce.student_id = sqlc.arg(student_id)
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
 WHERE (sqlc.narg(from_time)::timestamptz IS NULL OR cs.ends_at > sqlc.narg(from_time)::timestamptz)
 AND (sqlc.narg(to_time)::timestamptz IS NULL OR cs.starts_at < sqlc.narg(to_time)::timestamptz);
 

@@ -25,6 +25,62 @@ FROM student_profiles sp
 JOIN users u ON u.id = sp.user_id
 WHERE sp.id = $1;
 
+-- name: GetStudentProfileMetrics :one
+SELECT
+  (SELECT COUNT(*) FROM class_enrollments ce WHERE ce.student_id = sqlc.arg(student_id)) AS total_classes,
+  (SELECT COUNT(*) FROM class_enrollments ce WHERE ce.student_id = sqlc.arg(student_id) AND ce.status = 'enrolled') AS current_classes,
+  (SELECT COUNT(*) FROM (
+    SELECT ce.id
+    FROM class_enrollments ce
+    JOIN classes c ON c.id = ce.class_id
+    JOIN courses co ON co.id = c.course_id
+    JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+    JOIN attendance_records ar ON ar.class_session_id = cs.id AND ar.student_id = ce.student_id
+    WHERE ce.student_id = sqlc.arg(student_id) AND ce.status = 'enrolled'
+    GROUP BY ce.id, co.minimum_attendance_pct
+    HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+      AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+        / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+  ) risk) AS attendance_risk_classes,
+  (SELECT COUNT(DISTINCT cs.id)
+    FROM class_sessions cs
+    JOIN class_enrollments ce ON ce.class_id = cs.class_id AND ce.student_id = sqlc.arg(student_id)
+    WHERE cs.starts_at >= NOW() AND cs.status <> 'cancelled'
+      AND EXISTS (
+        SELECT 1 FROM class_enrollment_periods cep
+        WHERE cep.enrollment_id = ce.id
+          AND cep.started_at <= cs.starts_at
+          AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+      )
+  ) AS upcoming_sessions;
+
+-- name: ListStudentClassHistory :many
+SELECT
+  ce.id AS enrollment_id, ce.class_id, c.class_code, c.name AS class_name,
+  c.course_id, co.code AS course_code, co.name AS course_name,
+  ce.status::text AS enrollment_status, ce.enrolled_at, ce.ended_at,
+  (COALESCE(
+    jsonb_agg(jsonb_build_object(
+      'id', cep.id,
+      'started_at', cep.started_at,
+      'ended_at', cep.ended_at,
+      'start_reason', cep.start_reason,
+      'end_reason', cep.end_reason
+    ) ORDER BY cep.started_at DESC) FILTER (WHERE cep.id IS NOT NULL),
+    '[]'::jsonb
+  ))::text AS periods_json
+FROM class_enrollments ce
+JOIN classes c ON c.id = ce.class_id
+JOIN courses co ON co.id = c.course_id
+LEFT JOIN class_enrollment_periods cep ON cep.enrollment_id = ce.id
+WHERE ce.student_id = sqlc.arg(student_id)
+GROUP BY ce.id, c.id, co.id
+ORDER BY COALESCE(ce.ended_at, 'infinity'::timestamptz) DESC, ce.enrolled_at DESC, ce.id DESC
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
+
+-- name: CountStudentClassHistory :one
+SELECT COUNT(*) FROM class_enrollments WHERE student_id = $1;
+
 -- name: ListAdminStudents :many
 SELECT
   sp.id, sp.user_id, u.email, u.status AS user_status,
@@ -291,3 +347,87 @@ FROM student_status_history ssh
 LEFT JOIN users u ON u.id = ssh.changed_by
 WHERE ssh.student_id = $1
 ORDER BY ssh.changed_at DESC, ssh.id DESC;
+
+-- name: GetStudentAttendanceBreakdown :many
+SELECT
+  c.id AS class_id,
+  c.class_code,
+  c.name AS class_name,
+  co.name AS course_name,
+  co.minimum_attendance_pct,
+  COUNT(cs.id)::bigint AS total_sessions,
+  COUNT(ar.id) FILTER (WHERE cs.status <> 'cancelled')::bigint AS recorded_sessions,
+  COUNT(ar.id) FILTER (WHERE ar.status IN ('present', 'late'))::bigint AS attended_sessions,
+  COUNT(ar.id) FILTER (WHERE ar.status IN ('absent', 'excused'))::bigint AS absent_sessions
+FROM class_enrollments ce
+JOIN classes c ON c.id = ce.class_id
+JOIN courses co ON co.id = c.course_id
+LEFT JOIN class_sessions cs ON cs.class_id = c.id AND cs.status <> 'cancelled'
+LEFT JOIN attendance_records ar ON ar.class_session_id = cs.id AND ar.student_id = ce.student_id
+WHERE ce.student_id = $1
+GROUP BY c.id, c.class_code, c.name, co.name, co.minimum_attendance_pct
+ORDER BY c.created_at DESC;
+
+-- name: GetStudentAcademicSummary :many
+SELECT
+  ct.id AS test_id,
+  ct.title AS test_title,
+  ct.pass_score,
+  c.id AS class_id,
+  c.name AS class_name,
+  co.name AS course_name,
+  sta.score,
+  sta.taken_at AS graded_at
+FROM student_test_attempts sta
+JOIN course_tests ct ON ct.id = sta.test_id
+JOIN classes c ON c.id = sta.class_id
+JOIN courses co ON co.id = c.course_id
+WHERE sta.student_id = $1
+ORDER BY sta.taken_at DESC;
+
+-- name: GetPersonAuditLogs :many
+SELECT
+  al.id,
+  al.actor_user_id,
+  COALESCE(u.email, '')::text AS actor_email,
+  al.action,
+  al.entity_type,
+  al.entity_id,
+  al.old_values,
+  al.new_values,
+  al.reason,
+  al.created_at
+FROM audit_logs al
+LEFT JOIN users u ON u.id = al.actor_user_id
+WHERE al.entity_id = $1
+ORDER BY al.created_at DESC, al.id DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountPersonAuditLogs :one
+SELECT COUNT(*)::bigint
+FROM audit_logs
+WHERE entity_id = $1;
+
+-- name: UpdateUserAccountStatus :one
+UPDATE users
+SET status = sqlc.arg(status), updated_at = NOW()
+WHERE id = sqlc.arg(id)
+RETURNING id, email, status, created_at, updated_at;
+
+-- name: GetStudentClassSessionAttendance :many
+SELECT
+  cs.id AS session_id,
+  cs.starts_at,
+  cs.ends_at,
+  cs.title AS session_title,
+  cs.status AS session_status,
+  COALESCE(tl.name, '')::text AS location_name,
+  COALESCE(tp.full_name, '')::text AS teacher_name,
+  COALESCE(ar.status::text, '')::text AS attendance_status,
+  COALESCE(ar.note, '')::text AS remarks
+FROM class_sessions cs
+LEFT JOIN training_locations tl ON tl.id = cs.location_id
+LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
+LEFT JOIN attendance_records ar ON ar.class_session_id = cs.id AND ar.student_id = $1
+WHERE cs.class_id = $2 AND cs.status <> 'cancelled'
+ORDER BY cs.starts_at ASC;

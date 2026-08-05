@@ -14,8 +14,12 @@ import (
 const checkTeacherProfileAssignedToClass = `-- name: CheckTeacherProfileAssignedToClass :one
 SELECT EXISTS(
   SELECT 1
-  FROM teacher_assignments
-  WHERE class_id = $1 AND teacher_id = $2
+  FROM teacher_assignments ta
+  WHERE ta.class_id = $1 AND ta.teacher_id = $2
+    AND EXISTS (
+      SELECT 1 FROM teacher_assignment_periods tap
+      WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+    )
 )
 `
 
@@ -78,6 +82,34 @@ func (q *Queries) CountAdminSessions(ctx context.Context, arg CountAdminSessions
 		arg.FromTime,
 		arg.ToTime,
 	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAdminStudentSchedule = `-- name: CountAdminStudentSchedule :one
+SELECT COUNT(*)
+FROM class_sessions cs
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND ce.student_id = $1
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
+WHERE ($2::timestamptz IS NULL OR cs.ends_at > $2::timestamptz)
+AND ($3::timestamptz IS NULL OR cs.starts_at < $3::timestamptz)
+`
+
+type CountAdminStudentScheduleParams struct {
+	StudentID pgtype.UUID        `json:"student_id"`
+	FromTime  pgtype.Timestamptz `json:"from_time"`
+	ToTime    pgtype.Timestamptz `json:"to_time"`
+}
+
+func (q *Queries) CountAdminStudentSchedule(ctx context.Context, arg CountAdminStudentScheduleParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAdminStudentSchedule, arg.StudentID, arg.FromTime, arg.ToTime)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -503,6 +535,124 @@ func (q *Queries) ListAdminSessions(ctx context.Context, arg ListAdminSessionsPa
 	items := []ListAdminSessionsRow{}
 	for rows.Next() {
 		var i ListAdminSessionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClassID,
+			&i.ClassCode,
+			&i.ClassName,
+			&i.CourseID,
+			&i.CourseCode,
+			&i.CourseName,
+			&i.ModuleID,
+			&i.ModuleCode,
+			&i.ModuleName,
+			&i.TeacherID,
+			&i.TeacherCode,
+			&i.TeacherName,
+			&i.LocationID,
+			&i.LocationCode,
+			&i.LocationName,
+			&i.LocationType,
+			&i.Title,
+			&i.SessionType,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.Status,
+			&i.AttendanceLockedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAdminStudentSchedule = `-- name: ListAdminStudentSchedule :many
+SELECT
+  cs.id, cs.class_id, c.class_code, c.name AS class_name,
+  cs.course_id, co.code AS course_code, co.name AS course_name,
+  cs.module_id, cm.code AS module_code, cm.name AS module_name,
+  cs.teacher_id, tp.teacher_code, tp.full_name AS teacher_name,
+  cs.location_id, tl.code AS location_code, tl.name AS location_name,
+  tl.location_type,
+  cs.title, cs.session_type, cs.starts_at, cs.ends_at, cs.status,
+  cs.attendance_locked_at, cs.created_at, cs.updated_at
+FROM class_sessions cs
+JOIN classes c ON c.id = cs.class_id
+JOIN courses co ON co.id = cs.course_id
+JOIN class_enrollments ce ON ce.class_id = cs.class_id
+  AND ce.student_id = $1
+  AND EXISTS (
+    SELECT 1 FROM class_enrollment_periods cep
+    WHERE cep.enrollment_id = ce.id
+      AND cep.started_at <= cs.starts_at
+      AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+  )
+LEFT JOIN course_modules cm ON cm.id = cs.module_id
+LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
+LEFT JOIN training_locations tl ON tl.id = cs.location_id
+WHERE ($2::timestamptz IS NULL OR cs.ends_at > $2::timestamptz)
+AND ($3::timestamptz IS NULL OR cs.starts_at < $3::timestamptz)
+ORDER BY cs.starts_at, cs.id
+LIMIT $5 OFFSET $4
+`
+
+type ListAdminStudentScheduleParams struct {
+	StudentID  pgtype.UUID        `json:"student_id"`
+	FromTime   pgtype.Timestamptz `json:"from_time"`
+	ToTime     pgtype.Timestamptz `json:"to_time"`
+	PageOffset int32              `json:"page_offset"`
+	PageLimit  int32              `json:"page_limit"`
+}
+
+type ListAdminStudentScheduleRow struct {
+	ID                 pgtype.UUID        `json:"id"`
+	ClassID            pgtype.UUID        `json:"class_id"`
+	ClassCode          string             `json:"class_code"`
+	ClassName          string             `json:"class_name"`
+	CourseID           pgtype.UUID        `json:"course_id"`
+	CourseCode         string             `json:"course_code"`
+	CourseName         string             `json:"course_name"`
+	ModuleID           pgtype.UUID        `json:"module_id"`
+	ModuleCode         pgtype.Text        `json:"module_code"`
+	ModuleName         pgtype.Text        `json:"module_name"`
+	TeacherID          pgtype.UUID        `json:"teacher_id"`
+	TeacherCode        pgtype.Text        `json:"teacher_code"`
+	TeacherName        pgtype.Text        `json:"teacher_name"`
+	LocationID         pgtype.UUID        `json:"location_id"`
+	LocationCode       pgtype.Text        `json:"location_code"`
+	LocationName       pgtype.Text        `json:"location_name"`
+	LocationType       pgtype.Text        `json:"location_type"`
+	Title              string             `json:"title"`
+	SessionType        SessionType        `json:"session_type"`
+	StartsAt           pgtype.Timestamptz `json:"starts_at"`
+	EndsAt             pgtype.Timestamptz `json:"ends_at"`
+	Status             SessionStatus      `json:"status"`
+	AttendanceLockedAt pgtype.Timestamptz `json:"attendance_locked_at"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListAdminStudentSchedule(ctx context.Context, arg ListAdminStudentScheduleParams) ([]ListAdminStudentScheduleRow, error) {
+	rows, err := q.db.Query(ctx, listAdminStudentSchedule,
+		arg.StudentID,
+		arg.FromTime,
+		arg.ToTime,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAdminStudentScheduleRow{}
+	for rows.Next() {
+		var i ListAdminStudentScheduleRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ClassID,

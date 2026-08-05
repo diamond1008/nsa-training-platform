@@ -12,11 +12,20 @@ import type {
   Paginated,
   ReportSummary,
   Student,
+  StudentClassHistory,
+  StudentProfileSummary,
   StudentStatusHistory,
   Teacher,
+  TeacherClassHistory,
+  TeacherProfileSummary,
   TeacherAssignment,
   TrainingClass,
   TrainingLocation,
+  PersonAttendanceBreakdown,
+  ClassSessionAttendanceItem,
+  PersonAcademicSummary,
+  PersonWorkloadSummary,
+  AuditLogItem,
 } from "../../lib/domainTypes";
 import { toQuery } from "../../lib/format";
 
@@ -74,11 +83,20 @@ export interface StudentImportResult {
 export const adminApi = {
   students: (params: StudentListParams = {}) =>
     api<Paginated<Student>>(`/admin/students${toQuery(params)}`),
+  getStudent: (id: string) => api<Student>(`/admin/students/${id}`),
   createStudent: (body: unknown) => api<Student>("/admin/students", { method: "POST", body }),
   updateStudent: (id: string, body: unknown) =>
     api<Student>(`/admin/students/${id}`, { method: "PUT", body }),
   studentStatusHistory: (id: string) =>
     api<StudentStatusHistory[]>(`/admin/students/${id}/status-history`),
+  studentProfileSummary: (id: string) =>
+    api<StudentProfileSummary>(`/admin/students/${id}/profile-summary`),
+  studentClassHistory: (id: string, params: Pick<ListParams, "page" | "per_page"> = {}) =>
+    api<Paginated<StudentClassHistory>>(`/admin/students/${id}/class-history${toQuery(params)}`),
+  studentSchedule: (
+    id: string,
+    params: Pick<SessionListParams, "from" | "to" | "page" | "per_page"> = {},
+  ) => api<Paginated<ClassSession>>(`/admin/students/${id}/schedule${toQuery(params)}`),
   exportStudents: (params: StudentListParams = {}) =>
     apiDownload(`/admin/students/export${toQuery(params)}`),
   importStudents: (csv: string) => apiCSV<StudentImportResult>("/admin/students/import", csv),
@@ -89,6 +107,10 @@ export const adminApi = {
   createTeacher: (body: unknown) => api<Teacher>("/admin/teachers", { method: "POST", body }),
   updateTeacher: (id: string, body: unknown) =>
     api<Teacher>(`/admin/teachers/${id}`, { method: "PUT", body }),
+  teacherProfileSummary: (id: string) =>
+    api<TeacherProfileSummary>(`/admin/teachers/${id}/profile-summary`),
+  teacherClassHistory: (id: string, params: Pick<ListParams, "page" | "per_page"> = {}) =>
+    api<Paginated<TeacherClassHistory>>(`/admin/teachers/${id}/class-history${toQuery(params)}`),
 
   courses: (params: ListParams = {}) => api<Paginated<Course>>(`/admin/courses${toQuery(params)}`),
   getCourse: (id: string) => api<Course>(`/admin/courses/${id}`),
@@ -170,4 +192,24 @@ export const adminApi = {
   reportSummary: () => api<ReportSummary>("/admin/reports/summary"),
   exportReport: (kind: "attendance" | "competencies" | "classes" | "completions") =>
     apiDownload(`/admin/reports/${kind}.csv`),
+  studentAttendanceBreakdown: (studentId: string) =>
+    api<PersonAttendanceBreakdown[]>(`/admin/students/${studentId}/attendance-breakdown`),
+  studentClassAttendance: (studentId: string, classId: string) =>
+    api<ClassSessionAttendanceItem[]>(`/admin/students/${studentId}/classes/${classId}/attendance`),
+  studentAcademicSummary: (studentId: string) =>
+    api<PersonAcademicSummary[]>(`/admin/students/${studentId}/academic-summary`),
+  personAuditLogs: (kind: "student" | "teacher", id: string, params: ListParams = {}) =>
+    api<Paginated<AuditLogItem>>(`/admin/${kind}s/${id}/audit-logs${toQuery(params)}`),
+  updateAccountStatus: (
+    kind: "student" | "teacher",
+    id: string,
+    accountStatus: string,
+    reason: string,
+  ) =>
+    api<Student | Teacher>(`/admin/${kind}s/${id}/account-status`, {
+      method: "PATCH",
+      body: { account_status: accountStatus, reason },
+    }),
+  teacherWorkloadSummary: (teacherId: string) =>
+    api<PersonWorkloadSummary[]>(`/admin/teachers/${teacherId}/workload-summary`),
 };

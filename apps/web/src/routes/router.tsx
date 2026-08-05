@@ -15,6 +15,7 @@ import {
   TeachersPage,
 } from "../features/admin/AdminPages";
 import { AdminAttendancePage } from "../features/admin/AdminAttendancePage";
+import { PersonProfilePage } from "../features/admin/PersonProfilePage";
 import { TeacherAttendancePage } from "../features/teacher/TeacherAttendancePage";
 import {
   AssessmentPage,
@@ -128,10 +129,26 @@ export const router = createBrowserRouter([
             ),
           },
           {
+            path: "/admin/hoc-vien/:personId",
+            element: (
+              <RequireRole role="ADMIN">
+                <PersonProfilePage kind="student" />
+              </RequireRole>
+            ),
+          },
+          {
             path: "/admin/giang-vien",
             element: (
               <RequireRole role="ADMIN">
                 <TeachersPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/giang-vien/:personId",
+            element: (
+              <RequireRole role="ADMIN">
+                <PersonProfilePage kind="teacher" />
               </RequireRole>
             ),
           },

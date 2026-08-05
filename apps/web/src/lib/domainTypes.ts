@@ -44,9 +44,62 @@ export interface Teacher {
   account_status: string;
   teacher_code: string;
   full_name: string;
+  avatar_url?: string | null;
   phone?: string | null;
   specialization?: string | null;
   status: string;
+}
+
+export interface StudentProfileSummary {
+  profile: Student;
+  current_classes: number;
+  total_classes: number;
+  attendance_risk_classes: number;
+  upcoming_sessions: number;
+}
+
+export interface TeacherProfileSummary {
+  profile: Teacher;
+  current_classes: number;
+  total_classes: number;
+  completed_sessions: number;
+  upcoming_sessions: number;
+}
+
+export interface PersonClassPeriod {
+  id: string;
+  started_at: string;
+  ended_at?: string | null;
+  start_reason?: string | null;
+  end_reason?: string | null;
+}
+
+export interface StudentClassHistory {
+  enrollment_id: string;
+  class_id: string;
+  class_code: string;
+  class_name: string;
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  enrollment_status: string;
+  enrolled_at: string;
+  ended_at?: string | null;
+  periods: PersonClassPeriod[];
+}
+
+export interface TeacherClassHistory {
+  assignment_id: string;
+  class_id: string;
+  class_code: string;
+  class_name: string;
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  assignment_role: string;
+  assigned_at: string;
+  is_current: boolean;
+  periods: PersonClassPeriod[];
 }
 
 export interface Course {
@@ -432,4 +485,65 @@ export interface NotificationList {
   items: NotificationItem[];
   meta: PaginationMeta;
   unread: number;
+}
+
+export interface PersonAttendanceBreakdown {
+  class_id: string;
+  class_code: string;
+  class_name: string;
+  course_name: string;
+  minimum_attendance_pct: number;
+  total_sessions: number;
+  recorded_sessions: number;
+  attended_sessions: number;
+  absent_sessions: number;
+  attendance_pct: number;
+  at_risk: boolean;
+}
+
+export interface PersonAcademicSummary {
+  test_id: string;
+  test_title: string;
+  pass_score: number;
+  class_id: string;
+  class_name: string;
+  course_name: string;
+  score: number;
+  graded_at: string;
+  passed: boolean;
+}
+
+export interface PersonWorkloadSummary {
+  class_id: string;
+  class_code: string;
+  class_name: string;
+  course_name: string;
+  completed_sessions: number;
+  recorded_rollcall_sessions: number;
+  punctuality_pct: number;
+}
+
+export interface AuditLogItem {
+  id: number;
+  actor_user_id: string;
+  actor_email: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  old_values: string;
+  new_values: string;
+  reason?: string | null;
+  created_at: string;
+}
+
+export interface ClassSessionAttendanceItem {
+  session_id: string;
+  starts_at: string;
+  ends_at: string;
+  session_title: string;
+  session_status: string;
+  location_name: string;
+  teacher_name: string;
+  attendance_status: string;
+  remarks: string;
 }

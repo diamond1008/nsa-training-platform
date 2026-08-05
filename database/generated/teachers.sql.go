@@ -30,6 +30,7 @@ AND (
   OR EXISTS (
     SELECT 1 FROM teacher_assignments ta
     WHERE ta.teacher_id = tp.id AND ta.class_id = $3::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND (
@@ -38,12 +39,13 @@ AND (
     SELECT 1 FROM teacher_assignments ta
     JOIN classes c ON c.id = ta.class_id
     WHERE ta.teacher_id = tp.id AND c.course_id = $4::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND (
   $5::text = ''
-  OR ($5::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
-  OR ($5::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+  OR ($5::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)))
+  OR ($5::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)))
 )
 `
 
@@ -68,13 +70,24 @@ func (q *Queries) CountAdminTeachers(ctx context.Context, arg CountAdminTeachers
 	return count, err
 }
 
+const countTeacherClassHistory = `-- name: CountTeacherClassHistory :one
+SELECT COUNT(*) FROM teacher_assignments WHERE teacher_id = $1
+`
+
+func (q *Queries) CountTeacherClassHistory(ctx context.Context, teacherID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countTeacherClassHistory, teacherID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createTeacherProfile = `-- name: CreateTeacherProfile :one
 
 INSERT INTO teacher_profiles (
-  user_id, teacher_code, full_name, phone, specialization, status
+  user_id, teacher_code, full_name, avatar_url, phone, specialization, status
 )
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, teacher_code, full_name, phone, specialization,
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, user_id, teacher_code, full_name, avatar_url, phone, specialization,
   status, created_at, updated_at
 `
 
@@ -82,27 +95,43 @@ type CreateTeacherProfileParams struct {
 	UserID         pgtype.UUID   `json:"user_id"`
 	TeacherCode    string        `json:"teacher_code"`
 	FullName       string        `json:"full_name"`
+	AvatarUrl      pgtype.Text   `json:"avatar_url"`
 	Phone          pgtype.Text   `json:"phone"`
 	Specialization pgtype.Text   `json:"specialization"`
 	Status         TeacherStatus `json:"status"`
 }
 
+type CreateTeacherProfileRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	TeacherCode    string             `json:"teacher_code"`
+	FullName       string             `json:"full_name"`
+	AvatarUrl      pgtype.Text        `json:"avatar_url"`
+	Phone          pgtype.Text        `json:"phone"`
+	Specialization pgtype.Text        `json:"specialization"`
+	Status         TeacherStatus      `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 // Teacher administration queries.
-func (q *Queries) CreateTeacherProfile(ctx context.Context, arg CreateTeacherProfileParams) (TeacherProfile, error) {
+func (q *Queries) CreateTeacherProfile(ctx context.Context, arg CreateTeacherProfileParams) (CreateTeacherProfileRow, error) {
 	row := q.db.QueryRow(ctx, createTeacherProfile,
 		arg.UserID,
 		arg.TeacherCode,
 		arg.FullName,
+		arg.AvatarUrl,
 		arg.Phone,
 		arg.Specialization,
 		arg.Status,
 	)
-	var i TeacherProfile
+	var i CreateTeacherProfileRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.TeacherCode,
 		&i.FullName,
+		&i.AvatarUrl,
 		&i.Phone,
 		&i.Specialization,
 		&i.Status,
@@ -115,7 +144,7 @@ func (q *Queries) CreateTeacherProfile(ctx context.Context, arg CreateTeacherPro
 const getAdminTeacher = `-- name: GetAdminTeacher :one
 SELECT
   tp.id, tp.user_id, u.email, u.status AS user_status,
-  tp.teacher_code, tp.full_name, tp.phone, tp.specialization,
+  tp.teacher_code, tp.full_name, tp.avatar_url, tp.phone, tp.specialization,
   tp.status AS teacher_status, tp.created_at, tp.updated_at
 FROM teacher_profiles tp
 JOIN users u ON u.id = tp.user_id
@@ -129,6 +158,7 @@ type GetAdminTeacherRow struct {
 	UserStatus     UserStatus         `json:"user_status"`
 	TeacherCode    string             `json:"teacher_code"`
 	FullName       string             `json:"full_name"`
+	AvatarUrl      pgtype.Text        `json:"avatar_url"`
 	Phone          pgtype.Text        `json:"phone"`
 	Specialization pgtype.Text        `json:"specialization"`
 	TeacherStatus  TeacherStatus      `json:"teacher_status"`
@@ -146,6 +176,7 @@ func (q *Queries) GetAdminTeacher(ctx context.Context, id pgtype.UUID) (GetAdmin
 		&i.UserStatus,
 		&i.TeacherCode,
 		&i.FullName,
+		&i.AvatarUrl,
 		&i.Phone,
 		&i.Specialization,
 		&i.TeacherStatus,
@@ -155,10 +186,98 @@ func (q *Queries) GetAdminTeacher(ctx context.Context, id pgtype.UUID) (GetAdmin
 	return i, err
 }
 
+const getTeacherProfileMetrics = `-- name: GetTeacherProfileMetrics :one
+SELECT
+  (SELECT COUNT(*) FROM teacher_assignments ta WHERE ta.teacher_id = $1) AS total_classes,
+  (SELECT COUNT(*) FROM teacher_assignments ta
+    WHERE ta.teacher_id = $1
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
+  ) AS current_classes,
+  (SELECT COUNT(*) FROM class_sessions cs
+    WHERE cs.teacher_id = $1 AND cs.ends_at < NOW() AND cs.status <> 'cancelled'
+  ) AS completed_sessions,
+  (SELECT COUNT(*) FROM class_sessions cs
+    WHERE cs.teacher_id = $1 AND cs.starts_at >= NOW() AND cs.status <> 'cancelled'
+  ) AS upcoming_sessions
+`
+
+type GetTeacherProfileMetricsRow struct {
+	TotalClasses      int64 `json:"total_classes"`
+	CurrentClasses    int64 `json:"current_classes"`
+	CompletedSessions int64 `json:"completed_sessions"`
+	UpcomingSessions  int64 `json:"upcoming_sessions"`
+}
+
+func (q *Queries) GetTeacherProfileMetrics(ctx context.Context, teacherID pgtype.UUID) (GetTeacherProfileMetricsRow, error) {
+	row := q.db.QueryRow(ctx, getTeacherProfileMetrics, teacherID)
+	var i GetTeacherProfileMetricsRow
+	err := row.Scan(
+		&i.TotalClasses,
+		&i.CurrentClasses,
+		&i.CompletedSessions,
+		&i.UpcomingSessions,
+	)
+	return i, err
+}
+
+const getTeacherWorkloadSummary = `-- name: GetTeacherWorkloadSummary :many
+SELECT
+  c.id AS class_id,
+  c.class_code,
+  c.name AS class_name,
+  co.name AS course_name,
+  COUNT(cs.id)::bigint AS completed_sessions,
+  COUNT(cs.id) FILTER (WHERE cs.status = 'completed')::bigint AS recorded_rollcall_sessions
+FROM teacher_assignments ta
+JOIN teacher_assignment_periods tap ON tap.assignment_id = ta.id
+JOIN classes c ON c.id = ta.class_id
+JOIN courses co ON co.id = c.course_id
+LEFT JOIN class_sessions cs ON cs.class_id = c.id AND cs.status = 'completed'
+WHERE ta.teacher_id = $1
+GROUP BY c.id, c.class_code, c.name, co.name
+ORDER BY c.created_at DESC
+`
+
+type GetTeacherWorkloadSummaryRow struct {
+	ClassID                  pgtype.UUID `json:"class_id"`
+	ClassCode                string      `json:"class_code"`
+	ClassName                string      `json:"class_name"`
+	CourseName               string      `json:"course_name"`
+	CompletedSessions        int64       `json:"completed_sessions"`
+	RecordedRollcallSessions int64       `json:"recorded_rollcall_sessions"`
+}
+
+func (q *Queries) GetTeacherWorkloadSummary(ctx context.Context, teacherID pgtype.UUID) ([]GetTeacherWorkloadSummaryRow, error) {
+	rows, err := q.db.Query(ctx, getTeacherWorkloadSummary, teacherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetTeacherWorkloadSummaryRow{}
+	for rows.Next() {
+		var i GetTeacherWorkloadSummaryRow
+		if err := rows.Scan(
+			&i.ClassID,
+			&i.ClassCode,
+			&i.ClassName,
+			&i.CourseName,
+			&i.CompletedSessions,
+			&i.RecordedRollcallSessions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAdminTeachers = `-- name: ListAdminTeachers :many
 SELECT
   tp.id, tp.user_id, u.email, u.status AS user_status,
-  tp.teacher_code, tp.full_name, tp.phone, tp.specialization,
+  tp.teacher_code, tp.full_name, tp.avatar_url, tp.phone, tp.specialization,
   tp.status AS teacher_status, tp.created_at, tp.updated_at
 FROM teacher_profiles tp
 JOIN users u ON u.id = tp.user_id
@@ -177,6 +296,7 @@ AND (
   OR EXISTS (
     SELECT 1 FROM teacher_assignments ta
     WHERE ta.teacher_id = tp.id AND ta.class_id = $3::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND (
@@ -185,12 +305,13 @@ AND (
     SELECT 1 FROM teacher_assignments ta
     JOIN classes c ON c.id = ta.class_id
     WHERE ta.teacher_id = tp.id AND c.course_id = $4::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND (
   $5::text = ''
-  OR ($5::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
-  OR ($5::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id))
+  OR ($5::text = 'assigned' AND EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)))
+  OR ($5::text = 'unassigned' AND NOT EXISTS (SELECT 1 FROM teacher_assignments ta WHERE ta.teacher_id = tp.id AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)))
 )
 ORDER BY
   CASE WHEN $6::text = 'teacher_code' AND $7::text = 'asc' THEN tp.teacher_code END ASC,
@@ -222,6 +343,7 @@ type ListAdminTeachersRow struct {
 	UserStatus     UserStatus         `json:"user_status"`
 	TeacherCode    string             `json:"teacher_code"`
 	FullName       string             `json:"full_name"`
+	AvatarUrl      pgtype.Text        `json:"avatar_url"`
 	Phone          pgtype.Text        `json:"phone"`
 	Specialization pgtype.Text        `json:"specialization"`
 	TeacherStatus  TeacherStatus      `json:"teacher_status"`
@@ -255,6 +377,7 @@ func (q *Queries) ListAdminTeachers(ctx context.Context, arg ListAdminTeachersPa
 			&i.UserStatus,
 			&i.TeacherCode,
 			&i.FullName,
+			&i.AvatarUrl,
 			&i.Phone,
 			&i.Specialization,
 			&i.TeacherStatus,
@@ -271,16 +394,98 @@ func (q *Queries) ListAdminTeachers(ctx context.Context, arg ListAdminTeachersPa
 	return items, nil
 }
 
+const listTeacherClassHistory = `-- name: ListTeacherClassHistory :many
+SELECT
+  ta.id AS assignment_id, ta.class_id, c.class_code, c.name AS class_name,
+  c.course_id, co.code AS course_code, co.name AS course_name,
+  ta.assignment_role, ta.assigned_at,
+  EXISTS (
+    SELECT 1 FROM teacher_assignment_periods current_period
+    WHERE current_period.assignment_id = ta.id AND current_period.ended_at IS NULL
+  ) AS is_current,
+  (COALESCE(
+    jsonb_agg(jsonb_build_object(
+      'id', tap.id,
+      'started_at', tap.started_at,
+      'ended_at', tap.ended_at,
+      'start_reason', tap.start_reason,
+      'end_reason', tap.end_reason
+    ) ORDER BY tap.started_at DESC) FILTER (WHERE tap.id IS NOT NULL),
+    '[]'::jsonb
+  ))::text AS periods_json
+FROM teacher_assignments ta
+JOIN classes c ON c.id = ta.class_id
+JOIN courses co ON co.id = c.course_id
+LEFT JOIN teacher_assignment_periods tap ON tap.assignment_id = ta.id
+WHERE ta.teacher_id = $1
+GROUP BY ta.id, c.id, co.id
+ORDER BY MAX(tap.started_at) DESC NULLS LAST, ta.id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListTeacherClassHistoryParams struct {
+	TeacherID  pgtype.UUID `json:"teacher_id"`
+	PageOffset int32       `json:"page_offset"`
+	PageLimit  int32       `json:"page_limit"`
+}
+
+type ListTeacherClassHistoryRow struct {
+	AssignmentID   pgtype.UUID        `json:"assignment_id"`
+	ClassID        pgtype.UUID        `json:"class_id"`
+	ClassCode      string             `json:"class_code"`
+	ClassName      string             `json:"class_name"`
+	CourseID       pgtype.UUID        `json:"course_id"`
+	CourseCode     string             `json:"course_code"`
+	CourseName     string             `json:"course_name"`
+	AssignmentRole string             `json:"assignment_role"`
+	AssignedAt     pgtype.Timestamptz `json:"assigned_at"`
+	IsCurrent      bool               `json:"is_current"`
+	PeriodsJson    string             `json:"periods_json"`
+}
+
+func (q *Queries) ListTeacherClassHistory(ctx context.Context, arg ListTeacherClassHistoryParams) ([]ListTeacherClassHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listTeacherClassHistory, arg.TeacherID, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTeacherClassHistoryRow{}
+	for rows.Next() {
+		var i ListTeacherClassHistoryRow
+		if err := rows.Scan(
+			&i.AssignmentID,
+			&i.ClassID,
+			&i.ClassCode,
+			&i.ClassName,
+			&i.CourseID,
+			&i.CourseCode,
+			&i.CourseName,
+			&i.AssignmentRole,
+			&i.AssignedAt,
+			&i.IsCurrent,
+			&i.PeriodsJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateTeacherProfile = `-- name: UpdateTeacherProfile :one
 UPDATE teacher_profiles
 SET
   teacher_code = $2,
   full_name = $3,
-  phone = $4,
-  specialization = $5,
-  status = $6
+  avatar_url = $4,
+  phone = $5,
+  specialization = $6,
+  status = $7
 WHERE id = $1
-RETURNING id, user_id, teacher_code, full_name, phone, specialization,
+RETURNING id, user_id, teacher_code, full_name, avatar_url, phone, specialization,
   status, created_at, updated_at
 `
 
@@ -288,26 +493,42 @@ type UpdateTeacherProfileParams struct {
 	ID             pgtype.UUID   `json:"id"`
 	TeacherCode    string        `json:"teacher_code"`
 	FullName       string        `json:"full_name"`
+	AvatarUrl      pgtype.Text   `json:"avatar_url"`
 	Phone          pgtype.Text   `json:"phone"`
 	Specialization pgtype.Text   `json:"specialization"`
 	Status         TeacherStatus `json:"status"`
 }
 
-func (q *Queries) UpdateTeacherProfile(ctx context.Context, arg UpdateTeacherProfileParams) (TeacherProfile, error) {
+type UpdateTeacherProfileRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	TeacherCode    string             `json:"teacher_code"`
+	FullName       string             `json:"full_name"`
+	AvatarUrl      pgtype.Text        `json:"avatar_url"`
+	Phone          pgtype.Text        `json:"phone"`
+	Specialization pgtype.Text        `json:"specialization"`
+	Status         TeacherStatus      `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateTeacherProfile(ctx context.Context, arg UpdateTeacherProfileParams) (UpdateTeacherProfileRow, error) {
 	row := q.db.QueryRow(ctx, updateTeacherProfile,
 		arg.ID,
 		arg.TeacherCode,
 		arg.FullName,
+		arg.AvatarUrl,
 		arg.Phone,
 		arg.Specialization,
 		arg.Status,
 	)
-	var i TeacherProfile
+	var i UpdateTeacherProfileRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.TeacherCode,
 		&i.FullName,
+		&i.AvatarUrl,
 		&i.Phone,
 		&i.Specialization,
 		&i.Status,

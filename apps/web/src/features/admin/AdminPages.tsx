@@ -65,6 +65,7 @@ import { compressImageToWebP } from "../../lib/image";
 import { adminApi } from "./adminApi";
 import { EnrollmentActionButtons } from "./EnrollmentActionButtons";
 import type { EnrollmentAction } from "./EnrollmentActionButtons";
+import { directoryRowNumber, PersonAvatar } from "./PersonIdentity";
 
 function mutationMessage(error: unknown): string {
   return error instanceof ApiRequestError
@@ -844,6 +845,7 @@ const personStatusOptions: Record<PersonKind, Array<[string, string]>> = {
 
 function PersonDirectory({ kind }: { kind: PersonKind }) {
   const isStudent = kind === "student";
+  const perPage = 10;
   const queryClient = useQueryClient();
   const config = personListConfigs[kind];
   const [searchParams, setSearchParams] = useSearchParams();
@@ -857,6 +859,14 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
   const [editing, setEditing] = useState<Person | null>(null);
   const [open, setOpen] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
+  const editID = searchParams.get("edit") ?? "";
+
+  const editPersonQuery = useQuery<Person>({
+    queryKey: ["admin", kind, editID, "edit-profile"],
+    queryFn: async () =>
+      (isStudent ? await adminApi.getStudent(editID) : await adminApi.getTeacher(editID)) as Person,
+    enabled: Boolean(editID),
+  });
 
   useEffect(() => setSearchInput(listState.q), [listState.q]);
   useEffect(() => {
@@ -948,7 +958,7 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
       if (isStudent)
         return (await adminApi.students({
           page: listState.page,
-          per_page: 10,
+          per_page: perPage,
           search: listState.q,
           status: listState.filters.status,
           course_id: listState.filters.course_id,
@@ -960,7 +970,7 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
         })) as Paginated<Person>;
       return (await adminApi.teachers({
         page: listState.page,
-        per_page: 10,
+        per_page: perPage,
         search: listState.q,
         status: listState.filters.status,
         course_id: listState.filters.course_id,
@@ -986,8 +996,18 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
       void queryClient.invalidateQueries({ queryKey: ["admin", kind] });
       setOpen(false);
       setEditing(null);
+      if (editID) {
+        const next = new URLSearchParams(searchParams);
+        next.delete("edit");
+        setSearchParams(next, { replace: true });
+      }
     },
   });
+  useEffect(() => {
+    if (!editPersonQuery.data) return;
+    setEditing(editPersonQuery.data);
+    setOpen(true);
+  }, [editPersonQuery.data]);
   const importMutation = useMutation({
     mutationFn: async (file: File) => adminApi.importStudents(await file.text()),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin", "students"] }),
@@ -1018,6 +1038,8 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
     setOpen(true);
   };
   const title = isStudent ? "Học viên" : "Giảng viên";
+  const profilePath = (person: Person) =>
+    `${isStudent ? "/admin/hoc-vien" : "/admin/giang-vien"}/${person.id}`;
   const statusLabel = personStatusOptions[kind].find(
     ([value]) => value === listState.filters.status,
   )?.[1];
@@ -1212,46 +1234,34 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
           sort={{ key: listState.sort, order: listState.order }}
           onSort={(key, order) => updateList({ sort: key, order })}
           columns={[
-            ...(isStudent
-              ? [
-                  {
-                    header: "Avatar",
-                    cell: (p: Person) => {
-                      const stu = p as Student;
-                      const initials = stu.full_name
-                        .split(" ")
-                        .filter(Boolean)
-                        .slice(-2)
-                        .map((s) => s[0])
-                        .join("")
-                        .toUpperCase();
-                      return stu.avatar_url ? (
-                        <img
-                          src={stu.avatar_url}
-                          alt={stu.full_name}
-                          width={36}
-                          height={36}
-                          className="h-9 w-9 rounded-full object-cover border border-gborder shadow-2xs"
-                        />
-                      ) : (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark shadow-2xs">
-                          {initials}
-                        </div>
-                      );
-                    },
-                  },
-                ]
-              : []),
+            {
+              header: "STT",
+              className: "w-16 text-center",
+              cell: (_p, rowIndex) => directoryRowNumber(listState.page, perPage, rowIndex),
+            },
             {
               header: "Mã",
               sortKey: isStudent ? "student_code" : "teacher_code",
               cell: (p) => (
-                <span className="font-semibold text-navy">
+                <Link className="font-semibold text-navy hover:text-gold-dark" to={profilePath(p)}>
                   {isStudent ? (p as Student).student_code : (p as Teacher).teacher_code}
-                </span>
+                </Link>
               ),
             },
-            { header: "Họ tên", sortKey: "full_name", cell: (p) => p.full_name },
+            {
+              header: "Avatar",
+              className: "w-20",
+              cell: (p) => <PersonAvatar fullName={p.full_name} avatarUrl={p.avatar_url} />,
+            },
+            {
+              header: "Họ tên",
+              sortKey: "full_name",
+              cell: (p) => (
+                <Link className="font-semibold text-navy hover:text-gold-dark" to={profilePath(p)}>
+                  {p.full_name}
+                </Link>
+              ),
+            },
             { header: "Email", cell: (p) => p.email },
             ...(isStudent
               ? [
@@ -1288,7 +1298,15 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
       <Modal
         open={open}
         title={`${editing ? "Cập nhật" : "Thêm"} ${title.toLowerCase()}`}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false);
+          setEditing(null);
+          if (editID) {
+            const next = new URLSearchParams(searchParams);
+            next.delete("edit");
+            setSearchParams(next, { replace: true });
+          }
+        }}
       >
         <PersonForm
           kind={kind}
@@ -1321,9 +1339,7 @@ function PersonForm({
       ? (initial as Student).student_code
       : (initial as Teacher).teacher_code
     : "";
-  const [avatarUrl, setAvatarUrl] = useState<string>(
-    initial && isStudent ? ((initial as Student).avatar_url ?? "") : "",
-  );
+  const [avatarUrl, setAvatarUrl] = useState<string>(initial?.avatar_url ?? "");
   const [compressing, setCompressing] = useState(false);
   const [compressError, setCompressError] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -1394,6 +1410,7 @@ function PersonForm({
       : {
           ...common,
           teacher_code: form.code.trim(),
+          avatar_url: avatarUrl || null,
           specialization: form.extra.trim() || null,
           ...(initial ? {} : { temporary_password: form.temporary_password }),
         };
@@ -1403,66 +1420,68 @@ function PersonForm({
   return (
     <form className="space-y-4" onSubmit={submit}>
       {error ? <ErrorBanner message={mutationMessage(error)} /> : null}
-      {isStudent && (
-        <div className="rounded-xl border border-gborder bg-gbg2/50 p-4 space-y-3">
-          <label className="block text-xs font-bold uppercase tracking-wider text-gtext">
-            Avatar học viên (Tự động nén WebP)
-          </label>
-          <div className="flex items-center gap-4">
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt="Avatar Preview"
-                className="h-16 w-16 rounded-full object-cover border-2 border-gold shadow-xs shrink-0"
-              />
-            ) : (
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gold/25 text-lg font-bold text-gold-dark border border-gborder">
-                {form.full_name
-                  ? form.full_name
-                      .split(" ")
-                      .filter(Boolean)
-                      .slice(-2)
-                      .map((p) => p[0])
-                      .join("")
-                      .toUpperCase()
-                  : "HV"}
-              </div>
-            )}
-            <div className="space-y-1.5 flex-1 min-w-0">
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleAvatarFile(file);
-                  e.target.value = "";
-                }}
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="soft"
-                  loading={compressing}
-                  onClick={() => avatarInputRef.current?.click()}
-                >
-                  {avatarUrl ? "Đổi ảnh Avatar" : "Tải ảnh Avatar lên"}
-                </Button>
-                {avatarUrl && (
-                  <Button type="button" variant="ghost" onClick={() => setAvatarUrl("")}>
-                    Xóa ảnh
-                  </Button>
-                )}
-              </div>
-              <p className="text-[11px] text-gtext">
-                Tự động tối ưu dung lượng và chuyển đổi sang định dạng WebP siêu nhẹ.
-              </p>
-              {compressError && <p className="text-xs text-error font-medium">{compressError}</p>}
+      <div className="space-y-3 rounded-xl border border-gborder bg-gbg2/50 p-4">
+        <label className="block text-xs font-bold uppercase tracking-wider text-gtext">
+          Avatar {isStudent ? "học viên" : "giảng viên"} (Tự động nén WebP)
+        </label>
+        <div className="flex items-center gap-4">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="Avatar Preview"
+              width={64}
+              height={64}
+              className="h-16 w-16 rounded-full object-cover border-2 border-gold shadow-xs shrink-0"
+            />
+          ) : (
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gold/25 text-lg font-bold text-gold-dark border border-gborder">
+              {form.full_name
+                ? form.full_name
+                    .split(" ")
+                    .filter(Boolean)
+                    .slice(-2)
+                    .map((p) => p[0])
+                    .join("")
+                    .toUpperCase()
+                : isStudent
+                  ? "HV"
+                  : "GV"}
             </div>
+          )}
+          <div className="space-y-1.5 flex-1 min-w-0">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleAvatarFile(file);
+                e.target.value = "";
+              }}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="soft"
+                loading={compressing}
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                {avatarUrl ? "Đổi ảnh Avatar" : "Tải ảnh Avatar lên"}
+              </Button>
+              {avatarUrl && (
+                <Button type="button" variant="ghost" onClick={() => setAvatarUrl("")}>
+                  Xóa ảnh
+                </Button>
+              )}
+            </div>
+            <p className="text-[11px] text-gtext">
+              Tự động tối ưu dung lượng và chuyển đổi sang định dạng WebP siêu nhẹ.
+            </p>
+            {compressError && <p className="text-xs text-error font-medium">{compressError}</p>}
           </div>
         </div>
-      )}
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
           required

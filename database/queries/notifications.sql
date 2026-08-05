@@ -31,6 +31,10 @@ FROM (
   FROM teacher_assignments ta
   JOIN teacher_profiles tp ON tp.id=ta.teacher_id
   WHERE ta.class_id=$1
+    AND EXISTS (
+      SELECT 1 FROM teacher_assignment_periods tap
+      WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+    )
   UNION
   SELECT sp.user_id
   FROM class_enrollments ce

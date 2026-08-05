@@ -6,7 +6,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 22 complete locally — dense scheduling and temporal re-enrollment**
+**Current phase: Phase 25 implemented locally — ADMIN person 360° profiles**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -34,6 +34,8 @@ Training management platform for an automotive vocational training center. It ma
 | 21 | Operations UX, filters, and focused attendance workspaces | ✅ Completed and validated locally |
 | 22 | Dense schedule cells and withdrawal-safe re-enrollment | ✅ Completed and validated locally |
 | 23 | Two-state roll-call UX with legacy attendance compatibility | Implemented locally |
+| 24 | Student/teacher identity columns and persisted teacher avatars | Implemented locally |
+| 25 | ADMIN person 360° profiles, class history, and personal schedules | Implemented locally |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 
@@ -149,6 +151,27 @@ Management endpoints accept bounded `page`/`per_page`, optional `search`, domain
 - Default every unrecorded roster row to Vắng in the Teacher draft. The teacher marks attendees Có mặt and saves the batch; unchanged legacy records are not silently rewritten.
 - Use the same operational columns on both workspaces: STT, student code, avatar, learner name, Có mặt, Vắng, note, and recorder. ADMIN corrections still require a reason and remain audited.
 
+### Phase 24 — Person-directory identity and avatar parity
+
+- Use the same leading identity columns in both ADMIN directories: STT, code, avatar, and full name; the remaining filters, fields, and actions stay unchanged.
+- Calculate STT across pagination instead of restarting at 1 on every page.
+- Persist optional Teacher avatars in PostgreSQL with the same browser-side 400×400 WebP compression and API-side 256 KiB validation used for Student avatars.
+- Show a deterministic initials fallback when a Student or Teacher has no stored photo, and redact inline image payloads from audit records.
+
+### Phase 25 — ADMIN person 360° profiles & Full-Spectrum Management
+
+- Open a dedicated core profile from either the student or teacher directory, with identity, account/profile state, contact information, operational metrics, and current classes on one screen.
+- Keep current classes and the complete historical class timeline together. Student enrollment periods and Teacher assignment periods remain explicit, including withdrawal/removal gaps followed by a return to the same class.
+- Preserve one stable Teacher assignment record per Teacher/Class pair while migration `00011_add_teacher_assignment_periods.sql` stores every non-overlapping assignment interval and actor/reason metadata.
+- Show the selected person's own week/month schedule using the existing fixed-slot calendar. Student results are limited to sessions inside effective enrollment periods; Teacher results use sessions actually assigned to that Teacher.
+- Provide full 360° management capabilities:
+  - **Attendance risk breakdown**: Course/class-scoped attendance statistics and quick session attendance drill-down modal (`GET /api/v1/admin/students/{studentID}/classes/{classID}/attendance`) displaying session titles, timestamps, location, assigned teacher, attendance badge (`Có mặt`, `Đến trễ`, `Vắng có phép`, `Vắng không phép`, `Chưa điểm danh`), and remarks.
+  - **Academic test summaries**: Overview of required in-class tests, final exam attempts, scores, and pass eligibility status.
+  - **Teacher workload & roll-call punctuality**: Detailed teaching stats, assigned class roster counts, session completion ratios, and same-day attendance punctuality metrics.
+  - **Person audit log timeline**: Filtered operational audit history tracking every profile edit, status change, enrollment action, and score correction associated with the user.
+  - **Account status locking/unlocking**: Admin action to active/suspend/deactivate user accounts with a mandatory audit reason logged in PostgreSQL audit logs.
+- Provide controlled actions only: profile edits reuse the existing validated editor, and class links open the canonical class workspace for reasoned enrollment/assignment operations and their audit history.
+
 ### Explicitly Out of Scope
 
 - Tuition, payment collection, debt tracking, accounting, and third-party payment integrations. Admissions handles payment outside this platform.
@@ -222,7 +245,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 ## Implemented Features
 
 - **Local infrastructure:** PostgreSQL 16 via Docker Compose with health check and persistent named volume (`make db-up`)
-- **Migrations:** Goose v3 through `00009_add_enrollment_periods.sql`; fixed training slots and non-overlapping temporal enrollment periods are enforced in PostgreSQL
+- **Migrations:** Goose v3 through `00011_add_teacher_assignment_periods.sql`; fixed training slots, non-overlapping temporal enrollment/Teacher-assignment periods, and optional Student/Teacher profile avatars are supported in PostgreSQL
 - **Seeds:** roles (ADMIN/TEACHER/STUDENT) ship in the baseline; DEV-ONLY demo accounts via `make db-seed`
 - **API docs:** OpenAPI 3.1 at `docs/openapi.yaml` — served by the API at `/docs` + `/openapi.yaml`, or via container (`make swagger` → http://localhost:8081)
 - **ERD:** `database/schema.dbml` for dbdiagram.io
@@ -231,7 +254,7 @@ pgAdmin 4 is installed on this machine (via winget). Connect it to the local Doc
 - **API Docker image:** multi-stage `apps/api/Dockerfile` → `nsa-api` (build from repo root)
 - **Authentication (`POST /api/v1/auth/*`):** login, refresh (rotation + reuse detection), logout, change-password (revokes all sessions), me — JWT access tokens (HS256) + opaque refresh tokens (SHA-256 hashed in DB, HttpOnly cookie)
 - **Security:** bcrypt passwords, generic 401 on bad credentials (no user enumeration), per-IP rate limiting on login/refresh, request body limits, RBAC middleware (`Authenticate`, `RequireRole`), ownership/assignment helpers
-- **Academic core administration (`/api/v1/admin/*`):** create/list/detail/update students and teachers (account + role + profile transaction), courses, ordered modules, competency criteria, and classes
+- **Academic core administration (`/api/v1/admin/*`):** create/list/detail/update students and teachers (account + role + profile transaction), inspect 360° profile summaries/class histories/personal schedules, and manage courses, ordered modules, competency criteria, and classes
 - **Generated student codes:** PostgreSQL sequence-backed `HV00000001`, `HV00000002`, ... codes are assigned atomically, remain immutable through profile updates, are never reused after rollback/deletion, and coexist with UUID internal identifiers
 - **Student lifecycle profiles:** gender, address, emergency contact, enrollment date, and Pending/Active/Suspended/Completed/Withdrawn states are managed from the Admin workspace
 - **Lifecycle history:** every initial state and subsequent status transition is stored immutably with actor, timestamp, and a required reason; Admin can inspect the timeline from the student form
@@ -356,6 +379,7 @@ PostgreSQL 16 runs via Docker Compose; migrations run via Goose v3.
 | Migration status | `make migrate-status` | `goose -dir database/migrations postgres "$DATABASE_URL" status` |
 | New migration | `make migrate-create name=add_x` | `goose -dir database/migrations create add_x sql` |
 | Load DEV demo data | `make db-seed` | `docker compose exec -T postgres psql -U nsa -d nsa_training < database/seeds/dev.sql` |
+| Load deterministic E2E data | `make db-seed-e2e` | Run after `make db-seed`; uses a byte-preserving container copy |
 | Swagger UI (API docs) | `make swagger` | `docker compose up -d swagger-ui` → http://localhost:8081 |
 
 **Demo accounts (DEV ONLY, password `NsaDemo@123`):** `admin@nsa.local` (ADMIN), `teacher@nsa.local` (TEACHER), `student@nsa.local` (STUDENT). Never use these in any shared environment.
@@ -383,7 +407,7 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 | Web tests | `make web-test` | `cd apps/web; npm run test` |
 | Web lint + typecheck | `make web-lint` | `cd apps/web; npm run lint && npm run typecheck` |
 | Web format check | `make web-format-check` | `cd apps/web; npm run format:check` |
-| Browser E2E | `make web-e2e` | needs the documented E2E database and a running API |
+| Browser E2E | `make web-e2e` | first run `make db-seed` and `make db-seed-e2e`, then start API/web |
 | Web production build | `make web-build` | `cd apps/web; npm run build` |
 | Production image build | `make docker-build-prod` | needs `.env.production` |
 | Read-path load smoke | `make load-test` | needs `LOADTEST_EMAIL` / `LOADTEST_PASSWORD` |
@@ -432,4 +456,4 @@ Phase 10 adds GitHub Actions quality gates, migration up/down/up validation, Pla
 - Operations, backup/restore, and load test: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - Security review: [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md)
 
-Run the local quality gate with `make check`. E2E requires a migrated database loaded with `database/seeds/dev.sql` and `database/seeds/e2e.sql`, plus a running API; then run `make web-e2e`. Local Phase 10 validation completed the Goose up/down/up cycle, all three production image builds, Caddy validation, 3/3 Playwright paths, and a 200-request authenticated load smoke with zero failures.
+Run the local quality gate with `make check`. E2E requires a migrated database loaded with `make db-seed` followed by `make db-seed-e2e`, plus a running API; then run `make web-e2e`. The dedicated E2E seed target preserves UTF-8 bytes on Windows and repairs deterministic fake rows on repeat runs; do not pipe `e2e.sql` through Windows PowerShell 5. Local Phase 10 validation completed the Goose up/down/up cycle, all three production image builds, Caddy validation, 3/3 Playwright paths, and a 200-request authenticated load smoke with zero failures.

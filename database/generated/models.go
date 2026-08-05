@@ -934,6 +934,18 @@ type TeacherAssignment struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type TeacherAssignmentPeriod struct {
+	ID           pgtype.UUID        `json:"id"`
+	AssignmentID pgtype.UUID        `json:"assignment_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	EndedAt      pgtype.Timestamptz `json:"ended_at"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	EndedBy      pgtype.UUID        `json:"ended_by"`
+	StartReason  pgtype.Text        `json:"start_reason"`
+	EndReason    pgtype.Text        `json:"end_reason"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
 type TeacherProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	UserID         pgtype.UUID        `json:"user_id"`
@@ -944,6 +956,7 @@ type TeacherProfile struct {
 	Status         TeacherStatus      `json:"status"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	AvatarUrl      pgtype.Text        `json:"avatar_url"`
 }
 
 type TestAttemptHistory struct {

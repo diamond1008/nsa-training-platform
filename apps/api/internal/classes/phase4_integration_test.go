@@ -20,19 +20,21 @@ import (
 
 	classmodule "github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
 	coursemodule "github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
+	schedulemodule "github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	studentmodule "github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
 	teachermodule "github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
 type phase4Env struct {
-	pool     *pgxpool.Pool
-	actorID  string
-	prefix   string
-	students *studentmodule.Service
-	teachers *teachermodule.Service
-	courses  *coursemodule.Service
-	classes  *classmodule.Service
+	pool      *pgxpool.Pool
+	actorID   string
+	prefix    string
+	students  *studentmodule.Service
+	teachers  *teachermodule.Service
+	courses   *coursemodule.Service
+	classes   *classmodule.Service
+	schedules *schedulemodule.Service
 }
 
 func setupPhase4(t *testing.T) *phase4Env {
@@ -70,10 +72,11 @@ func setupPhase4(t *testing.T) *phase4Env {
 
 	env := &phase4Env{
 		pool: pool, actorID: actorID, prefix: prefix,
-		students: studentmodule.NewService(pool, 10),
-		teachers: teachermodule.NewService(pool, 10),
-		courses:  coursemodule.NewService(pool),
-		classes:  classmodule.NewService(pool),
+		students:  studentmodule.NewService(pool, 10),
+		teachers:  teachermodule.NewService(pool, 10),
+		courses:   coursemodule.NewService(pool),
+		classes:   classmodule.NewService(pool),
+		schedules: schedulemodule.NewService(pool),
 	}
 	t.Cleanup(func() { env.cleanup(t) })
 	return env
@@ -95,6 +98,7 @@ func (e *phase4Env) cleanup(t *testing.T) {
 		      OR entity_id IN (SELECT id FROM student_profiles WHERE student_code LIKE $2)
 		      OR entity_id IN (SELECT id FROM teacher_profiles WHERE teacher_code LIKE $2)`, []any{emailPattern, codePattern}},
 		{`DELETE FROM class_enrollments WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
+		{`DELETE FROM class_sessions WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
 		{`DELETE FROM teacher_assignments WHERE class_id IN (SELECT id FROM classes WHERE class_code LIKE $1)`, []any{codePattern}},
 		{`DELETE FROM competency_criteria WHERE course_id IN (SELECT id FROM courses WHERE code LIKE $1)`, []any{codePattern}},
 		{`DELETE FROM course_modules WHERE course_id IN (SELECT id FROM courses WHERE code LIKE $1)`, []any{codePattern}},
@@ -169,6 +173,75 @@ func (e *phase4Env) createClass(t *testing.T, courseID, suffix string, capacity 
 		t.Fatalf("create class %s: %v", suffix, err)
 	}
 	return value
+}
+
+func TestIntegration_TeacherAssignmentRetainsTemporalHistory(t *testing.T) {
+	env := setupPhase4(t)
+	ctx := context.Background()
+	teacher := env.createTeacher(t, "PERIOD")
+	course := env.createCourse(t, "PERIOD")
+	class := env.createClass(t, course.ID, "PERIOD", 20)
+
+	first, err := env.classes.AssignTeacherWithReason(ctx, env.actorID, class.ID, teacher.ID, "Giảng viên", "Phân công lần đầu")
+	if err != nil {
+		t.Fatalf("assign teacher first period: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx, `
+		INSERT INTO class_sessions (
+		  class_id, course_id, teacher_id, title, session_type,
+		  starts_at, ends_at, status, created_by
+		) VALUES (
+		  $1, $2, $3, 'Buổi dạy lịch sử', 'theory',
+		  (date_trunc('day', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') - interval '1 day' + interval '8 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+		  (date_trunc('day', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') - interval '1 day' + interval '12 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+		  'completed', $4
+		)`, class.ID, course.ID, teacher.ID, env.actorID); err != nil {
+		t.Fatalf("insert historical teacher session: %v", err)
+	}
+	if err := env.classes.DeleteAssignmentWithReason(ctx, env.actorID, class.ID, first.ID, "Tạm dừng phân công"); err != nil {
+		t.Fatalf("historical sessions must not prevent ending assignment: %v", err)
+	}
+	second, err := env.classes.AssignTeacherWithReason(ctx, env.actorID, class.ID, teacher.ID, "Giảng viên", "Phân công trở lại")
+	if err != nil {
+		t.Fatalf("reassign teacher: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("stable assignment id changed: first=%s second=%s", first.ID, second.ID)
+	}
+
+	var periods, openPeriods int
+	if err := env.pool.QueryRow(ctx, `
+		SELECT COUNT(*), COUNT(*) FILTER (WHERE ended_at IS NULL)
+		FROM teacher_assignment_periods
+		WHERE assignment_id = $1`, first.ID).Scan(&periods, &openPeriods); err != nil {
+		t.Fatalf("read assignment periods: %v", err)
+	}
+	if periods != 2 || openPeriods != 1 {
+		t.Fatalf("assignment periods = %d total/%d open, want 2/1", periods, openPeriods)
+	}
+	summary, err := env.teachers.ProfileSummary(ctx, teacher.ID)
+	if err != nil || summary.CurrentClasses != 1 || summary.TotalClasses != 1 {
+		t.Fatalf("teacher profile summary = %+v, err=%v", summary, err)
+	}
+	history, err := env.teachers.ClassHistory(ctx, teacher.ID, 1, 20)
+	if err != nil || len(history.Items) != 1 || len(history.Items[0].Periods) != 2 || !history.Items[0].IsCurrent {
+		t.Fatalf("teacher class history = %+v, err=%v", history, err)
+	}
+	if _, err := env.pool.Exec(ctx, `
+		INSERT INTO class_sessions (
+		  class_id, course_id, teacher_id, title, session_type,
+		  starts_at, ends_at, status, created_by
+		) VALUES (
+		  $1, $2, $3, 'Buổi dạy sắp tới', 'theory',
+		  (date_trunc('day', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '1 day 8 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+		  (date_trunc('day', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '1 day 12 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+		  'scheduled', $4
+		)`, class.ID, course.ID, teacher.ID, env.actorID); err != nil {
+		t.Fatalf("insert upcoming teacher session: %v", err)
+	}
+	if err := env.classes.DeleteAssignmentWithReason(ctx, env.actorID, class.ID, first.ID, "Không hợp lệ"); !errors.Is(err, classmodule.ErrAssignmentInUse) {
+		t.Fatalf("upcoming-session assignment removal error = %v, want ErrAssignmentInUse", err)
+	}
 }
 
 func TestIntegration_AcademicCoreLifecycle(t *testing.T) {
@@ -429,6 +502,32 @@ func TestIntegration_WithdrawnStudentCanReturnWithoutMergingEnrollmentPeriods(t 
 	}
 	if periods != 2 || openPeriods != 1 || !latestStart.Equal(returnedAt) {
 		t.Fatalf("periods=%d open=%d latest=%s want 2/1/%s", periods, openPeriods, latestStart, returnedAt)
+	}
+	summary, err := env.students.ProfileSummary(ctx, student.ID)
+	if err != nil || summary.CurrentClasses != 1 || summary.TotalClasses != 1 {
+		t.Fatalf("student profile summary = %+v, err=%v", summary, err)
+	}
+	history, err := env.students.ClassHistory(ctx, student.ID, 1, 20)
+	if err != nil || len(history.Items) != 1 || len(history.Items[0].Periods) != 2 {
+		t.Fatalf("student class history = %+v, err=%v", history, err)
+	}
+	if _, err := env.pool.Exec(ctx, `
+		INSERT INTO class_sessions (
+		  class_id, course_id, title, session_type, starts_at, ends_at, status, created_by
+		) VALUES (
+		  $1, $2, 'Lịch cá nhân học viên', 'theory',
+		  (date_trunc('day', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '1 day 8 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+		  (date_trunc('day', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '1 day 12 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+		  'scheduled', $3
+		)`, class.ID, course.ID, env.actorID); err != nil {
+		t.Fatalf("insert student profile schedule session: %v", err)
+	}
+	from, to := time.Now().Add(-time.Hour), time.Now().Add(72*time.Hour)
+	schedule, err := env.schedules.ListAdminStudent(ctx, student.ID, schedulemodule.ListFilter{
+		From: &from, To: &to, Page: 1, PerPage: 20,
+	})
+	if err != nil || len(schedule.Items) != 1 || schedule.Items[0].ClassID != class.ID {
+		t.Fatalf("student admin schedule = %+v, err=%v", schedule, err)
 	}
 }
 

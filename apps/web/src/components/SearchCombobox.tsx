@@ -35,7 +35,18 @@ export function SearchCombobox({
   const containerRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState(selected?.label ?? "");
   const [open, setOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+
+  const checkPosition = () => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setOpenUpward(spaceBelow < 240 && spaceAbove > spaceBelow);
+    }
+  };
 
   useEffect(() => {
     if (selectedLabel) setQuery(selectedLabel);
@@ -76,10 +87,12 @@ export function SearchCombobox({
           placeholder={placeholder}
           autoComplete="off"
           onFocus={() => {
+            checkPosition();
             setOpen(true);
             setActiveIndex(-1);
           }}
           onChange={(event) => {
+            checkPosition();
             setQuery(event.target.value);
             setOpen(true);
             setActiveIndex(-1);
@@ -93,12 +106,15 @@ export function SearchCombobox({
             }
             if (event.key === "ArrowDown") {
               event.preventDefault();
+              checkPosition();
               setOpen(true);
               setActiveIndex((index) => Math.min(index + 1, options.length - 1));
               return;
             }
             if (event.key === "ArrowUp") {
               event.preventDefault();
+              checkPosition();
+              setOpen(true);
               setActiveIndex((index) => Math.max(index - 1, 0));
               return;
             }
@@ -119,7 +135,10 @@ export function SearchCombobox({
         <div
           id={listId}
           role="listbox"
-          className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-gborder bg-white p-1.5 shadow-xl"
+          className={clsx(
+            "absolute left-0 right-0 z-[100] max-h-60 overflow-y-auto rounded-2xl border border-gborder bg-white p-1.5 shadow-xl",
+            openUpward ? "bottom-full mb-1" : "top-full mt-1",
+          )}
         >
           {loading ? (
             <p role="status" className="px-3 py-3 text-sm text-gtext">

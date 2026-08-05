@@ -106,6 +106,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const inputId = id ?? rest.name ?? label;
   const listboxId = `${useId()}-listbox`;
   const [isOpen, setIsOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -122,6 +123,16 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const selectedOption = options.find((o) => o.value === stringVal) ?? options[0];
   const selectedIndex = options.findIndex((option) => option.value === selectedOption?.value);
 
+  const checkPosition = () => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setOpenUpward(spaceBelow < 220 && spaceAbove > spaceBelow);
+    }
+  };
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -131,6 +142,14 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const toggleOpen = () => {
+    checkPosition();
+    setIsOpen((current) => {
+      if (!current) setActiveIndex(Math.max(selectedIndex, 0));
+      return !current;
+    });
+  };
 
   const handleSelect = (val: string) => {
     setIsOpen(false);
@@ -162,15 +181,11 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         }
         aria-invalid={!!error}
         aria-describedby={error ? `${inputId}-error` : undefined}
-        onClick={() => {
-          setIsOpen((current) => {
-            if (!current) setActiveIndex(Math.max(selectedIndex, 0));
-            return !current;
-          });
-        }}
+        onClick={toggleOpen}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
+            checkPosition();
             setIsOpen(true);
             setActiveIndex((index) =>
               index < 0 ? Math.max(selectedIndex, 0) : Math.min(index + 1, options.length - 1),
@@ -178,6 +193,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           }
           if (event.key === "ArrowUp") {
             event.preventDefault();
+            checkPosition();
             setIsOpen(true);
             setActiveIndex((index) =>
               index < 0 ? Math.max(selectedIndex, 0) : Math.max(index - 1, 0),
@@ -212,7 +228,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         <div
           id={listboxId}
           role="listbox"
-          className="absolute top-full left-0 mt-1.5 w-full z-50 max-h-64 overflow-y-auto overscroll-contain rounded-2xl border border-gborder bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none"
+          className={clsx(
+            "absolute left-0 right-0 z-[100] max-h-60 overflow-y-auto overscroll-contain rounded-2xl border border-gborder bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none",
+            openUpward ? "bottom-full mb-1.5" : "top-full mt-1.5",
+          )}
         >
           {options.map((opt, idx) => {
             const isSelected = opt.value === stringVal;
@@ -547,7 +566,7 @@ export function Modal({
             <Icon name="close" className="h-5 w-5" />
           </button>
         </div>
-        <div className="max-h-[calc(92dvh-74px)] overflow-y-auto p-4 sm:max-h-[calc(90vh-74px)] sm:p-6">
+        <div className="max-h-[calc(92dvh-74px)] overflow-y-auto p-4 sm:max-h-[calc(90vh-74px)] sm:p-6 pb-24 sm:pb-28">
           {children}
         </div>
       </div>

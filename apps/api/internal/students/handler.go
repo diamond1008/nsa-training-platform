@@ -1,7 +1,6 @@
 package students
 
 import (
-	"encoding/base64"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/avatar"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/request"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/response"
@@ -22,9 +22,7 @@ import (
 )
 
 const (
-	maxStudentCSVBytes  = 2 << 20
-	maxAvatarBytes      = 256 << 10
-	avatarDataURLPrefix = "data:image/webp;base64,"
+	maxStudentCSVBytes = 2 << 20
 )
 
 type Handler struct {
@@ -72,6 +70,37 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	view, err := h.service.Get(r.Context(), chi.URLParam(r, "studentID"))
 	h.writeResult(w, r, view, err, false)
+}
+
+func (h *Handler) ProfileSummary(w http.ResponseWriter, r *http.Request) {
+	view, err := h.service.ProfileSummary(r.Context(), chi.URLParam(r, "studentID"))
+	if errors.Is(err, ErrNotFound) {
+		response.Fail(w, http.StatusNotFound, "STUDENT_NOT_FOUND", "Student not found")
+		return
+	}
+	if err != nil {
+		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
+		return
+	}
+	response.OK(w, view)
+}
+
+func (h *Handler) ClassHistory(w http.ResponseWriter, r *http.Request) {
+	page, perPage, err := request.Page(r)
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	result, err := h.service.ClassHistory(r.Context(), chi.URLParam(r, "studentID"), page, perPage)
+	if errors.Is(err, ErrNotFound) {
+		response.Fail(w, http.StatusNotFound, "STUDENT_NOT_FOUND", "Student not found")
+		return
+	}
+	if err != nil {
+		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
+		return
+	}
+	response.OK(w, result)
 }
 
 func (h *Handler) StatusHistory(w http.ResponseWriter, r *http.Request) {
@@ -305,7 +334,8 @@ func validateWrite(body writeRequest, create bool) (WriteInput, string) {
 	body.FullName = strings.TrimSpace(body.FullName)
 	body.AccountStatus = strings.TrimSpace(body.AccountStatus)
 	body.Status = strings.TrimSpace(body.Status)
-	body.AvatarURL = normalizedOptional(body.AvatarURL)
+	var avatarOK bool
+	body.AvatarURL, avatarOK = avatar.NormalizeWebPDataURL(body.AvatarURL)
 	body.Phone = normalizedOptional(body.Phone)
 	body.DateOfBirth = normalizedOptional(body.DateOfBirth)
 	body.Gender = normalizedOptional(body.Gender)
@@ -333,7 +363,7 @@ func validateWrite(body writeRequest, create bool) (WriteInput, string) {
 	if body.Phone != nil && len(*body.Phone) > 30 {
 		return WriteInput{}, "phone must be at most 30 characters"
 	}
-	if !validAvatarDataURL(body.AvatarURL) {
+	if !avatarOK {
 		return WriteInput{}, "avatar_url must be a WebP data URL no larger than 256 KiB"
 	}
 	if body.Gender != nil && !validGender(*body.Gender) {
@@ -369,24 +399,6 @@ func validateWrite(body writeRequest, create bool) (WriteInput, string) {
 		Status:                db.StudentStatus(body.Status), EnrolledAt: body.EnrolledAt,
 		StatusChangeReason: body.StatusChangeReason,
 	}, ""
-}
-
-func validAvatarDataURL(value *string) bool {
-	if value == nil {
-		return true
-	}
-	if !strings.HasPrefix(*value, avatarDataURLPrefix) {
-		return false
-	}
-	encoded := strings.TrimPrefix(*value, avatarDataURLPrefix)
-	if encoded == "" || base64.StdEncoding.DecodedLen(len(encoded)) > maxAvatarBytes {
-		return false
-	}
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil || len(decoded) < 12 || len(decoded) > maxAvatarBytes {
-		return false
-	}
-	return string(decoded[:4]) == "RIFF" && string(decoded[8:12]) == "WEBP"
 }
 
 func normalizedOptional(value *string) *string {
@@ -468,4 +480,95 @@ func validStudentStatus(value string) bool {
 	default:
 		return false
 	}
+}
+
+func (h *Handler) AttendanceBreakdown(w http.ResponseWriter, r *http.Request) {
+	studentID := chi.URLParam(r, "studentID")
+	items, err := h.service.GetAttendanceBreakdown(r.Context(), studentID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			response.Fail(w, http.StatusNotFound, "NOT_FOUND", "Student not found")
+			return
+		}
+		response.Fail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to read attendance breakdown")
+		return
+	}
+	response.OK(w, items)
+}
+
+func (h *Handler) AcademicSummary(w http.ResponseWriter, r *http.Request) {
+	studentID := chi.URLParam(r, "studentID")
+	items, err := h.service.GetAcademicSummary(r.Context(), studentID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			response.Fail(w, http.StatusNotFound, "NOT_FOUND", "Student not found")
+			return
+		}
+		response.Fail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to read academic summary")
+		return
+	}
+	response.OK(w, items)
+}
+
+func (h *Handler) AuditLogs(w http.ResponseWriter, r *http.Request) {
+	studentID := chi.URLParam(r, "studentID")
+	page, perPage, err := request.Page(r)
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "INVALID_PAGINATION", err.Error())
+		return
+	}
+	result, err := h.service.GetAuditLogs(r.Context(), studentID, page, perPage)
+	if err != nil {
+		response.Fail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to read audit logs")
+		return
+	}
+	response.OK(w, result)
+}
+
+type statusUpdateRequest struct {
+	AccountStatus string `json:"account_status"`
+	Reason        string `json:"reason"`
+}
+
+func (h *Handler) UpdateAccountStatus(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFrom(r.Context())
+	if !ok {
+		response.Fail(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+	studentID := chi.URLParam(r, "studentID")
+	var body statusUpdateRequest
+	if err := request.DecodeJSON(w, r, &body); err != nil {
+		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
+		return
+	}
+	view, err := h.service.UpdateAccountStatus(r.Context(), studentID, body.AccountStatus, body.Reason, claims.UserID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			response.Fail(w, http.StatusNotFound, "NOT_FOUND", "Student not found")
+		case errors.Is(err, ErrStatusReason):
+			response.Fail(w, http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Status change reason is required")
+		default:
+			response.Fail(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		}
+		return
+	}
+	response.OK(w, view)
+}
+
+func (h *Handler) ClassSessionAttendance(w http.ResponseWriter, r *http.Request) {
+	studentID := chi.URLParam(r, "studentID")
+	classID := chi.URLParam(r, "classID")
+	items, err := h.service.GetClassSessionAttendance(r.Context(), studentID, classID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			response.Fail(w, http.StatusNotFound, "NOT_FOUND", "Student or class not found")
+			return
+		}
+		h.log.Error("read class session attendance failed", "err", err, "student_id", studentID, "class_id", classID)
+		response.Fail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to read session attendance")
+		return
+	}
+	response.OK(w, items)
 }

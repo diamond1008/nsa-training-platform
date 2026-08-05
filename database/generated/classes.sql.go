@@ -11,6 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkTeacherAssignmentHasUpcomingSessions = `-- name: CheckTeacherAssignmentHasUpcomingSessions :one
+SELECT EXISTS (
+  SELECT 1 FROM class_sessions
+  WHERE class_id = $1 AND teacher_id = $2
+    AND status <> 'cancelled'
+    AND ends_at > NOW()
+)
+`
+
+type CheckTeacherAssignmentHasUpcomingSessionsParams struct {
+	ClassID   pgtype.UUID `json:"class_id"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+}
+
+func (q *Queries) CheckTeacherAssignmentHasUpcomingSessions(ctx context.Context, arg CheckTeacherAssignmentHasUpcomingSessionsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkTeacherAssignmentHasUpcomingSessions, arg.ClassID, arg.TeacherID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const closeOpenEnrollmentPeriod = `-- name: CloseOpenEnrollmentPeriod :one
 UPDATE class_enrollment_periods
 SET ended_at = $2, ended_by = $3, end_reason = $4
@@ -73,6 +94,7 @@ AND (
   OR EXISTS (
     SELECT 1 FROM teacher_assignments ta
     WHERE ta.class_id = c.id AND ta.teacher_id = $4::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND ($5::date IS NULL OR c.end_date >= $5::date)
@@ -310,22 +332,42 @@ func (q *Queries) CreateTeacherAssignment(ctx context.Context, arg CreateTeacher
 	return i, err
 }
 
-const deleteTeacherAssignment = `-- name: DeleteTeacherAssignment :execrows
-DELETE FROM teacher_assignments
-WHERE id = $1 AND class_id = $2
+const createTeacherAssignmentPeriod = `-- name: CreateTeacherAssignmentPeriod :one
+INSERT INTO teacher_assignment_periods (
+  assignment_id, started_at, created_by, start_reason
+)
+VALUES ($1, $2, $3, $4)
+RETURNING id, assignment_id, started_at, ended_at, created_by,
+  ended_by, start_reason, end_reason, created_at
 `
 
-type DeleteTeacherAssignmentParams struct {
-	ID      pgtype.UUID `json:"id"`
-	ClassID pgtype.UUID `json:"class_id"`
+type CreateTeacherAssignmentPeriodParams struct {
+	AssignmentID pgtype.UUID        `json:"assignment_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	StartReason  pgtype.Text        `json:"start_reason"`
 }
 
-func (q *Queries) DeleteTeacherAssignment(ctx context.Context, arg DeleteTeacherAssignmentParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteTeacherAssignment, arg.ID, arg.ClassID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+func (q *Queries) CreateTeacherAssignmentPeriod(ctx context.Context, arg CreateTeacherAssignmentPeriodParams) (TeacherAssignmentPeriod, error) {
+	row := q.db.QueryRow(ctx, createTeacherAssignmentPeriod,
+		arg.AssignmentID,
+		arg.StartedAt,
+		arg.CreatedBy,
+		arg.StartReason,
+	)
+	var i TeacherAssignmentPeriod
+	err := row.Scan(
+		&i.ID,
+		&i.AssignmentID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.EndedBy,
+		&i.StartReason,
+		&i.EndReason,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const endClassEnrollmentAt = `-- name: EndClassEnrollmentAt :one
@@ -361,6 +403,43 @@ func (q *Queries) EndClassEnrollmentAt(ctx context.Context, arg EndClassEnrollme
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const endTeacherAssignmentPeriod = `-- name: EndTeacherAssignmentPeriod :one
+UPDATE teacher_assignment_periods
+SET ended_at = $2, ended_by = $3, end_reason = $4
+WHERE assignment_id = $1 AND ended_at IS NULL
+RETURNING id, assignment_id, started_at, ended_at, created_by,
+  ended_by, start_reason, end_reason, created_at
+`
+
+type EndTeacherAssignmentPeriodParams struct {
+	AssignmentID pgtype.UUID        `json:"assignment_id"`
+	EndedAt      pgtype.Timestamptz `json:"ended_at"`
+	EndedBy      pgtype.UUID        `json:"ended_by"`
+	EndReason    pgtype.Text        `json:"end_reason"`
+}
+
+func (q *Queries) EndTeacherAssignmentPeriod(ctx context.Context, arg EndTeacherAssignmentPeriodParams) (TeacherAssignmentPeriod, error) {
+	row := q.db.QueryRow(ctx, endTeacherAssignmentPeriod,
+		arg.AssignmentID,
+		arg.EndedAt,
+		arg.EndedBy,
+		arg.EndReason,
+	)
+	var i TeacherAssignmentPeriod
+	err := row.Scan(
+		&i.ID,
+		&i.AssignmentID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedBy,
+		&i.EndedBy,
+		&i.StartReason,
+		&i.EndReason,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -564,6 +643,10 @@ SELECT
 FROM teacher_assignments ta
 JOIN teacher_profiles tp ON tp.id = ta.teacher_id
 WHERE ta.id = $1 AND ta.class_id = $2
+  AND EXISTS (
+    SELECT 1 FROM teacher_assignment_periods tap
+    WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+  )
 `
 
 type GetTeacherAssignmentParams struct {
@@ -600,6 +683,49 @@ func (q *Queries) GetTeacherAssignment(ctx context.Context, arg GetTeacherAssign
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getTeacherAssignmentByPair = `-- name: GetTeacherAssignmentByPair :one
+SELECT id, class_id, teacher_id, assignment_role, assigned_at,
+  assigned_by, created_at, updated_at
+FROM teacher_assignments
+WHERE class_id = $1 AND teacher_id = $2
+FOR UPDATE
+`
+
+type GetTeacherAssignmentByPairParams struct {
+	ClassID   pgtype.UUID `json:"class_id"`
+	TeacherID pgtype.UUID `json:"teacher_id"`
+}
+
+func (q *Queries) GetTeacherAssignmentByPair(ctx context.Context, arg GetTeacherAssignmentByPairParams) (TeacherAssignment, error) {
+	row := q.db.QueryRow(ctx, getTeacherAssignmentByPair, arg.ClassID, arg.TeacherID)
+	var i TeacherAssignment
+	err := row.Scan(
+		&i.ID,
+		&i.ClassID,
+		&i.TeacherID,
+		&i.AssignmentRole,
+		&i.AssignedAt,
+		&i.AssignedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const hasOpenTeacherAssignmentPeriod = `-- name: HasOpenTeacherAssignmentPeriod :one
+SELECT EXISTS (
+  SELECT 1 FROM teacher_assignment_periods
+  WHERE assignment_id = $1 AND ended_at IS NULL
+)
+`
+
+func (q *Queries) HasOpenTeacherAssignmentPeriod(ctx context.Context, assignmentID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOpenTeacherAssignmentPeriod, assignmentID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const hasOtherActiveEnrollmentForCourse = `-- name: HasOtherActiveEnrollmentForCourse :one
@@ -654,6 +780,7 @@ AND (
   OR EXISTS (
     SELECT 1 FROM teacher_assignments ta
     WHERE ta.class_id = c.id AND ta.teacher_id = $4::uuid
+      AND EXISTS (SELECT 1 FROM teacher_assignment_periods tap WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL)
   )
 )
 AND ($5::date IS NULL OR c.end_date >= $5::date)
@@ -863,6 +990,44 @@ func (q *Queries) ListClassOperationHistory(ctx context.Context, classID pgtype.
 	return items, nil
 }
 
+const listTeacherAssignmentPeriods = `-- name: ListTeacherAssignmentPeriods :many
+SELECT id, assignment_id, started_at, ended_at, created_by,
+  ended_by, start_reason, end_reason, created_at
+FROM teacher_assignment_periods
+WHERE assignment_id = $1
+ORDER BY started_at DESC, id DESC
+`
+
+func (q *Queries) ListTeacherAssignmentPeriods(ctx context.Context, assignmentID pgtype.UUID) ([]TeacherAssignmentPeriod, error) {
+	rows, err := q.db.Query(ctx, listTeacherAssignmentPeriods, assignmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TeacherAssignmentPeriod{}
+	for rows.Next() {
+		var i TeacherAssignmentPeriod
+		if err := rows.Scan(
+			&i.ID,
+			&i.AssignmentID,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedBy,
+			&i.EndedBy,
+			&i.StartReason,
+			&i.EndReason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeacherAssignments = `-- name: ListTeacherAssignments :many
 SELECT
   ta.id, ta.class_id, ta.teacher_id, tp.teacher_code, tp.full_name,
@@ -871,6 +1036,10 @@ SELECT
 FROM teacher_assignments ta
 JOIN teacher_profiles tp ON tp.id = ta.teacher_id
 WHERE ta.class_id = $1
+  AND EXISTS (
+    SELECT 1 FROM teacher_assignment_periods tap
+    WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+  )
 ORDER BY ta.assigned_at, ta.id
 `
 
@@ -930,6 +1099,10 @@ JOIN teacher_assignments ta ON ta.class_id = c.id
 JOIN teacher_profiles tp ON tp.id = ta.teacher_id
 LEFT JOIN class_enrollments ce ON ce.class_id = c.id
 WHERE tp.user_id = $1
+  AND EXISTS (
+    SELECT 1 FROM teacher_assignment_periods tap
+    WHERE tap.assignment_id = ta.id AND tap.ended_at IS NULL
+  )
 GROUP BY c.id, co.code, co.name
 ORDER BY c.start_date DESC, c.class_code
 `
@@ -1022,6 +1195,42 @@ func (q *Queries) ReopenClassEnrollment(ctx context.Context, arg ReopenClassEnro
 		&i.EnrolledAt,
 		&i.EndedAt,
 		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const reopenTeacherAssignment = `-- name: ReopenTeacherAssignment :one
+UPDATE teacher_assignments
+SET assignment_role = $2, assigned_at = $3, assigned_by = $4
+WHERE id = $1
+RETURNING id, class_id, teacher_id, assignment_role, assigned_at,
+  assigned_by, created_at, updated_at
+`
+
+type ReopenTeacherAssignmentParams struct {
+	ID             pgtype.UUID        `json:"id"`
+	AssignmentRole string             `json:"assignment_role"`
+	AssignedAt     pgtype.Timestamptz `json:"assigned_at"`
+	AssignedBy     pgtype.UUID        `json:"assigned_by"`
+}
+
+func (q *Queries) ReopenTeacherAssignment(ctx context.Context, arg ReopenTeacherAssignmentParams) (TeacherAssignment, error) {
+	row := q.db.QueryRow(ctx, reopenTeacherAssignment,
+		arg.ID,
+		arg.AssignmentRole,
+		arg.AssignedAt,
+		arg.AssignedBy,
+	)
+	var i TeacherAssignment
+	err := row.Scan(
+		&i.ID,
+		&i.ClassID,
+		&i.TeacherID,
+		&i.AssignmentRole,
+		&i.AssignedAt,
+		&i.AssignedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

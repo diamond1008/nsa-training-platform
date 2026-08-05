@@ -185,6 +185,19 @@ func (h *Handler) StudentSchedule(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, result)
 }
 
+func (h *Handler) AdminStudentSchedule(w http.ResponseWriter, r *http.Request) {
+	filter, ok := parseListFilter(w, r, false)
+	if !ok {
+		return
+	}
+	result, err := h.service.ListAdminStudent(r.Context(), chi.URLParam(r, "studentID"), filter)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, result)
+}
+
 func (h *Handler) decodeLocation(w http.ResponseWriter, r *http.Request, create bool) (LocationInput, bool) {
 	var body locationRequest
 	if err := request.DecodeJSON(w, r, &body); err != nil {
@@ -362,6 +375,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Fail(w, http.StatusNotFound, "CLASS_NOT_FOUND", "Class not found")
 	case errors.Is(err, ErrTeacherNotFound):
 		response.Fail(w, http.StatusNotFound, "TEACHER_NOT_FOUND", "Teacher not found")
+	case errors.Is(err, ErrStudentNotFound):
+		response.Fail(w, http.StatusNotFound, "STUDENT_NOT_FOUND", "Student not found")
 	case errors.Is(err, ErrLocationNotFound):
 		response.Fail(w, http.StatusNotFound, "LOCATION_NOT_FOUND", "Training location not found")
 	case errors.Is(err, ErrSessionLocked):

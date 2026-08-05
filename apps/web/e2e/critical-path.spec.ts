@@ -49,3 +49,20 @@ test("student views own attendance and progress", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Tiến độ học tập" })).toBeVisible();
   await expect(page.getByText("E2E-COURSE")).toBeVisible();
 });
+
+test("admin views student and teacher 360 profiles", async ({ page }) => {
+  await login(page, "admin@nsa.local");
+  await page.getByRole("link", { name: "Học viên", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/hoc-vien$/);
+  await page.getByRole("link", { name: "Demo Student" }).first().click();
+  await expect(page).toHaveURL(/\/admin\/hoc-vien\/[0-9a-f-]+$/);
+  await expect(page.getByRole("tab", { name: "Tổng quan" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Lớp hiện tại & lịch sử" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Lịch cá nhân" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Giảng viên", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/giang-vien$/);
+  await page.getByRole("link", { name: "Demo Teacher" }).first().click();
+  await expect(page).toHaveURL(/\/admin\/giang-vien\/[0-9a-f-]+$/);
+  await expect(page.getByRole("tab", { name: "Tổng quan" })).toBeVisible();
+});

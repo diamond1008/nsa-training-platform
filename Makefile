@@ -28,7 +28,7 @@ DB_URL         ?= $(DATABASE_URL)
 API_DIR        := apps/api
 WEB_DIR        := apps/web
 
-.PHONY: help setup db-up db-down db-logs db-psql db-reset db-seed \
+.PHONY: help setup db-up db-down db-logs db-psql db-reset db-seed db-seed-e2e \
 	migrate-up migrate-down migrate-status migrate-create \
 	db-test-create db-test-migrate \
 	api-run api-test api-test-integration api-build api-vet \
@@ -45,6 +45,7 @@ help: ## Show this help
 	@echo   db-psql          Open psql shell inside the db container
 	@echo   db-reset         Drop and recreate the local database (DESTRUCTIVE)
 	@echo   db-seed          Load DEV-ONLY demo accounts (never in production)
+	@echo   db-seed-e2e      Load deterministic E2E data with UTF-8-safe file transfer
 	@echo   migrate-up       Apply all pending Goose migrations
 	@echo   migrate-down     Roll back the last migration
 	@echo   migrate-status   Show migration status
@@ -97,6 +98,12 @@ db-reset: ## Remove containers AND the local data volume, then start fresh
 db-seed: ## Load DEV-ONLY demo data (database/seeds/dev.sql) — never in production
 	docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) < database/seeds/dev.sql
 	@echo Dev seed loaded. Demo logins: admin@nsa.local / teacher@nsa.local / student@nsa.local (password: NsaDemo@123)
+
+db-seed-e2e: ## Load deterministic E2E data after db-seed using a byte-preserving container copy
+	docker compose cp database/seeds/e2e.sql postgres:/tmp/nsa-e2e.sql
+	docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U $(POSTGRES_USER) -d $(POSTGRES_DB) -f /tmp/nsa-e2e.sql
+	docker compose exec -T postgres rm -f /tmp/nsa-e2e.sql
+	@echo E2E seed loaded with UTF-8 preserved.
 
 migrate-up: ## Apply all pending migrations
 	$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "$(DB_URL)" up

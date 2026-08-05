@@ -96,4 +96,19 @@ describe("Phase 9 shared data components", () => {
       "ascending",
     );
   });
+
+  it("passes each visible row index to column cells", () => {
+    render(
+      <DataTable
+        items={[
+          { id: "first", name: "First" },
+          { id: "second", name: "Second" },
+        ]}
+        columns={[{ header: "STT", cell: (_item, rowIndex) => rowIndex + 1 }]}
+      />,
+    );
+
+    expect(screen.getAllByText("1")).toHaveLength(2);
+    expect(screen.getAllByText("2")).toHaveLength(2);
+  });
 });

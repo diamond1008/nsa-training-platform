@@ -5,6 +5,7 @@ export const statusLabels: Record<string, string> = {
   inactive: "Không hoạt động",
   completed: "Đã hoàn thành",
   withdrawn: "Đã rút",
+  enrolled: "Đang học",
   transferred: "Đã chuyển lớp",
   draft: "Bản nháp",
   archived: "Lưu trữ",

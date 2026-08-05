@@ -815,11 +815,38 @@ func (s *Service) AssignTeacherWithReason(ctx context.Context, actorID, classIDV
 		return AssignmentView{}, ErrTeacherInactive
 	}
 	actor, _ := data.UUID(actorID)
-	assignment, err := q.CreateTeacherAssignment(ctx, db.CreateTeacherAssignmentParams{
-		ClassID: classID, TeacherID: teacherID, AssignmentRole: role, AssignedBy: actor,
+	assignment, err := q.GetTeacherAssignmentByPair(ctx, db.GetTeacherAssignmentByPairParams{
+		ClassID: classID, TeacherID: teacherID,
 	})
-	if err != nil {
-		return AssignmentView{}, mapAssignmentWriteError(err)
+	if errors.Is(err, pgx.ErrNoRows) {
+		assignment, err = q.CreateTeacherAssignment(ctx, db.CreateTeacherAssignmentParams{
+			ClassID: classID, TeacherID: teacherID, AssignmentRole: role, AssignedBy: actor,
+		})
+		if err != nil {
+			return AssignmentView{}, mapAssignmentWriteError(err)
+		}
+	} else if err != nil {
+		return AssignmentView{}, fmt.Errorf("get existing teacher assignment: %w", err)
+	} else {
+		open, err := q.HasOpenTeacherAssignmentPeriod(ctx, assignment.ID)
+		if err != nil {
+			return AssignmentView{}, fmt.Errorf("check teacher assignment period: %w", err)
+		}
+		if open {
+			return AssignmentView{}, ErrDuplicateAssignment
+		}
+		now := pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
+		assignment, err = q.ReopenTeacherAssignment(ctx, db.ReopenTeacherAssignmentParams{
+			ID: assignment.ID, AssignmentRole: role, AssignedAt: now, AssignedBy: actor,
+		})
+		if err != nil {
+			return AssignmentView{}, fmt.Errorf("reopen teacher assignment: %w", err)
+		}
+		if _, err := q.CreateTeacherAssignmentPeriod(ctx, db.CreateTeacherAssignmentPeriodParams{
+			AssignmentID: assignment.ID, StartedAt: now, CreatedBy: actor, StartReason: data.Text(&reason),
+		}); err != nil {
+			return AssignmentView{}, fmt.Errorf("create teacher assignment period: %w", err)
+		}
 	}
 	row, err := q.GetTeacherAssignment(ctx, db.GetTeacherAssignmentParams{ID: assignment.ID, ClassID: classID})
 	if err != nil {
@@ -927,12 +954,26 @@ func (s *Service) DeleteAssignmentWithReason(ctx context.Context, actorID, class
 	if err != nil {
 		return fmt.Errorf("get assignment for delete: %w", err)
 	}
-	affected, err := q.DeleteTeacherAssignment(ctx, db.DeleteTeacherAssignmentParams{ID: assignmentID, ClassID: classID})
+	inUse, err := q.CheckTeacherAssignmentHasUpcomingSessions(ctx, db.CheckTeacherAssignmentHasUpcomingSessionsParams{
+		ClassID: classID, TeacherID: existing.TeacherID,
+	})
 	if err != nil {
-		return mapAssignmentWriteError(err)
+		return fmt.Errorf("check teacher assignment upcoming sessions: %w", err)
 	}
-	if affected == 0 {
-		return ErrAssignmentNotFound
+	if inUse {
+		return ErrAssignmentInUse
+	}
+	actor, err := data.UUID(actorID)
+	if err != nil {
+		return err
+	}
+	if _, err := q.EndTeacherAssignmentPeriod(ctx, db.EndTeacherAssignmentPeriodParams{
+		AssignmentID: assignmentID,
+		EndedAt:      pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		EndedBy:      actor,
+		EndReason:    data.Text(&reason),
+	}); err != nil {
+		return fmt.Errorf("end teacher assignment period: %w", err)
 	}
 	if err := classhistory.Write(ctx, q, actorID, classID, "teacher_removed", "teacher_assignment", assignmentID, reason, assignmentViewFromGet(existing)); err != nil {
 		return err

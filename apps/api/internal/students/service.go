@@ -3,6 +3,7 @@ package students
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/auth"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/audit"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/avatar"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/dberror"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/pagination"
@@ -90,6 +92,38 @@ type StatusHistoryView struct {
 	ChangedByEmail *string `json:"changed_by_email"`
 	ChangedAt      string  `json:"changed_at"`
 }
+
+type ProfileSummaryView struct {
+	Profile               View  `json:"profile"`
+	CurrentClasses        int64 `json:"current_classes"`
+	TotalClasses          int64 `json:"total_classes"`
+	AttendanceRiskClasses int64 `json:"attendance_risk_classes"`
+	UpcomingSessions      int64 `json:"upcoming_sessions"`
+}
+
+type ClassPeriodView struct {
+	ID          string  `json:"id"`
+	StartedAt   string  `json:"started_at"`
+	EndedAt     *string `json:"ended_at"`
+	StartReason *string `json:"start_reason"`
+	EndReason   *string `json:"end_reason"`
+}
+
+type ClassHistoryView struct {
+	EnrollmentID     string            `json:"enrollment_id"`
+	ClassID          string            `json:"class_id"`
+	ClassCode        string            `json:"class_code"`
+	ClassName        string            `json:"class_name"`
+	CourseID         string            `json:"course_id"`
+	CourseCode       string            `json:"course_code"`
+	CourseName       string            `json:"course_name"`
+	EnrollmentStatus string            `json:"enrollment_status"`
+	EnrolledAt       string            `json:"enrolled_at"`
+	EndedAt          *string           `json:"ended_at"`
+	Periods          []ClassPeriodView `json:"periods"`
+}
+
+type ClassHistoryResult = pagination.Result[ClassHistoryView]
 
 // Service implements student management use cases.
 type Service struct {
@@ -226,6 +260,60 @@ func (s *Service) Get(ctx context.Context, id string) (View, error) {
 		return View{}, fmt.Errorf("get student: %w", err)
 	}
 	return viewFromGet(row), nil
+}
+
+func (s *Service) ProfileSummary(ctx context.Context, id string) (ProfileSummaryView, error) {
+	studentID, err := data.UUID(id)
+	if err != nil {
+		return ProfileSummaryView{}, ErrNotFound
+	}
+	profile, err := s.Get(ctx, id)
+	if err != nil {
+		return ProfileSummaryView{}, err
+	}
+	metrics, err := s.queries.GetStudentProfileMetrics(ctx, studentID)
+	if err != nil {
+		return ProfileSummaryView{}, fmt.Errorf("get student profile metrics: %w", err)
+	}
+	return ProfileSummaryView{
+		Profile: profile, CurrentClasses: metrics.CurrentClasses, TotalClasses: metrics.TotalClasses,
+		AttendanceRiskClasses: metrics.AttendanceRiskClasses, UpcomingSessions: metrics.UpcomingSessions,
+	}, nil
+}
+
+func (s *Service) ClassHistory(ctx context.Context, id string, page, perPage int) (ClassHistoryResult, error) {
+	studentID, err := data.UUID(id)
+	if err != nil {
+		return ClassHistoryResult{}, ErrNotFound
+	}
+	if _, err := s.Get(ctx, id); err != nil {
+		return ClassHistoryResult{}, err
+	}
+	rows, err := s.queries.ListStudentClassHistory(ctx, db.ListStudentClassHistoryParams{
+		StudentID: studentID, PageOffset: int32((page - 1) * perPage), PageLimit: int32(perPage),
+	})
+	if err != nil {
+		return ClassHistoryResult{}, fmt.Errorf("list student class history: %w", err)
+	}
+	items := make([]ClassHistoryView, 0, len(rows))
+	for _, row := range rows {
+		var periods []ClassPeriodView
+		if err := json.Unmarshal([]byte(row.PeriodsJson), &periods); err != nil {
+			return ClassHistoryResult{}, fmt.Errorf("decode student class periods: %w", err)
+		}
+		items = append(items, ClassHistoryView{
+			EnrollmentID: data.UUIDString(row.EnrollmentID), ClassID: data.UUIDString(row.ClassID),
+			ClassCode: row.ClassCode, ClassName: row.ClassName,
+			CourseID: data.UUIDString(row.CourseID), CourseCode: row.CourseCode, CourseName: row.CourseName,
+			EnrollmentStatus: row.EnrollmentStatus, EnrolledAt: row.EnrolledAt.Time.UTC().Format(time.RFC3339Nano),
+			EndedAt: data.TimeString(row.EndedAt), Periods: periods,
+		})
+	}
+	total, err := s.queries.CountStudentClassHistory(ctx, studentID)
+	if err != nil {
+		return ClassHistoryResult{}, fmt.Errorf("count student class history: %w", err)
+	}
+	return pagination.New(items, page, perPage, total), nil
 }
 
 // List returns a filtered page of students.
@@ -392,11 +480,7 @@ func (s *Service) Update(ctx context.Context, actorID, id string, input WriteInp
 }
 
 func auditStudentView(view View) View {
-	if view.AvatarURL == nil {
-		return view
-	}
-	redacted := "[stored WebP image]"
-	view.AvatarURL = &redacted
+	view.AvatarURL = avatar.Redact(view.AvatarURL)
 	return view
 }
 
@@ -440,4 +524,238 @@ func viewFromList(row db.ListAdminStudentsRow) View {
 		CreatedAt: row.CreatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		UpdatedAt: row.UpdatedAt.Time.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 	}
+}
+
+type AttendanceBreakdownItem struct {
+	ClassID              string  `json:"class_id"`
+	ClassCode            string  `json:"class_code"`
+	ClassName            string  `json:"class_name"`
+	CourseName           string  `json:"course_name"`
+	MinimumAttendancePct float64 `json:"minimum_attendance_pct"`
+	TotalSessions        int64   `json:"total_sessions"`
+	RecordedSessions     int64   `json:"recorded_sessions"`
+	AttendedSessions     int64   `json:"attended_sessions"`
+	AbsentSessions       int64   `json:"absent_sessions"`
+	AttendancePct        float64 `json:"attendance_pct"`
+	AtRisk               bool    `json:"at_risk"`
+}
+
+func (s *Service) GetAttendanceBreakdown(ctx context.Context, studentID string) ([]AttendanceBreakdownItem, error) {
+	id, err := data.UUID(studentID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	rows, err := s.queries.GetStudentAttendanceBreakdown(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("read attendance breakdown: %w", err)
+	}
+	items := make([]AttendanceBreakdownItem, 0, len(rows))
+	for _, r := range rows {
+		minPct := data.NumericFloat(r.MinimumAttendancePct)
+		total := r.TotalSessions
+		recorded := r.RecordedSessions
+		attended := r.AttendedSessions
+		var pct float64 = 100.0
+		if recorded > 0 {
+			pct = (float64(attended) / float64(recorded)) * 100.0
+		}
+		atRisk := recorded > 0 && pct < minPct
+		items = append(items, AttendanceBreakdownItem{
+			ClassID:              data.UUIDString(r.ClassID),
+			ClassCode:            r.ClassCode,
+			ClassName:            r.ClassName,
+			CourseName:           r.CourseName,
+			MinimumAttendancePct: minPct,
+			TotalSessions:        total,
+			RecordedSessions:     recorded,
+			AttendedSessions:     attended,
+			AbsentSessions:       r.AbsentSessions,
+			AttendancePct:        pct,
+			AtRisk:               atRisk,
+		})
+	}
+	return items, nil
+}
+
+type AcademicSummaryItem struct {
+	TestID     string  `json:"test_id"`
+	TestTitle  string  `json:"test_title"`
+	PassScore  float64 `json:"pass_score"`
+	ClassID    string  `json:"class_id"`
+	ClassName  string  `json:"class_name"`
+	CourseName string  `json:"course_name"`
+	Score      float64 `json:"score"`
+	GradedAt   string  `json:"graded_at"`
+	Passed     bool    `json:"passed"`
+}
+
+func (s *Service) GetAcademicSummary(ctx context.Context, studentID string) ([]AcademicSummaryItem, error) {
+	id, err := data.UUID(studentID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	rows, err := s.queries.GetStudentAcademicSummary(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("read academic summary: %w", err)
+	}
+	items := make([]AcademicSummaryItem, 0, len(rows))
+	for _, r := range rows {
+		score := data.NumericFloat(r.Score)
+		passScore := data.NumericFloat(r.PassScore)
+		items = append(items, AcademicSummaryItem{
+			TestID:     data.UUIDString(r.TestID),
+			TestTitle:  r.TestTitle,
+			PassScore:  passScore,
+			ClassID:    data.UUIDString(r.ClassID),
+			ClassName:  r.ClassName,
+			CourseName: r.CourseName,
+			Score:      score,
+			GradedAt:   r.GradedAt.Time.UTC().Format(time.RFC3339),
+			Passed:     score >= passScore,
+		})
+	}
+	return items, nil
+}
+
+type ClassSessionAttendanceItem struct {
+	SessionID        string `json:"session_id"`
+	StartsAt         string `json:"starts_at"`
+	EndsAt           string `json:"ends_at"`
+	SessionTitle     string `json:"session_title"`
+	SessionStatus    string `json:"session_status"`
+	LocationName     string `json:"location_name"`
+	TeacherName      string `json:"teacher_name"`
+	AttendanceStatus string `json:"attendance_status"`
+	Remarks          string `json:"remarks"`
+}
+
+func (s *Service) GetClassSessionAttendance(ctx context.Context, studentID, classID string) ([]ClassSessionAttendanceItem, error) {
+	sID, err := data.UUID(studentID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	cID, err := data.UUID(classID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	rows, err := s.queries.GetStudentClassSessionAttendance(ctx, db.GetStudentClassSessionAttendanceParams{
+		StudentID: sID,
+		ClassID:   cID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read class session attendance: %w", err)
+	}
+	items := make([]ClassSessionAttendanceItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, ClassSessionAttendanceItem{
+			SessionID:        data.UUIDString(r.SessionID),
+			StartsAt:         r.StartsAt.Time.UTC().Format(time.RFC3339),
+			EndsAt:           r.EndsAt.Time.UTC().Format(time.RFC3339),
+			SessionTitle:     r.SessionTitle,
+			SessionStatus:    string(r.SessionStatus),
+			LocationName:     r.LocationName,
+			TeacherName:      r.TeacherName,
+			AttendanceStatus: r.AttendanceStatus,
+			Remarks:          r.Remarks,
+		})
+	}
+	return items, nil
+}
+
+type AuditLogItem struct {
+	ID          int64   `json:"id"`
+	ActorUserID string  `json:"actor_user_id"`
+	ActorEmail  string  `json:"actor_email"`
+	Action      string  `json:"action"`
+	EntityType  string  `json:"entity_type"`
+	EntityID    string  `json:"entity_id"`
+	OldValues   string  `json:"old_values"`
+	NewValues   string  `json:"new_values"`
+	Reason      *string `json:"reason"`
+	CreatedAt   string  `json:"created_at"`
+}
+
+func (s *Service) GetAuditLogs(ctx context.Context, entityID string, page, perPage int) (pagination.Result[AuditLogItem], error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 100 {
+		perPage = 20
+	}
+	id, err := data.UUID(entityID)
+	if err != nil {
+		return pagination.New([]AuditLogItem{}, page, perPage, 0), nil
+	}
+	total, err := s.queries.CountPersonAuditLogs(ctx, id)
+	if err != nil {
+		return pagination.Result[AuditLogItem]{}, fmt.Errorf("count audit logs: %w", err)
+	}
+	offset := int32((page - 1) * perPage)
+	rows, err := s.queries.GetPersonAuditLogs(ctx, db.GetPersonAuditLogsParams{
+		EntityID: id,
+		Limit:    int32(perPage),
+		Offset:   offset,
+	})
+	if err != nil {
+		return pagination.Result[AuditLogItem]{}, fmt.Errorf("list audit logs: %w", err)
+	}
+	items := make([]AuditLogItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, AuditLogItem{
+			ID:          r.ID,
+			ActorUserID: data.UUIDString(r.ActorUserID),
+			ActorEmail:  r.ActorEmail,
+			Action:      r.Action,
+			EntityType:  r.EntityType,
+			EntityID:    data.UUIDString(r.EntityID),
+			OldValues:   string(r.OldValues),
+			NewValues:   string(r.NewValues),
+			Reason:      data.TextPointer(r.Reason),
+			CreatedAt:   r.CreatedAt.Time.UTC().Format(time.RFC3339),
+		})
+	}
+	return pagination.New(items, page, perPage, total), nil
+}
+
+func (s *Service) UpdateAccountStatus(ctx context.Context, profileID, newStatus, reason, actorID string) (View, error) {
+	newStatus = strings.TrimSpace(strings.ToLower(newStatus))
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return View{}, ErrStatusReason
+	}
+	if newStatus != "active" && newStatus != "inactive" && newStatus != "suspended" {
+		return View{}, errors.New("invalid account status")
+	}
+	st, err := s.Get(ctx, profileID)
+	if err != nil {
+		return View{}, err
+	}
+	userID, err := data.UUID(st.UserID)
+	if err != nil {
+		return View{}, ErrNotFound
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return View{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.queries.WithTx(tx)
+
+	res, err := qtx.UpdateUserAccountStatus(ctx, db.UpdateUserAccountStatusParams{
+		ID:     userID,
+		Status: db.UserStatus(newStatus),
+	})
+	if err != nil {
+		return View{}, fmt.Errorf("update user status: %w", err)
+	}
+
+	stID, _ := data.UUID(st.ID)
+	err = audit.WriteWithReason(ctx, qtx, actorID, "user.account_status_update", "user", stID, map[string]any{"account_status": st.AccountStatus}, map[string]any{"account_status": res.Status}, reason)
+	if err != nil {
+		return View{}, fmt.Errorf("record audit: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return View{}, fmt.Errorf("commit tx: %w", err)
+	}
+	return s.Get(ctx, profileID)
 }

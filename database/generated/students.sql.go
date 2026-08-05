@@ -104,6 +104,30 @@ func (q *Queries) CountAdminStudents(ctx context.Context, arg CountAdminStudents
 	return count, err
 }
 
+const countPersonAuditLogs = `-- name: CountPersonAuditLogs :one
+SELECT COUNT(*)::bigint
+FROM audit_logs
+WHERE entity_id = $1
+`
+
+func (q *Queries) CountPersonAuditLogs(ctx context.Context, entityID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countPersonAuditLogs, entityID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countStudentClassHistory = `-- name: CountStudentClassHistory :one
+SELECT COUNT(*) FROM class_enrollments WHERE student_id = $1
+`
+
+func (q *Queries) CountStudentClassHistory(ctx context.Context, studentID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countStudentClassHistory, studentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createStudentProfile = `-- name: CreateStudentProfile :one
 
 INSERT INTO student_profiles (
@@ -436,6 +460,311 @@ func (q *Queries) GetAdminStudent(ctx context.Context, id pgtype.UUID) (GetAdmin
 	return i, err
 }
 
+const getPersonAuditLogs = `-- name: GetPersonAuditLogs :many
+SELECT
+  al.id,
+  al.actor_user_id,
+  COALESCE(u.email, '')::text AS actor_email,
+  al.action,
+  al.entity_type,
+  al.entity_id,
+  al.old_values,
+  al.new_values,
+  al.reason,
+  al.created_at
+FROM audit_logs al
+LEFT JOIN users u ON u.id = al.actor_user_id
+WHERE al.entity_id = $1
+ORDER BY al.created_at DESC, al.id DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetPersonAuditLogsParams struct {
+	EntityID pgtype.UUID `json:"entity_id"`
+	Limit    int32       `json:"limit"`
+	Offset   int32       `json:"offset"`
+}
+
+type GetPersonAuditLogsRow struct {
+	ID          int64              `json:"id"`
+	ActorUserID pgtype.UUID        `json:"actor_user_id"`
+	ActorEmail  string             `json:"actor_email"`
+	Action      string             `json:"action"`
+	EntityType  string             `json:"entity_type"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	OldValues   []byte             `json:"old_values"`
+	NewValues   []byte             `json:"new_values"`
+	Reason      pgtype.Text        `json:"reason"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetPersonAuditLogs(ctx context.Context, arg GetPersonAuditLogsParams) ([]GetPersonAuditLogsRow, error) {
+	rows, err := q.db.Query(ctx, getPersonAuditLogs, arg.EntityID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetPersonAuditLogsRow{}
+	for rows.Next() {
+		var i GetPersonAuditLogsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorUserID,
+			&i.ActorEmail,
+			&i.Action,
+			&i.EntityType,
+			&i.EntityID,
+			&i.OldValues,
+			&i.NewValues,
+			&i.Reason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getStudentAcademicSummary = `-- name: GetStudentAcademicSummary :many
+SELECT
+  ct.id AS test_id,
+  ct.title AS test_title,
+  ct.pass_score,
+  c.id AS class_id,
+  c.name AS class_name,
+  co.name AS course_name,
+  sta.score,
+  sta.taken_at AS graded_at
+FROM student_test_attempts sta
+JOIN course_tests ct ON ct.id = sta.test_id
+JOIN classes c ON c.id = sta.class_id
+JOIN courses co ON co.id = c.course_id
+WHERE sta.student_id = $1
+ORDER BY sta.taken_at DESC
+`
+
+type GetStudentAcademicSummaryRow struct {
+	TestID     pgtype.UUID        `json:"test_id"`
+	TestTitle  string             `json:"test_title"`
+	PassScore  pgtype.Numeric     `json:"pass_score"`
+	ClassID    pgtype.UUID        `json:"class_id"`
+	ClassName  string             `json:"class_name"`
+	CourseName string             `json:"course_name"`
+	Score      pgtype.Numeric     `json:"score"`
+	GradedAt   pgtype.Timestamptz `json:"graded_at"`
+}
+
+func (q *Queries) GetStudentAcademicSummary(ctx context.Context, studentID pgtype.UUID) ([]GetStudentAcademicSummaryRow, error) {
+	rows, err := q.db.Query(ctx, getStudentAcademicSummary, studentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetStudentAcademicSummaryRow{}
+	for rows.Next() {
+		var i GetStudentAcademicSummaryRow
+		if err := rows.Scan(
+			&i.TestID,
+			&i.TestTitle,
+			&i.PassScore,
+			&i.ClassID,
+			&i.ClassName,
+			&i.CourseName,
+			&i.Score,
+			&i.GradedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getStudentAttendanceBreakdown = `-- name: GetStudentAttendanceBreakdown :many
+SELECT
+  c.id AS class_id,
+  c.class_code,
+  c.name AS class_name,
+  co.name AS course_name,
+  co.minimum_attendance_pct,
+  COUNT(cs.id)::bigint AS total_sessions,
+  COUNT(ar.id) FILTER (WHERE cs.status <> 'cancelled')::bigint AS recorded_sessions,
+  COUNT(ar.id) FILTER (WHERE ar.status IN ('present', 'late'))::bigint AS attended_sessions,
+  COUNT(ar.id) FILTER (WHERE ar.status IN ('absent', 'excused'))::bigint AS absent_sessions
+FROM class_enrollments ce
+JOIN classes c ON c.id = ce.class_id
+JOIN courses co ON co.id = c.course_id
+LEFT JOIN class_sessions cs ON cs.class_id = c.id AND cs.status <> 'cancelled'
+LEFT JOIN attendance_records ar ON ar.class_session_id = cs.id AND ar.student_id = ce.student_id
+WHERE ce.student_id = $1
+GROUP BY c.id, c.class_code, c.name, co.name, co.minimum_attendance_pct
+ORDER BY c.created_at DESC
+`
+
+type GetStudentAttendanceBreakdownRow struct {
+	ClassID              pgtype.UUID    `json:"class_id"`
+	ClassCode            string         `json:"class_code"`
+	ClassName            string         `json:"class_name"`
+	CourseName           string         `json:"course_name"`
+	MinimumAttendancePct pgtype.Numeric `json:"minimum_attendance_pct"`
+	TotalSessions        int64          `json:"total_sessions"`
+	RecordedSessions     int64          `json:"recorded_sessions"`
+	AttendedSessions     int64          `json:"attended_sessions"`
+	AbsentSessions       int64          `json:"absent_sessions"`
+}
+
+func (q *Queries) GetStudentAttendanceBreakdown(ctx context.Context, studentID pgtype.UUID) ([]GetStudentAttendanceBreakdownRow, error) {
+	rows, err := q.db.Query(ctx, getStudentAttendanceBreakdown, studentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetStudentAttendanceBreakdownRow{}
+	for rows.Next() {
+		var i GetStudentAttendanceBreakdownRow
+		if err := rows.Scan(
+			&i.ClassID,
+			&i.ClassCode,
+			&i.ClassName,
+			&i.CourseName,
+			&i.MinimumAttendancePct,
+			&i.TotalSessions,
+			&i.RecordedSessions,
+			&i.AttendedSessions,
+			&i.AbsentSessions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getStudentClassSessionAttendance = `-- name: GetStudentClassSessionAttendance :many
+SELECT
+  cs.id AS session_id,
+  cs.starts_at,
+  cs.ends_at,
+  cs.title AS session_title,
+  cs.status AS session_status,
+  COALESCE(tl.name, '')::text AS location_name,
+  COALESCE(tp.full_name, '')::text AS teacher_name,
+  COALESCE(ar.status::text, '')::text AS attendance_status,
+  COALESCE(ar.note, '')::text AS remarks
+FROM class_sessions cs
+LEFT JOIN training_locations tl ON tl.id = cs.location_id
+LEFT JOIN teacher_profiles tp ON tp.id = cs.teacher_id
+LEFT JOIN attendance_records ar ON ar.class_session_id = cs.id AND ar.student_id = $1
+WHERE cs.class_id = $2 AND cs.status <> 'cancelled'
+ORDER BY cs.starts_at ASC
+`
+
+type GetStudentClassSessionAttendanceParams struct {
+	StudentID pgtype.UUID `json:"student_id"`
+	ClassID   pgtype.UUID `json:"class_id"`
+}
+
+type GetStudentClassSessionAttendanceRow struct {
+	SessionID        pgtype.UUID        `json:"session_id"`
+	StartsAt         pgtype.Timestamptz `json:"starts_at"`
+	EndsAt           pgtype.Timestamptz `json:"ends_at"`
+	SessionTitle     string             `json:"session_title"`
+	SessionStatus    SessionStatus      `json:"session_status"`
+	LocationName     string             `json:"location_name"`
+	TeacherName      string             `json:"teacher_name"`
+	AttendanceStatus string             `json:"attendance_status"`
+	Remarks          string             `json:"remarks"`
+}
+
+func (q *Queries) GetStudentClassSessionAttendance(ctx context.Context, arg GetStudentClassSessionAttendanceParams) ([]GetStudentClassSessionAttendanceRow, error) {
+	rows, err := q.db.Query(ctx, getStudentClassSessionAttendance, arg.StudentID, arg.ClassID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetStudentClassSessionAttendanceRow{}
+	for rows.Next() {
+		var i GetStudentClassSessionAttendanceRow
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.SessionTitle,
+			&i.SessionStatus,
+			&i.LocationName,
+			&i.TeacherName,
+			&i.AttendanceStatus,
+			&i.Remarks,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getStudentProfileMetrics = `-- name: GetStudentProfileMetrics :one
+SELECT
+  (SELECT COUNT(*) FROM class_enrollments ce WHERE ce.student_id = $1) AS total_classes,
+  (SELECT COUNT(*) FROM class_enrollments ce WHERE ce.student_id = $1 AND ce.status = 'enrolled') AS current_classes,
+  (SELECT COUNT(*) FROM (
+    SELECT ce.id
+    FROM class_enrollments ce
+    JOIN classes c ON c.id = ce.class_id
+    JOIN courses co ON co.id = c.course_id
+    JOIN class_sessions cs ON cs.class_id = ce.class_id AND cs.status <> 'cancelled'
+    JOIN attendance_records ar ON ar.class_session_id = cs.id AND ar.student_id = ce.student_id
+    WHERE ce.student_id = $1 AND ce.status = 'enrolled'
+    GROUP BY ce.id, co.minimum_attendance_pct
+    HAVING COUNT(*) FILTER (WHERE ar.status <> 'excused') > 0
+      AND 100.0 * COUNT(*) FILTER (WHERE ar.status IN ('present', 'late'))
+        / COUNT(*) FILTER (WHERE ar.status <> 'excused') < co.minimum_attendance_pct
+  ) risk) AS attendance_risk_classes,
+  (SELECT COUNT(DISTINCT cs.id)
+    FROM class_sessions cs
+    JOIN class_enrollments ce ON ce.class_id = cs.class_id AND ce.student_id = $1
+    WHERE cs.starts_at >= NOW() AND cs.status <> 'cancelled'
+      AND EXISTS (
+        SELECT 1 FROM class_enrollment_periods cep
+        WHERE cep.enrollment_id = ce.id
+          AND cep.started_at <= cs.starts_at
+          AND (cep.ended_at IS NULL OR cep.ended_at > cs.starts_at)
+      )
+  ) AS upcoming_sessions
+`
+
+type GetStudentProfileMetricsRow struct {
+	TotalClasses          int64 `json:"total_classes"`
+	CurrentClasses        int64 `json:"current_classes"`
+	AttendanceRiskClasses int64 `json:"attendance_risk_classes"`
+	UpcomingSessions      int64 `json:"upcoming_sessions"`
+}
+
+func (q *Queries) GetStudentProfileMetrics(ctx context.Context, studentID pgtype.UUID) (GetStudentProfileMetricsRow, error) {
+	row := q.db.QueryRow(ctx, getStudentProfileMetrics, studentID)
+	var i GetStudentProfileMetricsRow
+	err := row.Scan(
+		&i.TotalClasses,
+		&i.CurrentClasses,
+		&i.AttendanceRiskClasses,
+		&i.UpcomingSessions,
+	)
+	return i, err
+}
+
 const listAdminStudents = `-- name: ListAdminStudents :many
 SELECT
   sp.id, sp.user_id, u.email, u.status AS user_status,
@@ -601,6 +930,83 @@ func (q *Queries) ListAdminStudents(ctx context.Context, arg ListAdminStudentsPa
 	return items, nil
 }
 
+const listStudentClassHistory = `-- name: ListStudentClassHistory :many
+SELECT
+  ce.id AS enrollment_id, ce.class_id, c.class_code, c.name AS class_name,
+  c.course_id, co.code AS course_code, co.name AS course_name,
+  ce.status::text AS enrollment_status, ce.enrolled_at, ce.ended_at,
+  (COALESCE(
+    jsonb_agg(jsonb_build_object(
+      'id', cep.id,
+      'started_at', cep.started_at,
+      'ended_at', cep.ended_at,
+      'start_reason', cep.start_reason,
+      'end_reason', cep.end_reason
+    ) ORDER BY cep.started_at DESC) FILTER (WHERE cep.id IS NOT NULL),
+    '[]'::jsonb
+  ))::text AS periods_json
+FROM class_enrollments ce
+JOIN classes c ON c.id = ce.class_id
+JOIN courses co ON co.id = c.course_id
+LEFT JOIN class_enrollment_periods cep ON cep.enrollment_id = ce.id
+WHERE ce.student_id = $1
+GROUP BY ce.id, c.id, co.id
+ORDER BY COALESCE(ce.ended_at, 'infinity'::timestamptz) DESC, ce.enrolled_at DESC, ce.id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListStudentClassHistoryParams struct {
+	StudentID  pgtype.UUID `json:"student_id"`
+	PageOffset int32       `json:"page_offset"`
+	PageLimit  int32       `json:"page_limit"`
+}
+
+type ListStudentClassHistoryRow struct {
+	EnrollmentID     pgtype.UUID        `json:"enrollment_id"`
+	ClassID          pgtype.UUID        `json:"class_id"`
+	ClassCode        string             `json:"class_code"`
+	ClassName        string             `json:"class_name"`
+	CourseID         pgtype.UUID        `json:"course_id"`
+	CourseCode       string             `json:"course_code"`
+	CourseName       string             `json:"course_name"`
+	EnrollmentStatus string             `json:"enrollment_status"`
+	EnrolledAt       pgtype.Timestamptz `json:"enrolled_at"`
+	EndedAt          pgtype.Timestamptz `json:"ended_at"`
+	PeriodsJson      string             `json:"periods_json"`
+}
+
+func (q *Queries) ListStudentClassHistory(ctx context.Context, arg ListStudentClassHistoryParams) ([]ListStudentClassHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listStudentClassHistory, arg.StudentID, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListStudentClassHistoryRow{}
+	for rows.Next() {
+		var i ListStudentClassHistoryRow
+		if err := rows.Scan(
+			&i.EnrollmentID,
+			&i.ClassID,
+			&i.ClassCode,
+			&i.ClassName,
+			&i.CourseID,
+			&i.CourseCode,
+			&i.CourseName,
+			&i.EnrollmentStatus,
+			&i.EnrolledAt,
+			&i.EndedAt,
+			&i.PeriodsJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStudentStatusHistory = `-- name: ListStudentStatusHistory :many
 SELECT
   ssh.id, ssh.student_id, ssh.from_status, ssh.to_status, ssh.reason,
@@ -730,6 +1136,39 @@ func (q *Queries) UpdateStudentProfile(ctx context.Context, arg UpdateStudentPro
 		&i.EmergencyContactPhone,
 		&i.Status,
 		&i.EnrolledAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateUserAccountStatus = `-- name: UpdateUserAccountStatus :one
+UPDATE users
+SET status = $1, updated_at = NOW()
+WHERE id = $2
+RETURNING id, email, status, created_at, updated_at
+`
+
+type UpdateUserAccountStatusParams struct {
+	Status UserStatus  `json:"status"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+type UpdateUserAccountStatusRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Email     string             `json:"email"`
+	Status    UserStatus         `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdateUserAccountStatus(ctx context.Context, arg UpdateUserAccountStatusParams) (UpdateUserAccountStatusRow, error) {
+	row := q.db.QueryRow(ctx, updateUserAccountStatus, arg.Status, arg.ID)
+	var i UpdateUserAccountStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

@@ -219,7 +219,15 @@ func mountAdminRoutes(
 			r.Post("/import", studentHandler.ImportCSV)
 			r.Get("/{studentID}", studentHandler.Get)
 			r.Put("/{studentID}", studentHandler.Update)
+			r.Get("/{studentID}/profile-summary", studentHandler.ProfileSummary)
+			r.Get("/{studentID}/class-history", studentHandler.ClassHistory)
+			r.Get("/{studentID}/schedule", scheduleHandler.AdminStudentSchedule)
 			r.Get("/{studentID}/status-history", studentHandler.StatusHistory)
+			r.Get("/{studentID}/attendance-breakdown", studentHandler.AttendanceBreakdown)
+			r.Get("/{studentID}/classes/{classID}/attendance", studentHandler.ClassSessionAttendance)
+			r.Get("/{studentID}/academic-summary", studentHandler.AcademicSummary)
+			r.Get("/{studentID}/audit-logs", studentHandler.AuditLogs)
+			r.Patch("/{studentID}/account-status", studentHandler.UpdateAccountStatus)
 		})
 
 		r.Route("/teachers", func(r chi.Router) {
@@ -227,6 +235,11 @@ func mountAdminRoutes(
 			r.Post("/", teacherHandler.Create)
 			r.Get("/{teacherID}", teacherHandler.Get)
 			r.Put("/{teacherID}", teacherHandler.Update)
+			r.Get("/{teacherID}/profile-summary", teacherHandler.ProfileSummary)
+			r.Get("/{teacherID}/class-history", teacherHandler.ClassHistory)
+			r.Get("/{teacherID}/workload-summary", teacherHandler.WorkloadSummary)
+			r.Get("/{teacherID}/audit-logs", teacherHandler.AuditLogs)
+			r.Patch("/{teacherID}/account-status", teacherHandler.UpdateAccountStatus)
 		})
 
 		r.Route("/courses", func(r chi.Router) {

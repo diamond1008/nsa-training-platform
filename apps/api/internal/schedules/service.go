@@ -31,6 +31,7 @@ var (
 	ErrSessionTimeSlot      = errors.New("session must match a fixed training slot")
 	ErrModuleCourse         = errors.New("module does not belong to class course")
 	ErrTeacherNotFound      = errors.New("teacher not found")
+	ErrStudentNotFound      = errors.New("student not found")
 	ErrTeacherInactive      = errors.New("teacher is not active")
 	ErrTeacherNotAssigned   = errors.New("teacher is not assigned to class")
 	ErrLocationNotFound     = errors.New("training location not found")
@@ -451,6 +452,40 @@ func (s *Service) ListStudent(ctx context.Context, userIDValue string, filter Li
 	return pagination.New(items, filter.Page, filter.PerPage, total), nil
 }
 
+// ListAdminStudent returns the selected student's schedule across every
+// historical enrollment period. Sessions outside a student's active periods
+// are intentionally excluded so transfers and withdrawals remain accurate.
+func (s *Service) ListAdminStudent(ctx context.Context, studentIDValue string, filter ListFilter) (pagination.Result[SessionView], error) {
+	studentID, err := data.UUID(studentIDValue)
+	if err != nil {
+		return pagination.Result[SessionView]{}, ErrStudentNotFound
+	}
+	if _, err := s.queries.GetAdminStudent(ctx, studentID); errors.Is(err, pgx.ErrNoRows) {
+		return pagination.Result[SessionView]{}, ErrStudentNotFound
+	} else if err != nil {
+		return pagination.Result[SessionView]{}, fmt.Errorf("get admin student schedule subject: %w", err)
+	}
+	params := db.ListAdminStudentScheduleParams{
+		StudentID: studentID, FromTime: nullableTime(filter.From), ToTime: nullableTime(filter.To),
+		PageOffset: int32((filter.Page - 1) * filter.PerPage), PageLimit: int32(filter.PerPage),
+	}
+	rows, err := s.queries.ListAdminStudentSchedule(ctx, params)
+	if err != nil {
+		return pagination.Result[SessionView]{}, fmt.Errorf("list admin student schedule: %w", err)
+	}
+	total, err := s.queries.CountAdminStudentSchedule(ctx, db.CountAdminStudentScheduleParams{
+		StudentID: studentID, FromTime: params.FromTime, ToTime: params.ToTime,
+	})
+	if err != nil {
+		return pagination.Result[SessionView]{}, fmt.Errorf("count admin student schedule: %w", err)
+	}
+	items := make([]SessionView, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, viewFromAdminStudent(row))
+	}
+	return pagination.New(items, filter.Page, filter.PerPage, total), nil
+}
+
 func (s *Service) buildSessionParams(ctx context.Context, q *db.Queries, actorID string, input SessionInput) (db.CreateClassSessionParams, error) {
 	if !validTrainingSlot(input.StartsAt, input.EndsAt) {
 		return db.CreateClassSessionParams{}, ErrSessionTimeSlot
@@ -704,6 +739,18 @@ func viewFromAdmin(row db.ListAdminSessionsRow) SessionView {
 }
 
 func viewFromStudent(row db.ListStudentScheduleRow) SessionView {
+	return sessionView(
+		row.ID, row.ClassID, row.ClassCode, row.ClassName,
+		row.CourseID, row.CourseCode, row.CourseName,
+		row.ModuleID, row.ModuleCode, row.ModuleName,
+		row.TeacherID, row.TeacherCode, row.TeacherName,
+		row.LocationID, row.LocationCode, row.LocationName, row.LocationType,
+		row.Title, row.SessionType, row.StartsAt, row.EndsAt, row.Status,
+		row.AttendanceLockedAt, row.CreatedAt, row.UpdatedAt,
+	)
+}
+
+func viewFromAdminStudent(row db.ListAdminStudentScheduleRow) SessionView {
 	return sessionView(
 		row.ID, row.ClassID, row.ClassCode, row.ClassName,
 		row.CourseID, row.CourseCode, row.CourseName,

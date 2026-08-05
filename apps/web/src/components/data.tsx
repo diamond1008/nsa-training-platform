@@ -73,7 +73,7 @@ export function StatusBadge({ value }: { value: string }) {
 
 export interface Column<T> {
   header: string;
-  cell: (item: T) => ReactNode;
+  cell: (item: T, rowIndex: number) => ReactNode;
   className?: string;
   sortKey?: string;
 }
@@ -91,7 +91,7 @@ export function DataTable<T extends { id: string }>({
   return (
     <Card className="overflow-hidden p-0">
       <div className="divide-y divide-gborder md:hidden">
-        {items.map((item) => (
+        {items.map((item, rowIndex) => (
           <div key={item.id} className="space-y-3 p-4">
             {columns.map((column) => (
               <div
@@ -106,7 +106,9 @@ export function DataTable<T extends { id: string }>({
                     {column.header}
                   </span>
                 )}
-                <div className="min-w-0 text-right text-sm text-navy">{column.cell(item)}</div>
+                <div className="min-w-0 text-right text-sm text-navy">
+                  {column.cell(item, rowIndex)}
+                </div>
               </div>
             ))}
           </div>
@@ -156,7 +158,7 @@ export function DataTable<T extends { id: string }>({
             </tr>
           </thead>
           <tbody className="bg-white">
-            {items.map((item) => (
+            {items.map((item, rowIndex) => (
               <tr key={item.id} className="group transition hover:bg-gbg/70">
                 {columns.map((column) => (
                   <td
@@ -166,7 +168,7 @@ export function DataTable<T extends { id: string }>({
                       column.className,
                     )}
                   >
-                    {column.cell(item)}
+                    {column.cell(item, rowIndex)}
                   </td>
                 ))}
               </tr>
