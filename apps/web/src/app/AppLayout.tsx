@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import clsx from "clsx";
@@ -7,6 +7,7 @@ import { Icon } from "../components/icons";
 import type { IconName } from "../components/icons";
 import { useAuth } from "../features/auth/AuthContext";
 import { notificationApi } from "../features/notifications/notificationApi";
+import type { NotificationList } from "../lib/domainTypes";
 import { formatDateTime } from "../lib/format";
 import type { Role } from "../lib/types";
 
@@ -23,29 +24,35 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { to: "/admin/khoa-hoc", label: "Khóa học", icon: "book" },
     { to: "/admin/lop-hoc", label: "Lớp học", icon: "school" },
     { to: "/admin/lich-hoc", label: "Lịch học", icon: "calendar" },
-    { to: "/admin/diem-danh", label: "Điểm danh", icon: "check" },
-    { to: "/admin/van-hanh", label: "Vận hành & báo cáo", icon: "chart" },
+    { to: "/admin/bao-cao", label: "Báo cáo", icon: "chart" },
   ],
   TEACHER: [
-    { to: "/teacher", label: "Tổng quan", icon: "home" },
-    { to: "/teacher/lop-phu-trach", label: "Lớp phụ trách", icon: "school" },
-    { to: "/teacher/diem-danh", label: "Điểm danh", icon: "check" },
-    { to: "/teacher/danh-gia", label: "Đánh giá kỹ năng", icon: "award" },
-    { to: "/teacher/lich-day", label: "Lịch dạy", icon: "calendar" },
+    { to: "/giang-vien", label: "Lớp của tôi", icon: "school" },
+    { to: "/giang-vien/lich-day", label: "Lịch dạy", icon: "calendar" },
+    { to: "/giang-vien/diem-danh", label: "Điểm danh", icon: "check" },
+    { to: "/giang-vien/danh-gia", label: "Đánh giá", icon: "award" },
+    { to: "/giang-vien/diem-kiem-tra", label: "Điểm kiểm tra", icon: "book" },
   ],
   STUDENT: [
-    { to: "/student", label: "Tổng quan", icon: "home" },
-    { to: "/student/khoa-hoc", label: "Khóa học của tôi", icon: "book" },
-    { to: "/student/lich-hoc", label: "Lịch học", icon: "calendar" },
-    { to: "/student/diem-danh", label: "Điểm danh", icon: "check" },
-    { to: "/student/danh-gia", label: "Đánh giá", icon: "award" },
-    { to: "/student/tien-do", label: "Tiến độ học tập", icon: "chart" },
+    { to: "/hoc-vien", label: "Tổng quan", icon: "home" },
+    { to: "/hoc-vien/lich-hoc", label: "Lịch học", icon: "calendar" },
+    { to: "/hoc-vien/tien-do", label: "Tiến độ", icon: "award" },
+    { to: "/hoc-vien/ho-so", label: "Hồ sơ", icon: "users" },
   ],
 };
-function navItemsFor(roles: Role[]) {
-  if (roles.includes("ADMIN")) return NAV_BY_ROLE.ADMIN;
-  if (roles.includes("TEACHER")) return NAV_BY_ROLE.TEACHER;
-  return NAV_BY_ROLE.STUDENT;
+
+function navItemsFor(roles: Role[]): NavItem[] {
+  const seen = new Set<string>();
+  const out: NavItem[] = [];
+  for (const role of roles) {
+    for (const item of NAV_BY_ROLE[role] ?? []) {
+      if (!seen.has(item.to)) {
+        seen.add(item.to);
+        out.push(item);
+      }
+    }
+  }
+  return out;
 }
 
 export default function AppLayout() {
@@ -55,7 +62,34 @@ export default function AppLayout() {
   const [isClosingMenu, setIsClosingMenu] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setNotificationsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [notificationsOpen]);
 
   useEffect(() => {
     if (menuOpen) {
@@ -90,6 +124,32 @@ export default function AppLayout() {
     queryFn: () => notificationApi.list(),
     refetchInterval: 60_000,
   });
+
+  const handleToggleNotifications = () => {
+    setNotificationsOpen((prev) => {
+      const next = !prev;
+      if (next && notifications.data?.items) {
+        const unreadItems = notifications.data.items.filter((item) => item.status === "unread");
+        if (unreadItems.length > 0) {
+          queryClient.setQueryData<NotificationList>(["notifications"], (old) => {
+            if (!old) return old;
+            return {
+              ...old,
+              unread: 0,
+              items: old.items.map((it) => ({ ...it, status: "read" })),
+            };
+          });
+          Promise.allSettled(unreadItems.map((item) => notificationApi.markRead(item.id))).then(
+            () => {
+              void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+            },
+          );
+        }
+      }
+      return next;
+    });
+  };
+
   const markRead = useMutation({
     mutationFn: (id: string) => notificationApi.markRead(id),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["notifications"] }),
@@ -326,12 +386,12 @@ export default function AppLayout() {
               >
                 <Icon name="menu" />
               </button>
-              <div className="relative">
+              <div className="relative" ref={notificationRef}>
                 <button
                   className="relative flex h-10 w-10 items-center justify-center rounded-full text-navy/80 transition-all hover:bg-black/5 active:scale-90 active:bg-black/10 hover:text-navy"
                   aria-label="Thông báo"
                   aria-expanded={notificationsOpen}
-                  onClick={() => setNotificationsOpen((value) => !value)}
+                  onClick={handleToggleNotifications}
                 >
                   <Icon name="bell" className="h-5 w-5" />
                   {!!notifications.data?.unread && (
