@@ -247,11 +247,16 @@ export function PersonProfilePage({ kind }: { kind: PersonKind }) {
             </div>
           </Card>
 
-          <div className="mb-5 flex gap-1 overflow-x-auto rounded-xl border border-gborder bg-white p-1">
+          <div
+            role="tablist"
+            className="mb-5 flex gap-1 overflow-x-auto rounded-xl border border-gborder bg-white p-1"
+          >
             {getTabs(isStudent).map((item) => (
               <button
                 key={item.value}
                 type="button"
+                role="tab"
+                aria-selected={tab === item.value}
                 className={`shrink-0 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
                   tab === item.value
                     ? "bg-navy text-white"

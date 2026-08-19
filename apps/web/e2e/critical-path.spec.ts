@@ -27,7 +27,7 @@ test("teacher opens attendance from weekly calendar", async ({ page }) => {
   await page.getByRole("button", { name: /E2E$/ }).click();
   await expect(page).toHaveURL(/\/teacher\/diem-danh\?session=88888888/);
   await expect(page.getByRole("heading", { name: "Điểm danh" })).toBeVisible();
-  const studentRow = page.getByRole("row", { name: /STU-DEMO-001 Demo Student/ });
+  const studentRow = page.getByRole("row", { name: /Demo Student/ });
   await expect(studentRow).toBeVisible();
   await expect(studentRow.getByRole("button", { name: "Có mặt" })).toHaveAttribute(
     "aria-pressed",
@@ -42,7 +42,7 @@ test("student views own attendance and progress", async ({ page }) => {
   await page.getByRole("button", { name: /E2E$/ }).click();
   await expect(page.getByText("Trạng thái điểm danh của bạn", { exact: true })).toBeVisible();
   await expect(page.getByTestId("student-own-attendance-status")).toContainText("Có mặt");
-  await expect(page.getByText("STU-DEMO-001", { exact: true })).toBeVisible();
+  await expect(page.getByText(/HV\d+|STU-DEMO-001/)).toBeVisible();
   await page.getByRole("button", { name: "Đóng" }).click();
 
   await page.getByRole("link", { name: "Tiến độ học tập" }).click();

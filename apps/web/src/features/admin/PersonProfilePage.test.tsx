@@ -84,8 +84,8 @@ describe("PersonProfilePage", () => {
 
     expect(await screen.findAllByText("Nguyễn Văn An")).not.toHaveLength(0);
     expect(screen.getByText("KT000001")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lớp hiện tại & lịch sử" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Lịch cá nhân" }));
+    expect(screen.getByRole("tab", { name: "Lớp hiện tại & lịch sử" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Lịch cá nhân" }));
     expect(await screen.findByRole("button", { name: "Hôm nay" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Tuần trước" })).toBeInTheDocument();
   });
