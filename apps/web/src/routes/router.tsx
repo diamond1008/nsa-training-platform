@@ -364,6 +364,26 @@ export const router = createBrowserRouter([
               </RequireRole>
             ),
           },
+          // Backward compatibility aliases
+          { path: "/giang-vien", element: <Navigate to="/teacher" replace /> },
+          {
+            path: "/giang-vien/lop-phu-trach",
+            element: <Navigate to="/teacher/lop-phu-trach" replace />,
+          },
+          { path: "/giang-vien/lich-day", element: <Navigate to="/teacher/lich-day" replace /> },
+          { path: "/giang-vien/diem-danh", element: <Navigate to="/teacher/diem-danh" replace /> },
+          { path: "/giang-vien/danh-gia", element: <Navigate to="/teacher/danh-gia" replace /> },
+          {
+            path: "/giang-vien/diem-kiem-tra",
+            element: <Navigate to="/teacher/lop-phu-trach" replace />,
+          },
+          { path: "/hoc-vien", element: <Navigate to="/student" replace /> },
+          { path: "/hoc-vien/khoa-hoc", element: <Navigate to="/student/khoa-hoc" replace /> },
+          { path: "/hoc-vien/lich-hoc", element: <Navigate to="/student/lich-hoc" replace /> },
+          { path: "/hoc-vien/diem-danh", element: <Navigate to="/student/diem-danh" replace /> },
+          { path: "/hoc-vien/danh-gia", element: <Navigate to="/student/danh-gia" replace /> },
+          { path: "/hoc-vien/tien-do", element: <Navigate to="/student/tien-do" replace /> },
+          { path: "/hoc-vien/ho-so", element: <Navigate to="/student" replace /> },
         ],
       },
     ],

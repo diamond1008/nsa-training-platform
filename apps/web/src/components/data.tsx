@@ -221,43 +221,65 @@ export function Pagination({
   );
 }
 
-const statTone = {
-  navy: "bg-navy text-white",
-  gold: "bg-gold/25 text-gold-dark",
-  green: "bg-success-bg text-success",
-  blue: "bg-info-bg text-info",
+const statTone: Record<string, string> = {
+  navy: "text-navy",
+  gold: "text-gold-dark",
+  green: "text-success",
+  blue: "text-info",
+  neutral: "text-navy/70",
+  brand: "text-gold-dark",
+  warning: "text-warning",
+  success: "text-success",
 };
+
 export function StatCard({
   label,
+  title,
   value,
   hint,
   icon,
   tone = "navy",
+  delta,
 }: {
-  label: string;
+  label?: string;
+  title?: string;
   value: ReactNode;
   hint?: string;
   icon?: IconName;
-  tone?: keyof typeof statTone;
+  tone?: string;
+  delta?: { value: string; positive: boolean };
 }) {
+  const displayLabel = label ?? title ?? "";
   return (
-    <Card className="relative overflow-hidden">
+    <Card className="flex flex-col justify-between">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-gtext">{label}</p>
-          <div className="mt-2 text-2xl font-bold tracking-tight text-navy md:text-3xl">
-            {value}
+          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-gtext">
+            {displayLabel}
+          </p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-heading text-2xl font-black text-navy md:text-3xl">{value}</span>
+            {delta && (
+              <span
+                className={clsx(
+                  "text-xs font-bold",
+                  delta.positive ? "text-success" : "text-error",
+                )}
+              >
+                {delta.positive ? "↑" : "↓"} {delta.value}
+              </span>
+            )}
           </div>
           {hint && <p className="mt-1.5 text-xs leading-5 text-gtext">{hint}</p>}
         </div>
         {icon && (
           <div
             className={clsx(
-              "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl",
-              statTone[tone],
+              "flex shrink-0 items-center justify-center pt-0.5",
+              statTone[tone] ?? "text-navy",
             )}
           >
-            <Icon name={icon} className="h-5 w-5" />
+            <Icon name={icon} className="h-6 w-6" />
           </div>
         )}
       </div>
@@ -299,8 +321,8 @@ export function QuickAction({
   return (
     <Card className="group h-full transition hover:-translate-y-0.5 hover:border-gold/70 hover:shadow-elevated">
       <div className="flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-navy text-white transition group-hover:bg-gold group-hover:text-navy">
-          <Icon name={icon} className="h-5 w-5" />
+        <div className="flex shrink-0 items-center justify-center text-navy transition group-hover:text-gold-dark pt-0.5">
+          <Icon name={icon} className="h-6 w-6" />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-navy">{title}</h3>

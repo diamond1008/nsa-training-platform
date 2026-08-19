@@ -26,6 +26,10 @@ export const statusLabels: Record<string, string> = {
   competent: "Đạt",
   good: "Tốt",
   excellent: "Xuất sắc",
+  theory: "Lý thuyết",
+  workshop: "Thực hành xưởng",
+  assessment: "Đánh giá kỹ năng",
+  other: "Khác",
 };
 
 export function statusLabel(value: string): string {

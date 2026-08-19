@@ -133,7 +133,7 @@ export function StudentDashboardPage() {
                   key={s.id}
                   className="flex items-center gap-3 rounded-xl border border-gborder p-3 transition hover:border-gold"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-info-bg text-info">
+                  <div className="flex shrink-0 items-center justify-center text-info">
                     <Icon name="clock" className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -224,6 +224,7 @@ export function StudentScheduleLegacyPage() {
           columns={[
             {
               header: "Thời gian",
+              className: "whitespace-nowrap min-w-[150px]",
               cell: (s) => (
                 <div>
                   <b>{formatDateTime(s.starts_at)}</b>
@@ -231,11 +232,27 @@ export function StudentScheduleLegacyPage() {
                 </div>
               ),
             },
-            { header: "Lớp", cell: (s) => `${s.class_code} — ${s.class_name}` },
-            { header: "Nội dung", cell: (s) => s.title },
-            { header: "Giảng viên", cell: (s) => s.teacher_name ?? "Chưa phân công" },
-            { header: "Địa điểm", cell: (s) => s.location_name ?? "Chưa xếp" },
-            { header: "Trạng thái", cell: (s) => <StatusBadge value={s.status} /> },
+            {
+              header: "Lớp",
+              className: "min-w-[180px]",
+              cell: (s) => `${s.class_code} — ${s.class_name}`,
+            },
+            { header: "Nội dung", className: "min-w-[200px]", cell: (s) => s.title },
+            {
+              header: "Giảng viên",
+              className: "whitespace-nowrap",
+              cell: (s) => s.teacher_name ?? "Chưa phân công",
+            },
+            {
+              header: "Địa điểm",
+              className: "whitespace-nowrap",
+              cell: (s) => s.location_name ?? "Chưa xếp",
+            },
+            {
+              header: "Trạng thái",
+              className: "whitespace-nowrap",
+              cell: (s) => <StatusBadge value={s.status} />,
+            },
           ]}
         />
       </QueryState>
@@ -479,10 +496,22 @@ export function StudentAttendancePage() {
         <DataTable
           items={history.data?.items ?? []}
           columns={[
-            { header: "Thời gian", cell: (a) => formatDateTime(a.starts_at) },
-            { header: "Lớp", cell: (a) => `${a.class_code} — ${a.class_name}` },
-            { header: "Buổi học", cell: (a) => a.session_title },
-            { header: "Trạng thái", cell: (a) => <StatusBadge value={a.status} /> },
+            {
+              header: "Thời gian",
+              className: "whitespace-nowrap min-w-[140px]",
+              cell: (a) => formatDateTime(a.starts_at),
+            },
+            {
+              header: "Lớp",
+              className: "min-w-[180px]",
+              cell: (a) => `${a.class_code} — ${a.class_name}`,
+            },
+            { header: "Buổi học", className: "min-w-[180px]", cell: (a) => a.session_title },
+            {
+              header: "Trạng thái",
+              className: "whitespace-nowrap",
+              cell: (a) => <StatusBadge value={a.status} />,
+            },
             { header: "Ghi chú", cell: (a) => a.note || "—" },
           ]}
         />

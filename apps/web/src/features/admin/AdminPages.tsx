@@ -740,8 +740,8 @@ export function AdminDashboardPage() {
                   key={session.id}
                   className="flex items-center gap-3 rounded-xl border border-gborder px-3.5 py-3"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-navy text-white">
-                    <Icon name="calendar" className="h-4 w-4" />
+                  <div className="flex shrink-0 items-center justify-center text-navy/70">
+                    <Icon name="calendar" className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <b className="block truncate text-sm">{session.title}</b>
@@ -1766,15 +1766,38 @@ export function CoursesPage() {
           sort={{ key: listState.sort, order: listState.order }}
           onSort={(key, order) => updateList({ sort: key, order })}
           columns={[
-            { header: "Mã", sortKey: "code", cell: (c) => <b className="text-navy">{c.code}</b> },
-            { header: "Tên khóa học", sortKey: "name", cell: (c) => c.name },
-            { header: "Số buổi", cell: (c) => c.total_sessions },
-            { header: "Chuyên cần tối thiểu", cell: (c) => `${c.minimum_attendance_pct}%` },
-            { header: "Trạng thái", cell: (c) => <StatusBadge value={c.status} /> },
+            {
+              header: "Mã",
+              sortKey: "code",
+              className: "whitespace-nowrap min-w-[120px]",
+              cell: (c) => <b className="text-navy">{c.code}</b>,
+            },
+            {
+              header: "Tên khóa học",
+              sortKey: "name",
+              className: "min-w-[240px]",
+              cell: (c) => c.name,
+            },
+            {
+              header: "Số buổi",
+              className: "whitespace-nowrap text-center",
+              cell: (c) => c.total_sessions,
+            },
+            {
+              header: "Chuyên cần tối thiểu",
+              className: "whitespace-nowrap text-center",
+              cell: (c) => `${c.minimum_attendance_pct}%`,
+            },
+            {
+              header: "Trạng thái",
+              className: "whitespace-nowrap",
+              cell: (c) => <StatusBadge value={c.status} />,
+            },
             {
               header: "",
+              className: "whitespace-nowrap text-right w-1",
               cell: (c) => (
-                <div className="flex flex-wrap justify-end gap-2">
+                <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                   <Button variant="soft" onClick={() => setTestsCourse(c)}>
                     Bài kiểm tra
                   </Button>
@@ -2317,6 +2340,7 @@ export function ClassesPage() {
             {
               header: "Lớp",
               sortKey: "class_code",
+              className: "min-w-[170px]",
               cell: (c) => (
                 <div>
                   <b className="text-navy">{c.class_code}</b>
@@ -2324,18 +2348,32 @@ export function ClassesPage() {
                 </div>
               ),
             },
-            { header: "Khóa học", cell: (c) => `${c.course_code} — ${c.course_name}` },
+            {
+              header: "Khóa học",
+              className: "min-w-[220px]",
+              cell: (c) => `${c.course_code} — ${c.course_name}`,
+            },
             {
               header: "Thời gian",
               sortKey: "start_date",
+              className: "whitespace-nowrap min-w-[150px]",
               cell: (c) => `${formatDate(c.start_date)} – ${formatDate(c.end_date)}`,
             },
-            { header: "Sĩ số", cell: (c) => `${c.enrolled_students}/${c.maximum_students}` },
-            { header: "Trạng thái", cell: (c) => <StatusBadge value={c.status} /> },
+            {
+              header: "Sĩ số",
+              className: "whitespace-nowrap text-center",
+              cell: (c) => `${c.enrolled_students}/${c.maximum_students}`,
+            },
+            {
+              header: "Trạng thái",
+              className: "whitespace-nowrap",
+              cell: (c) => <StatusBadge value={c.status} />,
+            },
             {
               header: "",
+              className: "whitespace-nowrap text-right w-1",
               cell: (c) => (
-                <div className="flex gap-2">
+                <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                   <Link to={`/admin/lop-hoc/${c.id}`}>
                     <Button variant="ghost">Chi tiết</Button>
                   </Link>
@@ -3451,9 +3489,10 @@ function SessionForm({
           value={form.session_type}
           onChange={(e) => update("session_type", e.target.value)}
         >
-          {["theory", "workshop", "assessment", "other"].map((v) => (
-            <option key={v}>{v}</option>
-          ))}
+          <option value="theory">Lý thuyết</option>
+          <option value="workshop">Thực hành xưởng</option>
+          <option value="assessment">Đánh giá kỹ năng</option>
+          <option value="other">Khác</option>
         </Select>
         <Select
           label="Giảng viên"

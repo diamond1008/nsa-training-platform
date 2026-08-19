@@ -42,7 +42,7 @@ type Config struct {
 // A local .env file is loaded when present (development convenience);
 // real environment variables always take precedence over file values.
 func Load() (*Config, error) {
-	_ = godotenv.Load() // .env is optional; a missing file is not an error
+	_ = godotenv.Load("../../.env", "../.env", ".env") // .env is optional; a missing file is not an error
 
 	cfg := &Config{
 		Env:                getEnv("APP_ENV", "development"),

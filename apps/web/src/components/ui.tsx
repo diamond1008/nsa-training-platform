@@ -39,7 +39,7 @@ export function Button({
   return (
     <button
       className={clsx(
-        "inline-flex h-10 touch-manipulation items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-[background-color,border-color,color,box-shadow,transform] duration-200 motion-reduce:transition-none",
+        "inline-flex h-10 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-[background-color,border-color,color,box-shadow,transform] duration-200 motion-reduce:transition-none",
         "disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none",
         buttonStyles[variant],
         className,
@@ -107,6 +107,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const listboxId = `${useId()}-listbox`;
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
+  const [alignRight, setAlignRight] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -129,7 +130,18 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       const viewportHeight = window.innerHeight;
       const spaceBelow = viewportHeight - rect.bottom;
       const spaceAbove = rect.top;
-      setOpenUpward(spaceBelow < 220 && spaceAbove > spaceBelow);
+      setOpenUpward(spaceBelow < 240 && spaceAbove > spaceBelow);
+
+      const modal =
+        containerRef.current.closest<HTMLElement>('[role="dialog"]') ??
+        containerRef.current.closest<HTMLElement>(".max-w-2xl");
+      const containerRect = modal
+        ? modal.getBoundingClientRect()
+        : { left: 0, right: window.innerWidth };
+
+      const isRightHalf = rect.left > (containerRect.left + containerRect.right) / 2;
+      const wouldOverflow = rect.left + 260 > containerRect.right - 20;
+      setAlignRight(isRightHalf || wouldOverflow);
     }
   };
 
@@ -212,7 +224,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           className,
         )}
       >
-        <span className={clsx("truncate", !selectedOption?.value && "text-gtext")}>
+        <span
+          className={clsx("truncate", !selectedOption?.value && "text-gtext")}
+          title={selectedOption ? selectedOption.label : undefined}
+        >
           {selectedOption ? selectedOption.label : "-- Chọn --"}
         </span>
         <Icon
@@ -229,7 +244,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           id={listboxId}
           role="listbox"
           className={clsx(
-            "absolute left-0 right-0 z-[100] max-h-60 overflow-y-auto overscroll-contain rounded-2xl border border-gborder bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none",
+            "absolute z-[100] min-w-full w-max max-w-[min(28rem,calc(100vw-2rem))] max-h-60 overflow-y-auto overscroll-contain rounded-2xl border border-gborder bg-white p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none",
+            alignRight ? "right-0" : "left-0",
             openUpward ? "bottom-full mb-1.5" : "top-full mt-1.5",
           )}
         >
@@ -240,20 +256,23 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
                 id={`${listboxId}-${idx}`}
                 key={`${opt.value}-${idx}`}
                 role="option"
+                title={opt.label}
                 aria-selected={isSelected}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActiveIndex(idx)}
                 onClick={() => handleSelect(opt.value)}
                 className={clsx(
-                  "flex w-full cursor-pointer items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-colors motion-reduce:transition-none",
+                  "flex w-full cursor-pointer items-start justify-between gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-colors motion-reduce:transition-none",
                   idx === activeIndex || isSelected
                     ? "bg-gold/15 text-navy font-bold"
                     : "hover:bg-gbg2 hover:text-navy text-navy/80",
                 )}
               >
-                <span className="truncate">{opt.label}</span>
+                <span className="whitespace-normal leading-snug" title={opt.label}>
+                  {opt.label}
+                </span>
                 {isSelected && (
-                  <Icon name="check" className="h-4 w-4 text-gold-dark shrink-0 ml-2" />
+                  <Icon name="check" className="h-4 w-4 text-gold-dark shrink-0 ml-2 mt-0.5" />
                 )}
               </div>
             );
@@ -394,8 +413,8 @@ export function SuccessBanner({ message }: { message: string }) {
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 px-6 py-12 text-center">
-      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-gbg2 text-gtext">
-        <Icon name="info" />
+      <div className="mb-2 flex items-center justify-center text-gtext/60">
+        <Icon name="info" className="h-8 w-8" />
       </div>
       <p className="text-sm font-semibold text-navy">{title}</p>
       {hint && <p className="mt-1 max-w-sm text-xs leading-5 text-gtext">{hint}</p>}
@@ -416,7 +435,7 @@ export function Badge({ tone = "gray", children }: { tone?: BadgeTone; children:
   return (
     <span
       className={clsx(
-        "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none",
+        "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none",
         badgeStyles[tone],
       )}
     >
@@ -539,16 +558,19 @@ export function Modal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-navy/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCloseRef.current();
+      }}
     >
       <div
         ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onKeyDown={trapFocus}
-        className="max-h-[92dvh] w-full max-w-2xl overscroll-contain overflow-hidden rounded-t-3xl bg-white shadow-elevated sm:max-h-[90vh] sm:rounded-3xl"
+        className="max-h-[92dvh] w-full max-w-2xl overscroll-contain rounded-t-3xl bg-white shadow-elevated sm:max-h-[90vh] sm:rounded-3xl flex flex-col"
       >
-        <div className="flex items-center justify-between border-b border-gborder px-5 py-4 sm:px-6">
+        <div className="flex shrink-0 items-center justify-between border-b border-gborder px-5 py-4 sm:px-6">
           <div className="min-w-0">
             <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-gold-dark">
               NSA Training
