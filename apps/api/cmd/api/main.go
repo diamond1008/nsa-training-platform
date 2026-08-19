@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -106,13 +107,27 @@ func run() error {
 	r.Use(middleware.RequestLog(log))
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(60 * time.Second))
-	r.Use(cors.Handler(cors.Options{
+	corsOpts := cors.Options{
 		AllowedOrigins:   cfg.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
-	}))
+	}
+	if cfg.Env == "development" {
+		corsOpts.AllowOriginFunc = func(r *http.Request, origin string) bool {
+			if strings.HasSuffix(origin, ".vercel.app") || strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") {
+				return true
+			}
+			for _, allowed := range cfg.CORSAllowedOrigins {
+				if allowed == "*" || allowed == origin {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	r.Use(cors.Handler(corsOpts))
 
 	// Operational endpoints (unversioned by design).
 	r.Get("/health", healthHandler.Health)
