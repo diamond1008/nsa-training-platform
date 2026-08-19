@@ -11,6 +11,7 @@ permissions:
 jobs:
   api:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -30,6 +31,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: apps/web
@@ -50,6 +52,7 @@ jobs:
 
   migrations:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16-alpine
@@ -80,6 +83,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [api, web, migrations]
     services:
       postgres:
@@ -113,8 +117,6 @@ jobs:
       - name: Install database and browser tooling
         run: |
           go install github.com/pressly/goose/v3/cmd/goose@v3.27.0
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
           cd apps/web
           npm ci
           npx playwright install --with-deps chromium
@@ -150,6 +152,7 @@ jobs:
 
   images:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [api, web, migrations, e2e]
     steps:
       - uses: actions/checkout@v6
