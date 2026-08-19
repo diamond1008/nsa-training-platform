@@ -148,9 +148,13 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 
 // ---------- Helpers ----------
 
-// setRefreshCookie writes the refresh token cookie (HttpOnly, SameSite=Lax,
+// setRefreshCookie writes the refresh token cookie (HttpOnly, SameSite=None when Secure,
 // Secure outside development, scoped to the auth routes).
 func (h *Handler) setRefreshCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
+	sameSite := http.SameSiteLaxMode
+	if h.secureCookies {
+		sameSite = http.SameSiteNoneMode
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    token,
@@ -158,11 +162,15 @@ func (h *Handler) setRefreshCookie(w http.ResponseWriter, token string, expiresA
 		Expires:  expiresAt,
 		HttpOnly: true,
 		Secure:   h.secureCookies,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: sameSite,
 	})
 }
 
 func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
+	sameSite := http.SameSiteLaxMode
+	if h.secureCookies {
+		sameSite = http.SameSiteNoneMode
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    "",
@@ -170,7 +178,7 @@ func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   h.secureCookies,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: sameSite,
 	})
 }
 

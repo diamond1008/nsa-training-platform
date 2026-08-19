@@ -81,7 +81,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("auth service: %w", err)
 	}
-	authHandler := auth.NewHandler(authService, log, cfg.Env != "development")
+	authHandler := auth.NewHandler(authService, log, cfg.Env != "development" || os.Getenv("RENDER") != "")
 
 	// Business modules (Phases 4-6).
 	studentHandler := students.NewHandler(students.NewService(pool, cfg.BcryptCost), log)
