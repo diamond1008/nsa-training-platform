@@ -37,52 +37,40 @@ func (q *Queries) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (
 }
 
 const getStudentProfileByUserID = `-- name: GetStudentProfileByUserID :one
-SELECT id, student_code, full_name, status
+SELECT id, student_code, full_name
 FROM student_profiles
 WHERE user_id = $1
 `
 
 type GetStudentProfileByUserIDRow struct {
-	ID          pgtype.UUID   `json:"id"`
-	StudentCode string        `json:"student_code"`
-	FullName    string        `json:"full_name"`
-	Status      StudentStatus `json:"status"`
+	ID          pgtype.UUID `json:"id"`
+	StudentCode string      `json:"student_code"`
+	FullName    string      `json:"full_name"`
 }
 
 func (q *Queries) GetStudentProfileByUserID(ctx context.Context, userID pgtype.UUID) (GetStudentProfileByUserIDRow, error) {
 	row := q.db.QueryRow(ctx, getStudentProfileByUserID, userID)
 	var i GetStudentProfileByUserIDRow
-	err := row.Scan(
-		&i.ID,
-		&i.StudentCode,
-		&i.FullName,
-		&i.Status,
-	)
+	err := row.Scan(&i.ID, &i.StudentCode, &i.FullName)
 	return i, err
 }
 
 const getTeacherProfileByUserID = `-- name: GetTeacherProfileByUserID :one
-SELECT id, teacher_code, full_name, status
+SELECT id, teacher_code, full_name
 FROM teacher_profiles
 WHERE user_id = $1
 `
 
 type GetTeacherProfileByUserIDRow struct {
-	ID          pgtype.UUID   `json:"id"`
-	TeacherCode string        `json:"teacher_code"`
-	FullName    string        `json:"full_name"`
-	Status      TeacherStatus `json:"status"`
+	ID          pgtype.UUID `json:"id"`
+	TeacherCode string      `json:"teacher_code"`
+	FullName    string      `json:"full_name"`
 }
 
 func (q *Queries) GetTeacherProfileByUserID(ctx context.Context, userID pgtype.UUID) (GetTeacherProfileByUserIDRow, error) {
 	row := q.db.QueryRow(ctx, getTeacherProfileByUserID, userID)
 	var i GetTeacherProfileByUserIDRow
-	err := row.Scan(
-		&i.ID,
-		&i.TeacherCode,
-		&i.FullName,
-		&i.Status,
-	)
+	err := row.Scan(&i.ID, &i.TeacherCode, &i.FullName)
 	return i, err
 }
 

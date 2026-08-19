@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
@@ -249,7 +250,8 @@ func (s *Service) Me(ctx context.Context, userID string) (*UserInfo, error) {
 
 // issueBundle creates the access token + persisted refresh token pair.
 func (s *Service) issueBundle(ctx context.Context, userID pgtype.UUID, email string, roles []string, mustChangePassword bool) (*TokenBundle, error) {
-	accessToken, accessExpiresAt, err := s.tokens.Issue(userID.String(), email, roles)
+	userIDStr := data.UUIDString(userID)
+	accessToken, accessExpiresAt, err := s.tokens.Issue(userIDStr, email, roles)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +270,7 @@ func (s *Service) issueBundle(ctx context.Context, userID pgtype.UUID, email str
 	}
 
 	info := &UserInfo{
-		ID:                 userID.String(),
+		ID:                 userIDStr,
 		Email:              email,
 		Roles:              roles,
 		MustChangePassword: mustChangePassword,
@@ -290,13 +292,13 @@ func (s *Service) issueBundle(ctx context.Context, userID pgtype.UUID, email str
 func (s *Service) attachProfiles(ctx context.Context, userID pgtype.UUID, info *UserInfo) {
 	student, err := s.queries.GetStudentProfileByUserID(ctx, userID)
 	if err == nil {
-		info.StudentProfile = &ProfileInfo{ID: student.ID.String(), Code: student.StudentCode, FullName: student.FullName}
+		info.StudentProfile = &ProfileInfo{ID: data.UUIDString(student.ID), Code: student.StudentCode, FullName: student.FullName}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		s.log.Warn("failed to load student profile", "error", err)
 	}
 	teacher, err := s.queries.GetTeacherProfileByUserID(ctx, userID)
 	if err == nil {
-		info.TeacherProfile = &ProfileInfo{ID: teacher.ID.String(), Code: teacher.TeacherCode, FullName: teacher.FullName}
+		info.TeacherProfile = &ProfileInfo{ID: data.UUIDString(teacher.ID), Code: teacher.TeacherCode, FullName: teacher.FullName}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		s.log.Warn("failed to load teacher profile", "error", err)
 	}

@@ -45,11 +45,11 @@ UPDATE refresh_tokens SET revoked_at = NOW()
 WHERE user_id = $1 AND revoked_at IS NULL;
 
 -- name: GetStudentProfileByUserID :one
-SELECT id, student_code, full_name, status
+SELECT id, student_code, full_name
 FROM student_profiles
 WHERE user_id = $1;
 
 -- name: GetTeacherProfileByUserID :one
-SELECT id, teacher_code, full_name, status
+SELECT id, teacher_code, full_name
 FROM teacher_profiles
 WHERE user_id = $1;
