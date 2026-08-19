@@ -7,8 +7,14 @@
  */
 import type { ApiErrorBody, ApiSuccess } from "./types";
 
-export const API_BASE_URL: string =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api/v1";
+const defaultBaseUrl =
+  typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1"
+    ? "https://training-platform-api-fpgc.onrender.com/api/v1"
+    : "http://localhost:8080/api/v1";
+
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || defaultBaseUrl;
 
 export class ApiRequestError extends Error {
   constructor(
