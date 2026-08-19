@@ -76,19 +76,28 @@ SET name = EXCLUDED.name, sequence_no = EXCLUDED.sequence_no, planned_sessions =
 -- ==========================================================================
 -- Thêm Giảng viên 2: ThS. Nguyễn Văn Hùng
 INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
-  ('22222222-2222-2222-2222-222222222223', 'hung.nguyen@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
-  ('22222222-2222-2222-2222-222222222224', 'thang.tran@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
+  ('22222222-2222-2222-2222-222222222223', 'hung.nguyen@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'TEACHER'
-WHERE u.email IN ('hung.nguyen@nsa.local', 'thang.tran@nsa.local')
+WHERE u.email = 'hung.nguyen@nsa.local'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
 SELECT id, 'TCH-002', 'ThS. Nguyễn Văn Hùng', 'Chuyên gia Động cơ Phun dầu & SCR', '0912345678', 'active'
 FROM users WHERE email = 'hung.nguyen@nsa.local'
 ON CONFLICT (teacher_code) DO NOTHING;
+
+-- Thêm Giảng viên 3: KS. Trần Đức Thắng
+INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
+  ('22222222-2222-2222-2222-222222222224', 'thang.tran@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'TEACHER'
+WHERE u.email = 'thang.tran@nsa.local'
+ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
 SELECT id, 'TCH-003', 'Kỹ sư Trần Đức Thắng', 'Chuyên gia Xe Điện EV & Mạng CAN', '0987654321', 'active'
@@ -129,7 +138,7 @@ FROM users WHERE email = 'huy.tran@nsa.local'
 AND NOT EXISTS (SELECT 1 FROM student_profiles WHERE user_id = users.id);
 
 -- ==========================================================================
--- 4. CLASSES & ENROLLMENTS (Lớp học & Ghi danh)
+-- 4. CLASSES & ENROLLMENTS (Lớp học: planning, in_progress)
 -- ==========================================================================
 -- Lớp 1: Điện Ô tô K24-A (Đang học)
 INSERT INTO classes (id, course_id, class_code, name, start_date, end_date, maximum_students, status) VALUES
@@ -138,7 +147,7 @@ INSERT INTO classes (id, course_id, class_code, name, start_date, end_date, maxi
   ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002',
    'K24-ENG-B', 'Lớp Động cơ Phun xăng Trực tiếp K24 (Khóa Tối)', CURRENT_DATE - 15, CURRENT_DATE + 50, 20, 'in_progress'),
   ('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003',
-   'K24-EV-PRO', 'Lớp Chuyên đề An toàn & Pin Xe Điện EV K24', CURRENT_DATE + 7, CURRENT_DATE + 45, 15, 'planned')
+   'K24-EV-PRO', 'Lớp Chuyên đề An toàn & Pin Xe Điện EV K24', CURRENT_DATE + 7, CURRENT_DATE + 45, 15, 'planning')
 ON CONFLICT (class_code) DO UPDATE
 SET name = EXCLUDED.name, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date, maximum_students = EXCLUDED.maximum_students, status = EXCLUDED.status;
 
@@ -172,7 +181,7 @@ INSERT INTO class_sessions (
 SELECT '40000000-0000-0000-0000-000000000001',
        '30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
        '21000000-0000-0000-0000-000000000001', tp.id,
-       '10000000-0000-0000-0000-000000000003', 'Thực hành Đo kiểm Mạng CAN Bus & Oscilloscope', 'practical',
+       '10000000-0000-0000-0000-000000000003', 'Thực hành Đo kiểm Mạng CAN Bus & Oscilloscope', 'workshop',
        (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '0 days 8 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
        (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '0 days 11 hours 30 minutes') AT TIME ZONE 'Asia/Ho_Chi_Minh',
        'completed', (SELECT id FROM users WHERE email = 'admin@nsa.local')
@@ -229,14 +238,14 @@ ON CONFLICT (class_session_id, student_id) DO UPDATE SET status = 'present';
 
 INSERT INTO attendance_records (class_session_id, class_id, student_id, status, note, recorded_by)
 SELECT '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
-       sp.id, 'excused_absence', 'Có đơn xin phép bận việc đột xuất', (SELECT id FROM users WHERE email = 'teacher@nsa.local')
+       sp.id, 'excused', 'Có đơn xin phép bận việc đột xuất', (SELECT id FROM users WHERE email = 'teacher@nsa.local')
 FROM student_profiles sp JOIN users u ON u.id = sp.user_id WHERE u.email = 'long.le@nsa.local'
-ON CONFLICT (class_session_id, student_id) DO UPDATE SET status = 'excused_absence', note = EXCLUDED.note;
+ON CONFLICT (class_session_id, student_id) DO UPDATE SET status = 'excused', note = EXCLUDED.note;
 
 -- ==========================================================================
 -- 7. NOTIFICATIONS (Thông báo hệ thống)
 -- ==========================================================================
-INSERT INTO notifications (user_id, title, content, type) VALUES
+INSERT INTO notifications (user_id, title, message, type) VALUES
   ((SELECT id FROM users WHERE email = 'admin@nsa.local'), 
    'Chào mừng Quản trị viên', 'Chào mừng bạn đến với Hệ thống Quản lý Đào tạo Kỹ thuật Ô tô NSA Platform.', 'info'),
   ((SELECT id FROM users WHERE email = 'admin@nsa.local'), 
