@@ -76,28 +76,19 @@ SET name = EXCLUDED.name, sequence_no = EXCLUDED.sequence_no, planned_sessions =
 -- ==========================================================================
 -- Thêm Giảng viên 2: ThS. Nguyễn Văn Hùng
 INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
-  ('22222222-2222-2222-2222-222222222223', 'hung.nguyen@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
+  ('22222222-2222-2222-2222-222222222223', 'hung.nguyen@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
+  ('22222222-2222-2222-2222-222222222224', 'thang.tran@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'TEACHER'
-WHERE u.email = 'hung.nguyen@nsa.local'
+WHERE u.email IN ('hung.nguyen@nsa.local', 'thang.tran@nsa.local')
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
 SELECT id, 'TCH-002', 'ThS. Nguyễn Văn Hùng', 'Chuyên gia Động cơ Phun dầu & SCR', '0912345678', 'active'
 FROM users WHERE email = 'hung.nguyen@nsa.local'
 ON CONFLICT (teacher_code) DO NOTHING;
-
--- Thêm Giảng viên 3: KS. Trần Đức Thắng
-INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
-  ('22222222-2222-2222-2222-222222222224', 'thang.tran@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
-ON CONFLICT (email) DO NOTHING;
-
-INSERT INTO user_roles (user_id, role_id)
-SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'TEACHER'
-WHERE u.email = 'thang.tran@nsa.local'
-ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
 SELECT id, 'TCH-003', 'Kỹ sư Trần Đức Thắng', 'Chuyên gia Xe Điện EV & Mạng CAN', '0987654321', 'active'
@@ -171,9 +162,9 @@ WHERE u.email IN ('student@nsa.local', 'nam.nguyen@nsa.local', 'long.le@nsa.loca
 ON CONFLICT (class_id, student_id) DO UPDATE SET status = 'enrolled';
 
 -- ==========================================================================
--- 5. CLASS SESSIONS (Thời khóa biểu các buổi học tuần này)
+-- 5. CLASS SESSIONS (Khớp chuẩn khung giờ cố định 08:00-12:00, 13:30-17:30)
 -- ==========================================================================
--- Buổi 1: Thứ 2 tuần này (08:00 - 11:30) - Mạng CAN Bus (Xưởng XH-01)
+-- Buổi 1: Thứ 2 tuần này (08:00 - 12:00) - Mạng CAN Bus (Xưởng XH-01)
 INSERT INTO class_sessions (
   id, class_id, course_id, module_id, teacher_id, location_id, title,
   session_type, starts_at, ends_at, status, created_by
@@ -183,13 +174,13 @@ SELECT '40000000-0000-0000-0000-000000000001',
        '21000000-0000-0000-0000-000000000001', tp.id,
        '10000000-0000-0000-0000-000000000003', 'Thực hành Đo kiểm Mạng CAN Bus & Oscilloscope', 'workshop',
        (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '0 days 8 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
-       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '0 days 11 hours 30 minutes') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '0 days 12 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
        'completed', (SELECT id FROM users WHERE email = 'admin@nsa.local')
 FROM teacher_profiles tp JOIN users u ON u.id = tp.user_id WHERE u.email = 'teacher@nsa.local'
 ON CONFLICT (id) DO UPDATE
 SET title = EXCLUDED.title, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, status = EXCLUDED.status;
 
--- Buổi 2: Thứ 4 tuần này (13:30 - 17:00) - Chẩn đoán BCM (Phòng LT-102)
+-- Buổi 2: Thứ 4 tuần này (13:30 - 17:30) - Chẩn đoán BCM (Phòng LT-102)
 INSERT INTO class_sessions (
   id, class_id, course_id, module_id, teacher_id, location_id, title,
   session_type, starts_at, ends_at, status, created_by
@@ -199,13 +190,13 @@ SELECT '40000000-0000-0000-0000-000000000002',
        '21000000-0000-0000-0000-000000000002', tp.id,
        '10000000-0000-0000-0000-000000000002', 'Lý thuyết & Mô phỏng Body Control Module (BCM)', 'theory',
        (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '2 days 13 hours 30 minutes') AT TIME ZONE 'Asia/Ho_Chi_Minh',
-       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '2 days 17 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '2 days 17 hours 30 minutes') AT TIME ZONE 'Asia/Ho_Chi_Minh',
        'scheduled', (SELECT id FROM users WHERE email = 'admin@nsa.local')
 FROM teacher_profiles tp JOIN users u ON u.id = tp.user_id WHERE u.email = 'teacher@nsa.local'
 ON CONFLICT (id) DO UPDATE
 SET title = EXCLUDED.title, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, status = EXCLUDED.status;
 
--- Buổi 3: Thứ 6 tuần này (08:00 - 11:30) - Kiểm tra Đánh giá Kỹ năng (Xưởng XH-01)
+-- Buổi 3: Thứ 6 tuần này (08:00 - 12:00) - Kiểm tra Đánh giá Kỹ năng (Xưởng XH-01)
 INSERT INTO class_sessions (
   id, class_id, course_id, module_id, teacher_id, location_id, title,
   session_type, starts_at, ends_at, status, created_by
@@ -215,7 +206,7 @@ SELECT '40000000-0000-0000-0000-000000000003',
        '21000000-0000-0000-0000-000000000003', tp.id,
        '10000000-0000-0000-0000-000000000003', 'Đánh giá Kỹ năng Thực hành: Khoanh vùng Lỗi Mạng Xe', 'assessment',
        (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '4 days 8 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
-       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '4 days 11 hours 30 minutes') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+       (date_trunc('week', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') + interval '4 days 12 hours') AT TIME ZONE 'Asia/Ho_Chi_Minh',
        'scheduled', (SELECT id FROM users WHERE email = 'admin@nsa.local')
 FROM teacher_profiles tp JOIN users u ON u.id = tp.user_id WHERE u.email = 'teacher@nsa.local'
 ON CONFLICT (id) DO UPDATE
