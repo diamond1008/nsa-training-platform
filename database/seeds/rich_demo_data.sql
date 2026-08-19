@@ -2,7 +2,7 @@
 -- RICH DEMO DATA SEED SCRIPT FOR NSA TRAINING PLATFORM
 -- Ready to run on Supabase SQL Editor or local PostgreSQL.
 -- Contains full courses, modules, criteria, classes, teachers, students,
--- schedules, attendance, assessments, and notifications.
+-- schedules, attendance, and notifications.
 -- ==========================================================================
 
 BEGIN;
@@ -35,13 +35,13 @@ INSERT INTO course_modules (id, course_id, code, name, sequence_no, planned_sess
 ON CONFLICT (course_id, code) DO UPDATE
 SET name = EXCLUDED.name, sequence_no = EXCLUDED.sequence_no, planned_sessions = EXCLUDED.planned_sessions, description = EXCLUDED.description;
 
--- Tiêu chí đánh giá cho Khóa 1
-INSERT INTO competency_criteria (id, course_id, code, name, description, weight, max_rating, is_active) VALUES
-  ('22000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'CRIT-ELEC-01', 'Kỹ năng đo kiểm xung CAN-High/CAN-Low', 'Sử dụng Oscilloscope đo dạng sóng tín hiệu mạng CAN và xác định ngắn mạch/hở mạch', 30.00, 5, TRUE),
-  ('22000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', 'CRIT-ELEC-02', 'Chẩn đoán mã lỗi DTC và phân tích Data List', 'Đọc mã lỗi hệ thống BCM, phân tích các giá trị cảm biến trên máy chẩn đoán chuyên dụng', 40.00, 5, TRUE),
-  ('22000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', 'CRIT-ELEC-03', 'An toàn điện và quy trình 5S xưởng dịch vụ', 'Tuân thủ quy định bảo hộ lao động, ngắt cọc âm ắc quy đúng kỹ thuật và giữ vệ sinh xưởng', 30.00, 5, TRUE)
+-- Tiêu chí đánh giá năng lực thực hành cho Khóa 1
+INSERT INTO competency_criteria (id, course_id, module_id, code, name, description, is_required, sequence_no) VALUES
+  ('22000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '21000000-0000-0000-0000-000000000001', 'CRIT-ELEC-01', 'Kỹ năng đo kiểm xung CAN-High/CAN-Low', 'Sử dụng Oscilloscope đo dạng sóng tín hiệu mạng CAN và xác định ngắn mạch/hở mạch', TRUE, 1),
+  ('22000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', '21000000-0000-0000-0000-000000000002', 'CRIT-ELEC-02', 'Chẩn đoán mã lỗi DTC và phân tích Data List', 'Đọc mã lỗi hệ thống BCM, phân tích các giá trị cảm biến trên máy chẩn đoán chuyên dụng', TRUE, 2),
+  ('22000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', '21000000-0000-0000-0000-000000000003', 'CRIT-ELEC-03', 'An toàn điện và quy trình 5S xưởng dịch vụ', 'Tuân thủ quy định bảo hộ lao động, ngắt cọc âm ắc quy đúng kỹ thuật và giữ vệ sinh xưởng', TRUE, 3)
 ON CONFLICT (course_id, code) DO UPDATE
-SET name = EXCLUDED.name, description = EXCLUDED.description, weight = EXCLUDED.weight, max_rating = EXCLUDED.max_rating, is_active = TRUE;
+SET name = EXCLUDED.name, description = EXCLUDED.description, is_required = EXCLUDED.is_required, sequence_no = EXCLUDED.sequence_no;
 
 -- Khóa 2: Chẩn đoán Động cơ Xăng & Diesel Phun điện tử
 INSERT INTO courses (id, code, name, description, total_sessions, minimum_attendance_pct, status) VALUES
@@ -76,28 +76,19 @@ SET name = EXCLUDED.name, sequence_no = EXCLUDED.sequence_no, planned_sessions =
 -- ==========================================================================
 -- Thêm Giảng viên 2: ThS. Nguyễn Văn Hùng
 INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
-  ('22222222-2222-2222-2222-222222222223', 'hung.nguyen@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
+  ('22222222-2222-2222-2222-222222222223', 'hung.nguyen@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
+  ('22222222-2222-2222-2222-222222222224', 'thang.tran@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'TEACHER'
-WHERE u.email = 'hung.nguyen@nsa.local'
+WHERE u.email IN ('hung.nguyen@nsa.local', 'thang.tran@nsa.local')
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
 SELECT id, 'TCH-002', 'ThS. Nguyễn Văn Hùng', 'Chuyên gia Động cơ Phun dầu & SCR', '0912345678', 'active'
 FROM users WHERE email = 'hung.nguyen@nsa.local'
 ON CONFLICT (teacher_code) DO NOTHING;
-
--- Thêm Giảng viên 3: KS. Trần Đức Thắng
-INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
-  ('22222222-2222-2222-2222-222222222224', 'thang.tran@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
-ON CONFLICT (email) DO NOTHING;
-
-INSERT INTO user_roles (user_id, role_id)
-SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'TEACHER'
-WHERE u.email = 'thang.tran@nsa.local'
-ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
 SELECT id, 'TCH-003', 'Kỹ sư Trần Đức Thắng', 'Chuyên gia Xe Điện EV & Mạng CAN', '0987654321', 'active'
