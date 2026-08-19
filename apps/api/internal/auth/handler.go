@@ -59,7 +59,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			response.Fail(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password")
 			return
 		}
-		response.InternalError(w, h.log, RequestIDFrom(r.Context()), err)
+		h.log.Error("login internal error", "error", err, "email", req.Email)
+		response.Fail(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
 
