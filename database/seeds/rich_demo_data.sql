@@ -19,14 +19,14 @@ ON CONFLICT (code) DO UPDATE
 SET name = EXCLUDED.name, location_type = EXCLUDED.location_type, capacity = EXCLUDED.capacity, is_active = TRUE;
 
 -- ==========================================================================
--- 2. COURSES & MODULES (Khóa đào tạo & Mô-đun)
+-- 2. COURSES & MODULES (Khóa đào tạo & Mô-đun - Tỷ lệ điểm danh bắt buộc = 80%)
 -- ==========================================================================
 -- Khóa 1: Điện & Điện tử Ô tô Nâng cao
 INSERT INTO courses (id, code, name, description, total_sessions, minimum_attendance_pct, status) VALUES
   ('20000000-0000-0000-0000-000000000001', 'AUTO-ELEC-PRO', 'Kỹ thuật Điện & Điện tử Ô tô Nâng cao', 
    'Đào tạo chuyên sâu về hệ thống mạng giao tiếp CAN/LIN bus, cảm biến, cơ cấu chấp hành và chẩn đoán điện thân xe thế hệ mới.', 12, 80.00, 'active')
 ON CONFLICT (code) DO UPDATE
-SET name = EXCLUDED.name, description = EXCLUDED.description, total_sessions = EXCLUDED.total_sessions, minimum_attendance_pct = EXCLUDED.minimum_attendance_pct, status = EXCLUDED.status;
+SET name = EXCLUDED.name, description = EXCLUDED.description, total_sessions = EXCLUDED.total_sessions, minimum_attendance_pct = 80.00, status = EXCLUDED.status;
 
 INSERT INTO course_modules (id, course_id, code, name, sequence_no, planned_sessions, description) VALUES
   ('21000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'ELEC-M01', 'Mạng giao tiếp trên xe (CAN/LIN Bus)', 1, 4, 'Nguyên lý truyền thông, đo xung tín hiệu oscilloscope, chẩn đoán lỗi mạng.'),
@@ -39,7 +39,7 @@ SET name = EXCLUDED.name, sequence_no = EXCLUDED.sequence_no, planned_sessions =
 INSERT INTO competency_criteria (id, course_id, code, name, description, weight, max_rating, is_active) VALUES
   ('22000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'CRIT-ELEC-01', 'Kỹ năng đo kiểm xung CAN-High/CAN-Low', 'Sử dụng Oscilloscope đo dạng sóng tín hiệu mạng CAN và xác định ngắn mạch/hở mạch', 30.00, 5, TRUE),
   ('22000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', 'CRIT-ELEC-02', 'Chẩn đoán mã lỗi DTC và phân tích Data List', 'Đọc mã lỗi hệ thống BCM, phân tích các giá trị cảm biến trên máy chẩn đoán chuyên dụng', 40.00, 5, TRUE),
-  ('22000000-0000-0000-0000-0000000000013', '20000000-0000-0000-0000-000000000001', 'CRIT-ELEC-03', 'An toàn điện và quy trình 5S xưởng dịch vụ', 'Tuân thủ quy định bảo hộ lao động, ngắt cọc âm ắc quy đúng kỹ thuật và giữ vệ sinh xưởng', 30.00, 5, TRUE)
+  ('22000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001', 'CRIT-ELEC-03', 'An toàn điện và quy trình 5S xưởng dịch vụ', 'Tuân thủ quy định bảo hộ lao động, ngắt cọc âm ắc quy đúng kỹ thuật và giữ vệ sinh xưởng', 30.00, 5, TRUE)
 ON CONFLICT (course_id, code) DO UPDATE
 SET name = EXCLUDED.name, description = EXCLUDED.description, weight = EXCLUDED.weight, max_rating = EXCLUDED.max_rating, is_active = TRUE;
 
@@ -48,7 +48,7 @@ INSERT INTO courses (id, code, name, description, total_sessions, minimum_attend
   ('20000000-0000-0000-0000-000000000002', 'AUTO-ENG-EFI', 'Chẩn đoán Hệ thống Động cơ Phun xăng Trực tiếp GDI/CRDi', 
    'Nắm vững hệ thống nhiên liệu áp suất cao GDI và Common Rail Diesel, xử lý hiện tượng bỏ máy, khói đen, hao xăng.', 16, 80.00, 'active')
 ON CONFLICT (code) DO UPDATE
-SET name = EXCLUDED.name, description = EXCLUDED.description, total_sessions = EXCLUDED.total_sessions, minimum_attendance_pct = EXCLUDED.minimum_attendance_pct, status = EXCLUDED.status;
+SET name = EXCLUDED.name, description = EXCLUDED.description, total_sessions = EXCLUDED.total_sessions, minimum_attendance_pct = 80.00, status = EXCLUDED.status;
 
 INSERT INTO course_modules (id, course_id, code, name, sequence_no, planned_sessions, description) VALUES
   ('21000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000002', 'ENG-M01', 'Hệ thống Phun xăng Trực tiếp GDI', 1, 6, 'Cấu tạo bơm cao áp, kim phun điện từ, cảm biến áp suất ray nhiên liệu.'),
@@ -60,13 +60,13 @@ SET name = EXCLUDED.name, sequence_no = EXCLUDED.sequence_no, planned_sessions =
 -- Khóa 3: Công nghệ Xe Hybrid & Xe Điện (EV)
 INSERT INTO courses (id, code, name, description, total_sessions, minimum_attendance_pct, status) VALUES
   ('20000000-0000-0000-0000-000000000003', 'AUTO-EV-HYBRID', 'Kỹ thuật An toàn & Bảo dưỡng Xe Điện & Xe Hybrid (EV/HEV)', 
-   'Quy trình an toàn điện cao áp (High Voltage Safety), cấu tạo pack pin Lithium-ion, bộ biến tần Inverter và động cơ điện đồng bộ nam châm vĩnh cửu.', 10, 85.00, 'active')
+   'Quy trình an toàn điện cao áp (High Voltage Safety), cấu tạo pack pin Lithium-ion, bộ biến tần Inverter và động cơ điện đồng bộ nam châm vĩnh cửu.', 10, 80.00, 'active')
 ON CONFLICT (code) DO UPDATE
-SET name = EXCLUDED.name, description = EXCLUDED.description, total_sessions = EXCLUDED.total_sessions, minimum_attendance_pct = EXCLUDED.minimum_attendance_pct, status = EXCLUDED.status;
+SET name = EXCLUDED.name, description = EXCLUDED.description, total_sessions = EXCLUDED.total_sessions, minimum_attendance_pct = 80.00, status = EXCLUDED.status;
 
 INSERT INTO course_modules (id, course_id, code, name, sequence_no, planned_sessions, description) VALUES
-  ('21000000-0000-0000-0000-000000000007', '20000000-0000-0000-0000-000000000003', 'EV-M01', 'An toàn Điện Cao áp & Cầu dao ngắt khẩn cấp (Service Plug)', 1, 3, 'Trang bị bảo hộ cấp điện áp 1000V, kiểm tra cách điện Megohmmeter, cô lập hệ thống pin cao áp.'),
-  ('21000000-0000-0000-0000-000000000008', '20000000-0000-0000-0000-000000000003', 'EV-M02', 'Quản lý Pin Cao áp BMS & Hệ thống Làm mát Pin', 2, 4, 'Cân bằng cell pin, kiểm tra nhiệt độ pack pin, xử lý lỗi sạc DC sạc nhanh.'),
+  ('21000000-0000-0000-0000-000000000007', '20000000-0000-0000-0000-000000000003', 'EV-M01', 'An toàn Điện Cao áp & Cầu dao ngắt khẩn cấp', 1, 3, 'Trang bị bảo hộ cấp điện áp 1000V, kiểm tra cách điện Megohmmeter, cô lập hệ thống pin cao áp.'),
+  ('21000000-0000-0000-0000-000000000008', '20000000-0000-0000-0000-000000000003', 'EV-M02', 'Quản lý Pin Cao áp BMS & Làm mát Pin', 2, 4, 'Cân bằng cell pin, kiểm tra nhiệt độ pack pin, xử lý lỗi sạc DC sạc nhanh.'),
   ('21000000-0000-0000-0000-000000000009', '20000000-0000-0000-0000-000000000003', 'EV-M03', 'Hệ thống Truyền lực Điện & Phanh tái sinh', 3, 3, 'Inverter điều khiển MG1/MG2, phanh tái sinh điện năng Regenerative Braking.')
 ON CONFLICT (course_id, code) DO UPDATE
 SET name = EXCLUDED.name, sequence_no = EXCLUDED.sequence_no, planned_sessions = EXCLUDED.planned_sessions, description = EXCLUDED.description;
@@ -85,10 +85,9 @@ WHERE u.email = 'hung.nguyen@nsa.local'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
-SELECT id, 'TCH-002', 'ThS. Nguyễn Văn Hùng', 'Chuyên gia Động cơ Phun dầu & Xử lý khí thải SCR', '0912345678', 'active'
+SELECT id, 'TCH-002', 'ThS. Nguyễn Văn Hùng', 'Chuyên gia Động cơ Phun dầu & SCR', '0912345678', 'active'
 FROM users WHERE email = 'hung.nguyen@nsa.local'
-ON CONFLICT (teacher_code) DO UPDATE
-SET full_name = EXCLUDED.full_name, specialization = EXCLUDED.specialization, phone = EXCLUDED.phone;
+ON CONFLICT (teacher_code) DO NOTHING;
 
 -- Thêm Giảng viên 3: KS. Trần Đức Thắng
 INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
@@ -101,10 +100,9 @@ WHERE u.email = 'thang.tran@nsa.local'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 INSERT INTO teacher_profiles (user_id, teacher_code, full_name, specialization, phone, status)
-SELECT id, 'TCH-003', 'Kỹ sư Trần Đức Thắng', 'Chuyên gia Xe Điện EV & Mạng truyền thông ô tô', '0987654321', 'active'
+SELECT id, 'TCH-003', 'Kỹ sư Trần Đức Thắng', 'Chuyên gia Xe Điện EV & Mạng CAN', '0987654321', 'active'
 FROM users WHERE email = 'thang.tran@nsa.local'
-ON CONFLICT (teacher_code) DO UPDATE
-SET full_name = EXCLUDED.full_name, specialization = EXCLUDED.specialization, phone = EXCLUDED.phone;
+ON CONFLICT (teacher_code) DO NOTHING;
 
 -- Thêm 4 Học viên mẫu
 INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
@@ -140,37 +138,25 @@ FROM users WHERE email = 'huy.tran@nsa.local'
 AND NOT EXISTS (SELECT 1 FROM student_profiles WHERE user_id = users.id);
 
 -- ==========================================================================
--- 4. CLASSES & ENROLLMENTS (Lớp học & Danh sách học viên)
+-- 4. CLASSES & ENROLLMENTS (Lớp học & Ghi danh)
 -- ==========================================================================
 -- Lớp 1: Điện Ô tô K24-A (Đang học)
 INSERT INTO classes (id, course_id, class_code, name, start_date, end_date, maximum_students, status) VALUES
   ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
-   'K24-ELEC-A', 'Lớp Kỹ thuật Điện Ô tô K24 (Khóa Ban ngày)', CURRENT_DATE - 20, CURRENT_DATE + 40, 25, 'in_progress')
-ON CONFLICT (class_code) DO UPDATE
-SET name = EXCLUDED.name, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date, maximum_students = EXCLUDED.maximum_students, status = EXCLUDED.status;
-
--- Lớp 2: Động cơ GDI K24-B (Đang học)
-INSERT INTO classes (id, course_id, class_code, name, start_date, end_date, maximum_students, status) VALUES
+   'K24-ELEC-A', 'Lớp Kỹ thuật Điện Ô tô K24 (Khóa Ban ngày)', CURRENT_DATE - 20, CURRENT_DATE + 40, 25, 'in_progress'),
   ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002',
-   'K24-ENG-B', 'Lớp Động cơ Phun xăng Trực tiếp K24 (Khóa Tối)', CURRENT_DATE - 15, CURRENT_DATE + 50, 20, 'in_progress')
-ON CONFLICT (class_code) DO UPDATE
-SET name = EXCLUDED.name, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date, maximum_students = EXCLUDED.maximum_students, status = EXCLUDED.status;
-
--- Lớp 3: Xe Điện EV K24 (Sắp khai giảng)
-INSERT INTO classes (id, course_id, class_code, name, start_date, end_date, maximum_students, status) VALUES
+   'K24-ENG-B', 'Lớp Động cơ Phun xăng Trực tiếp K24 (Khóa Tối)', CURRENT_DATE - 15, CURRENT_DATE + 50, 20, 'in_progress'),
   ('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003',
    'K24-EV-PRO', 'Lớp Chuyên đề An toàn & Pin Xe Điện EV K24', CURRENT_DATE + 7, CURRENT_DATE + 45, 15, 'planned')
 ON CONFLICT (class_code) DO UPDATE
 SET name = EXCLUDED.name, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date, maximum_students = EXCLUDED.maximum_students, status = EXCLUDED.status;
 
--- Phân công Giảng viên phụ trách
--- Demo Teacher & KS. Trần Đức Thắng phụ trách lớp Điện K24-A
+-- Phân công giảng viên
 INSERT INTO teacher_assignments (class_id, teacher_id, assignment_role, assigned_by)
 SELECT '30000000-0000-0000-0000-000000000001', tp.id, 'Giảng viên chính', (SELECT id FROM users WHERE email = 'admin@nsa.local')
 FROM teacher_profiles tp JOIN users u ON u.id = tp.user_id WHERE u.email = 'teacher@nsa.local'
 ON CONFLICT (class_id, teacher_id) DO NOTHING;
 
--- ThS. Nguyễn Văn Hùng phụ trách lớp Động cơ K24-B
 INSERT INTO teacher_assignments (class_id, teacher_id, assignment_role, assigned_by)
 SELECT '30000000-0000-0000-0000-000000000002', tp.id, 'Giảng viên chính', (SELECT id FROM users WHERE email = 'admin@nsa.local')
 FROM teacher_profiles tp JOIN users u ON u.id = tp.user_id WHERE u.email = 'hung.nguyen@nsa.local'
@@ -184,16 +170,8 @@ JOIN users u ON u.id = sp.user_id
 WHERE u.email IN ('student@nsa.local', 'nam.nguyen@nsa.local', 'long.le@nsa.local', 'tuan.pham@nsa.local', 'huy.tran@nsa.local')
 ON CONFLICT (class_id, student_id) DO UPDATE SET status = 'enrolled';
 
--- Ghi danh học viên vào lớp K24-ENG-B
-INSERT INTO class_enrollments (class_id, student_id, status, enrolled_at, created_by)
-SELECT '30000000-0000-0000-0000-000000000002', sp.id, 'enrolled', CURRENT_DATE - 15, (SELECT id FROM users WHERE email = 'admin@nsa.local')
-FROM student_profiles sp
-JOIN users u ON u.id = sp.user_id
-WHERE u.email IN ('student@nsa.local', 'nam.nguyen@nsa.local', 'tuan.pham@nsa.local')
-ON CONFLICT (class_id, student_id) DO UPDATE SET status = 'enrolled';
-
 -- ==========================================================================
--- 5. CLASS SESSIONS (Thời khóa biểu các buổi học tuần này & tuần trước)
+-- 5. CLASS SESSIONS (Thời khóa biểu các buổi học tuần này)
 -- ==========================================================================
 -- Buổi 1: Thứ 2 tuần này (08:00 - 11:30) - Mạng CAN Bus (Xưởng XH-01)
 INSERT INTO class_sessions (
@@ -264,14 +242,8 @@ SELECT '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-00000000
 FROM student_profiles sp JOIN users u ON u.id = sp.user_id WHERE u.email = 'long.le@nsa.local'
 ON CONFLICT (class_session_id, student_id) DO UPDATE SET status = 'excused_absence', note = EXCLUDED.note;
 
-INSERT INTO attendance_records (class_session_id, class_id, student_id, status, note, recorded_by)
-SELECT '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
-       sp.id, 'present', 'Có mặt đầy đủ', (SELECT id FROM users WHERE email = 'teacher@nsa.local')
-FROM student_profiles sp JOIN users u ON u.id = sp.user_id WHERE u.email IN ('tuan.pham@nsa.local', 'huy.tran@nsa.local')
-ON CONFLICT (class_session_id, student_id) DO UPDATE SET status = 'present';
-
 -- ==========================================================================
--- 7. NOTIFICATIONS (Thông báo hệ thống cho các tài khoản)
+-- 7. NOTIFICATIONS (Thông báo hệ thống)
 -- ==========================================================================
 INSERT INTO notifications (user_id, title, content, type) VALUES
   ((SELECT id FROM users WHERE email = 'admin@nsa.local'), 
