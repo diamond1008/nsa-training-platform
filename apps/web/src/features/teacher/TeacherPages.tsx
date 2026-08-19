@@ -712,36 +712,48 @@ export function AssessmentPage() {
                           </Button>
                         </div>
                       ))}
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-[120px_1fr_auto] sm:items-end">
-                      <Input
-                        required
-                        min={0}
-                        max={10}
-                        step={0.01}
-                        type="number"
-                        label="Điểm"
-                        value={scoreMap[result.test.id] ?? ""}
-                        onChange={(e) =>
-                          setScoreMap((old) => ({ ...old, [result.test.id]: e.target.value }))
-                        }
-                      />
-                      <Input
-                        label="Ghi chú"
-                        value={scoreNotes[result.test.id] ?? ""}
-                        onChange={(e) =>
-                          setScoreNotes((old) => ({ ...old, [result.test.id]: e.target.value }))
-                        }
-                      />
-                      <Button
-                        disabled={
-                          scoreMap[result.test.id] === undefined || scoreMap[result.test.id] === ""
-                        }
-                        loading={recordScore.isPending && recordScore.variables === result.test.id}
-                        onClick={() => recordScore.mutate(result.test.id)}
-                      >
-                        Lưu điểm
-                      </Button>
+                      {(result.next_attempt_no ?? 1) >= 2 && !result.retake_permitted ? (
+                        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                          🔒 <b>Cần Admin duyệt cấp phép thi lại (Lần {result.next_attempt_no}):</b>{" "}
+                          Học viên đã có kết quả Lần {(result.next_attempt_no ?? 2) - 1}. Giảng viên
+                          không thể tự nhập điểm Lần {result.next_attempt_no} trừ khi Admin đã phê
+                          duyệt mở quyền thi lại.
+                        </div>
+                      ) : (
+                        <div className="mt-4 grid gap-3 sm:grid-cols-[120px_1fr_auto] sm:items-end">
+                          <Input
+                            required
+                            min={0}
+                            max={10}
+                            step={0.01}
+                            type="number"
+                            label={`Điểm (Lần ${result.next_attempt_no ?? 1})`}
+                            value={scoreMap[result.test.id] ?? ""}
+                            onChange={(e) =>
+                              setScoreMap((old) => ({ ...old, [result.test.id]: e.target.value }))
+                            }
+                          />
+                          <Input
+                            label="Ghi chú"
+                            value={scoreNotes[result.test.id] ?? ""}
+                            onChange={(e) =>
+                              setScoreNotes((old) => ({ ...old, [result.test.id]: e.target.value }))
+                            }
+                          />
+                          <Button
+                            disabled={
+                              scoreMap[result.test.id] === undefined ||
+                              scoreMap[result.test.id] === ""
+                            }
+                            loading={
+                              recordScore.isPending && recordScore.variables === result.test.id
+                            }
+                            onClick={() => recordScore.mutate(result.test.id)}
+                          >
+                            Lưu điểm
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -144,6 +144,46 @@ func (q *Queries) CreateTestAttemptHistory(ctx context.Context, arg CreateTestAt
 	return i, err
 }
 
+const createTestRetakePermit = `-- name: CreateTestRetakePermit :one
+INSERT INTO student_test_retake_permits (test_id, course_id, student_id, target_attempt_no, granted_by, reason)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (test_id, student_id, target_attempt_no) DO UPDATE SET reason=EXCLUDED.reason, granted_by=EXCLUDED.granted_by, granted_at=NOW()
+RETURNING id, test_id, course_id, student_id, target_attempt_no, granted_by, reason, granted_at, created_at
+`
+
+type CreateTestRetakePermitParams struct {
+	TestID          pgtype.UUID `json:"test_id"`
+	CourseID        pgtype.UUID `json:"course_id"`
+	StudentID       pgtype.UUID `json:"student_id"`
+	TargetAttemptNo int32       `json:"target_attempt_no"`
+	GrantedBy       pgtype.UUID `json:"granted_by"`
+	Reason          string      `json:"reason"`
+}
+
+func (q *Queries) CreateTestRetakePermit(ctx context.Context, arg CreateTestRetakePermitParams) (StudentTestRetakePermit, error) {
+	row := q.db.QueryRow(ctx, createTestRetakePermit,
+		arg.TestID,
+		arg.CourseID,
+		arg.StudentID,
+		arg.TargetAttemptNo,
+		arg.GrantedBy,
+		arg.Reason,
+	)
+	var i StudentTestRetakePermit
+	err := row.Scan(
+		&i.ID,
+		&i.TestID,
+		&i.CourseID,
+		&i.StudentID,
+		&i.TargetAttemptNo,
+		&i.GrantedBy,
+		&i.Reason,
+		&i.GrantedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getCourseTest = `-- name: GetCourseTest :one
 SELECT id, course_id, code, title, kind, pass_score, is_required, sequence_no, is_active, created_at, updated_at FROM course_tests WHERE id=$1 AND course_id=$2
 `
@@ -335,6 +375,26 @@ func (q *Queries) GetTestScoreContext(ctx context.Context, arg GetTestScoreConte
 	return i, err
 }
 
+const hasTestRetakePermit = `-- name: HasTestRetakePermit :one
+SELECT EXISTS (
+  SELECT 1 FROM student_test_retake_permits
+  WHERE test_id = $1 AND student_id = $2 AND target_attempt_no = $3
+)
+`
+
+type HasTestRetakePermitParams struct {
+	TestID          pgtype.UUID `json:"test_id"`
+	StudentID       pgtype.UUID `json:"student_id"`
+	TargetAttemptNo int32       `json:"target_attempt_no"`
+}
+
+func (q *Queries) HasTestRetakePermit(ctx context.Context, arg HasTestRetakePermitParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasTestRetakePermit, arg.TestID, arg.StudentID, arg.TargetAttemptNo)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listCourseTests = `-- name: ListCourseTests :many
 SELECT id, course_id, code, title, kind, pass_score, is_required, sequence_no, is_active, created_at, updated_at FROM course_tests WHERE course_id=$1 ORDER BY sequence_no,id
 `
@@ -360,6 +420,63 @@ func (q *Queries) ListCourseTests(ctx context.Context, courseID pgtype.UUID) ([]
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStudentRetakePermits = `-- name: ListStudentRetakePermits :many
+SELECT strp.id, strp.test_id, strp.course_id, strp.student_id, strp.target_attempt_no, strp.granted_by, strp.reason, strp.granted_at, strp.created_at, u.email AS granted_by_email
+FROM student_test_retake_permits strp
+JOIN users u ON u.id = strp.granted_by
+WHERE strp.course_id = $1 AND strp.student_id = $2
+ORDER BY strp.target_attempt_no ASC
+`
+
+type ListStudentRetakePermitsParams struct {
+	CourseID  pgtype.UUID `json:"course_id"`
+	StudentID pgtype.UUID `json:"student_id"`
+}
+
+type ListStudentRetakePermitsRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	TestID          pgtype.UUID        `json:"test_id"`
+	CourseID        pgtype.UUID        `json:"course_id"`
+	StudentID       pgtype.UUID        `json:"student_id"`
+	TargetAttemptNo int32              `json:"target_attempt_no"`
+	GrantedBy       pgtype.UUID        `json:"granted_by"`
+	Reason          string             `json:"reason"`
+	GrantedAt       pgtype.Timestamptz `json:"granted_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	GrantedByEmail  string             `json:"granted_by_email"`
+}
+
+func (q *Queries) ListStudentRetakePermits(ctx context.Context, arg ListStudentRetakePermitsParams) ([]ListStudentRetakePermitsRow, error) {
+	rows, err := q.db.Query(ctx, listStudentRetakePermits, arg.CourseID, arg.StudentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListStudentRetakePermitsRow{}
+	for rows.Next() {
+		var i ListStudentRetakePermitsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TestID,
+			&i.CourseID,
+			&i.StudentID,
+			&i.TargetAttemptNo,
+			&i.GrantedBy,
+			&i.Reason,
+			&i.GrantedAt,
+			&i.CreatedAt,
+			&i.GrantedByEmail,
 		); err != nil {
 			return nil, err
 		}

@@ -583,6 +583,7 @@ type AcademicSummaryItem struct {
 	PassScore  float64 `json:"pass_score"`
 	ClassID    string  `json:"class_id"`
 	ClassName  string  `json:"class_name"`
+	CourseID   string  `json:"course_id"`
 	CourseName string  `json:"course_name"`
 	Score      float64 `json:"score"`
 	GradedAt   string  `json:"graded_at"`
@@ -608,6 +609,7 @@ func (s *Service) GetAcademicSummary(ctx context.Context, studentID string) ([]A
 			PassScore:  passScore,
 			ClassID:    data.UUIDString(r.ClassID),
 			ClassName:  r.ClassName,
+			CourseID:   data.UUIDString(r.CourseID),
 			CourseName: r.CourseName,
 			Score:      score,
 			GradedAt:   r.GradedAt.Time.UTC().Format(time.RFC3339),

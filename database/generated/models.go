@@ -923,6 +923,18 @@ type StudentTestAttempt struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type StudentTestRetakePermit struct {
+	ID              pgtype.UUID        `json:"id"`
+	TestID          pgtype.UUID        `json:"test_id"`
+	CourseID        pgtype.UUID        `json:"course_id"`
+	StudentID       pgtype.UUID        `json:"student_id"`
+	TargetAttemptNo int32              `json:"target_attempt_no"`
+	GrantedBy       pgtype.UUID        `json:"granted_by"`
+	Reason          string             `json:"reason"`
+	GrantedAt       pgtype.Timestamptz `json:"granted_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type TeacherAssignment struct {
 	ID             pgtype.UUID        `json:"id"`
 	ClassID        pgtype.UUID        `json:"class_id"`

@@ -26,6 +26,7 @@ import type {
   PersonAcademicSummary,
   PersonWorkloadSummary,
   AuditLogItem,
+  TestRetakePermit,
 } from "../../lib/domainTypes";
 import { toQuery } from "../../lib/format";
 
@@ -122,6 +123,20 @@ export const adminApi = {
     api<CourseTest>(`/admin/courses/${courseId}/tests`, { method: "POST", body }),
   updateCourseTest: (courseId: string, testId: string, body: unknown) =>
     api<CourseTest>(`/admin/courses/${courseId}/tests/${testId}`, { method: "PUT", body }),
+  grantTestRetakePermit: (
+    courseId: string,
+    studentId: string,
+    testId: string,
+    targetAttemptNo: number,
+    reason: string,
+  ) =>
+    api<TestRetakePermit>(
+      `/admin/courses/${courseId}/students/${studentId}/tests/${testId}/grant-retake`,
+      {
+        method: "POST",
+        body: { target_attempt_no: targetAttemptNo, reason },
+      },
+    ),
 
   classes: (params: ClassListParams = {}) =>
     api<Paginated<TrainingClass>>(`/admin/classes${toQuery(params)}`),

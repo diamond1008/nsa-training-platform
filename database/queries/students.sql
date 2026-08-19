@@ -375,6 +375,7 @@ SELECT
   ct.pass_score,
   c.id AS class_id,
   c.name AS class_name,
+  co.id AS course_id,
   co.name AS course_name,
   sta.score,
   sta.taken_at AS graded_at

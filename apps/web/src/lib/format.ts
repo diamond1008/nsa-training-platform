@@ -56,3 +56,10 @@ export function toQuery(params: object): string {
   const text = query.toString();
   return text ? `?${text}` : "";
 }
+
+export function mutationMessage(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return "Thao tác không thành công. Vui lòng thử lại.";
+}

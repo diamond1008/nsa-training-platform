@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { currentWeekStart, monthRange, WeekCalendar, weekRange } from "../../components/calendar";
@@ -11,6 +11,8 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorBanner,
+  Input,
   Modal,
   PageHeader,
   Select,
@@ -26,7 +28,7 @@ import type {
   TeacherProfileSummary,
   Teacher,
 } from "../../lib/domainTypes";
-import { formatDate, formatDateTime, statusLabel } from "../../lib/format";
+import { formatDate, formatDateTime, mutationMessage, statusLabel } from "../../lib/format";
 import { adminApi } from "./adminApi";
 import { PersonAvatar } from "./PersonIdentity";
 
@@ -728,9 +730,36 @@ function ClassAttendanceDetailModal({
 }
 
 function AcademicSummaryTab({ studentId }: { studentId: string }) {
+  const client = useQueryClient();
   const query = useQuery({
     queryKey: ["admin", "student", studentId, "academic-summary"],
     queryFn: () => adminApi.studentAcademicSummary(studentId),
+  });
+
+  const [retakeTarget, setRetakeTarget] = useState<{
+    course_id: string;
+    test_id: string;
+    test_title: string;
+    attempt_no: number;
+  } | null>(null);
+  const [reason, setReason] = useState("");
+
+  const grantMutation = useMutation({
+    mutationFn: () =>
+      adminApi.grantTestRetakePermit(
+        retakeTarget!.course_id,
+        studentId,
+        retakeTarget!.test_id,
+        retakeTarget!.attempt_no,
+        reason,
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({
+        queryKey: ["admin", "student", studentId, "academic-summary"],
+      });
+      setRetakeTarget(null);
+      setReason("");
+    },
   });
 
   return (
@@ -751,6 +780,7 @@ function AcademicSummaryTab({ studentId }: { studentId: string }) {
                 <th className="px-4 py-3 text-center">Điểm học viên</th>
                 <th className="px-4 py-3 text-center">Kết quả</th>
                 <th className="px-4 py-3">Ngày nộp / Chấm</th>
+                <th className="px-4 py-3 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gborder">
@@ -769,12 +799,68 @@ function AcademicSummaryTab({ studentId }: { studentId: string }) {
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-xs text-gtext">{formatDateTime(item.graded_at)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        setRetakeTarget({
+                          course_id: item.course_id,
+                          test_id: item.test_id,
+                          test_title: item.test_title,
+                          attempt_no: 2,
+                        })
+                      }
+                    >
+                      Duyệt thi lại
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      <Modal
+        open={!!retakeTarget}
+        title={`Duyệt quyền thi lại · ${retakeTarget?.test_title ?? ""}`}
+        onClose={() => setRetakeTarget(null)}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            grantMutation.mutate();
+          }}
+        >
+          {grantMutation.error && <ErrorBanner message={mutationMessage(grantMutation.error)} />}
+          <Input
+            required
+            min={2}
+            type="number"
+            label="Lượt thi lại mở quyền (Lần thứ)"
+            value={retakeTarget?.attempt_no ?? 2}
+            onChange={(e) =>
+              setRetakeTarget((old) => old && { ...old, attempt_no: Number(e.target.value) })
+            }
+          />
+          <Textarea
+            required
+            label="Lý do cấp phép thi lại (Audit mandatory)"
+            placeholder="Ví dụ: Học viên nộp đơn xin thi lại cải thiện điểm, đã được Ban đào tạo chấp thuận."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" type="button" onClick={() => setRetakeTarget(null)}>
+              Hủy
+            </Button>
+            <Button type="submit" loading={grantMutation.isPending}>
+              Cấp phép thi lại
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </QueryState>
   );
 }

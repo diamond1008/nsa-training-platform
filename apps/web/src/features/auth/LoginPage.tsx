@@ -26,16 +26,17 @@ export default function LoginPage() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { email: "", password: "" },
   });
 
-  const onSubmit = handleSubmit(async (values) => {
+  const performLogin = async (email: string, pass: string) => {
     setServerError("");
     try {
-      const user = await login(values.email.trim().toLowerCase(), values.password);
+      const user = await login(email.trim().toLowerCase(), pass);
       if (user.must_change_password) {
         navigate("/doi-mat-khau", { replace: true });
         return;
@@ -51,7 +52,17 @@ export default function LoginPage() {
         setServerError("Không kết nối được máy chủ. Vui lòng kiểm tra lại mạng hoặc thử lại sau.");
       }
     }
+  };
+
+  const onSubmit = handleSubmit(async (values) => {
+    await performLogin(values.email, values.password);
   });
+
+  const handleQuickLogin = async (email: string) => {
+    setValue("email", email);
+    setValue("password", "NsaDemo@123");
+    await performLogin(email, "NsaDemo@123");
+  };
 
   return (
     <div className="grid min-h-screen bg-gbg lg:grid-cols-[1.05fr_.95fr]">
@@ -103,6 +114,48 @@ export default function LoginPage() {
               <p className="mt-2 text-sm text-gtext">
                 Sử dụng tài khoản được trung tâm cấp để tiếp tục.
               </p>
+            </div>
+
+            <div className="mb-6 rounded-xl border border-gold/30 bg-gold/5 p-4 text-left">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gold-dark">
+                <Icon name="sparkles" className="h-4 w-4" />
+                <span>Dành cho Nhà tuyển dụng / Demo 1-Click</span>
+              </div>
+              <p className="mt-1 text-xs text-gtext">
+                Bấm nút để tự động đăng nhập và trải nghiệm toàn bộ hệ thống theo từng vai trò:
+              </p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => void handleQuickLogin("admin@nsa.local")}
+                  className="flex flex-col items-center justify-center rounded-lg border border-navy/10 bg-white p-2 text-center text-xs font-medium text-navy transition hover:border-gold hover:bg-gold/10 hover:text-navy-dark focus:outline-none focus:ring-2 focus:ring-gold"
+                >
+                  <span className="text-base">👨‍💼</span>
+                  <span className="mt-0.5 font-bold">Admin</span>
+                  <span className="text-[10px] text-gtext">Toàn quyền</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => void handleQuickLogin("teacher@nsa.local")}
+                  className="flex flex-col items-center justify-center rounded-lg border border-navy/10 bg-white p-2 text-center text-xs font-medium text-navy transition hover:border-gold hover:bg-gold/10 hover:text-navy-dark focus:outline-none focus:ring-2 focus:ring-gold"
+                >
+                  <span className="text-base">👨‍🏫</span>
+                  <span className="mt-0.5 font-bold">Giảng viên</span>
+                  <span className="text-[10px] text-gtext">Điểm danh, điểm</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => void handleQuickLogin("student@nsa.local")}
+                  className="flex flex-col items-center justify-center rounded-lg border border-navy/10 bg-white p-2 text-center text-xs font-medium text-navy transition hover:border-gold hover:bg-gold/10 hover:text-navy-dark focus:outline-none focus:ring-2 focus:ring-gold"
+                >
+                  <span className="text-base">👨‍🎓</span>
+                  <span className="mt-0.5 font-bold">Học viên</span>
+                  <span className="text-[10px] text-gtext">Lịch học, kết quả</span>
+                </button>
+              </div>
             </div>
 
             <form onSubmit={onSubmit} noValidate className="space-y-4">

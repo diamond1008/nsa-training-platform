@@ -101,6 +101,7 @@ func run() error {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
+	r.Use(chimw.Compress(5))
 	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.RequestLog(log))
 	r.Use(chimw.Recoverer)
@@ -259,6 +260,7 @@ func mountAdminRoutes(
 			r.Get("/{courseID}/tests", testScoreHandler.ListTests)
 			r.Post("/{courseID}/tests", testScoreHandler.CreateTest)
 			r.Put("/{courseID}/tests/{testID}", testScoreHandler.UpdateTest)
+			r.Post("/{courseID}/students/{studentID}/tests/{testID}/grant-retake", testScoreHandler.GrantRetakePermit)
 		})
 
 		r.Route("/classes", func(r chi.Router) {

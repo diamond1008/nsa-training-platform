@@ -536,6 +536,7 @@ SELECT
   ct.pass_score,
   c.id AS class_id,
   c.name AS class_name,
+  co.id AS course_id,
   co.name AS course_name,
   sta.score,
   sta.taken_at AS graded_at
@@ -553,6 +554,7 @@ type GetStudentAcademicSummaryRow struct {
 	PassScore  pgtype.Numeric     `json:"pass_score"`
 	ClassID    pgtype.UUID        `json:"class_id"`
 	ClassName  string             `json:"class_name"`
+	CourseID   pgtype.UUID        `json:"course_id"`
 	CourseName string             `json:"course_name"`
 	Score      pgtype.Numeric     `json:"score"`
 	GradedAt   pgtype.Timestamptz `json:"graded_at"`
@@ -573,6 +575,7 @@ func (q *Queries) GetStudentAcademicSummary(ctx context.Context, studentID pgtyp
 			&i.PassScore,
 			&i.ClassID,
 			&i.ClassName,
+			&i.CourseID,
 			&i.CourseName,
 			&i.Score,
 			&i.GradedAt,

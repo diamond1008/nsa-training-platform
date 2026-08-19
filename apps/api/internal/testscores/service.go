@@ -20,13 +20,23 @@ import (
 )
 
 var (
-	ErrTestNotFound     = errors.New("course test not found")
-	ErrAttemptNotFound  = errors.New("test attempt not found")
-	ErrNotAssigned      = errors.New("teacher is not assigned to the class")
-	ErrStudentNotActive = errors.New("student is not actively enrolled in the class")
-	ErrTestConflict     = errors.New("test code, sequence, or final exam conflicts")
-	ErrInvalidFinalRule = errors.New("final exam must be required with pass score 5")
+	ErrTestNotFound       = errors.New("course test not found")
+	ErrAttemptNotFound    = errors.New("test attempt not found")
+	ErrNotAssigned        = errors.New("teacher is not assigned to the class")
+	ErrStudentNotActive   = errors.New("student is not actively enrolled in the class")
+	ErrTestConflict       = errors.New("test code, sequence, or final exam conflicts")
+	ErrInvalidFinalRule   = errors.New("final exam must be required with pass score 5")
+	ErrRetakeNotPermitted = errors.New("lượt thi lại này chưa được Admin duyệt cấp phép")
 )
+
+type RetakePermitView struct {
+	ID              string `json:"id"`
+	TestID          string `json:"test_id"`
+	TargetAttemptNo int32  `json:"target_attempt_no"`
+	GrantedByEmail  string `json:"granted_by_email"`
+	Reason          string `json:"reason"`
+	GrantedAt       string `json:"granted_at"`
+}
 
 type TestView struct {
 	ID         string  `json:"id"`
@@ -59,10 +69,13 @@ type AttemptView struct {
 }
 
 type TestResultView struct {
-	Test      TestView      `json:"test"`
-	Attempts  []AttemptView `json:"attempts"`
-	Passed    bool          `json:"passed"`
-	BestScore *float64      `json:"best_score"`
+	Test            TestView           `json:"test"`
+	Attempts        []AttemptView      `json:"attempts"`
+	Passed          bool               `json:"passed"`
+	BestScore       *float64           `json:"best_score"`
+	NextAttemptNo   int32              `json:"next_attempt_no"`
+	RetakePermitted bool               `json:"retake_permitted"`
+	RetakePermits   []RetakePermitView `json:"retake_permits"`
 }
 
 type CourseResultsView struct {
@@ -261,11 +274,27 @@ func (s *Service) results(ctx context.Context, courseID, studentID pgtype.UUID) 
 	if err != nil {
 		return CourseResultsView{}, err
 	}
+	permits, err := s.queries.ListStudentRetakePermits(ctx, db.ListStudentRetakePermitsParams{CourseID: courseID, StudentID: studentID})
+	if err != nil {
+		return CourseResultsView{}, err
+	}
 	byTest := map[string][]AttemptView{}
 	for _, row := range attempts {
 		view := attemptView(row)
 		key := data.UUIDString(row.TestID)
 		byTest[key] = append(byTest[key], view)
+	}
+	permitsByTest := map[string][]RetakePermitView{}
+	for _, p := range permits {
+		key := data.UUIDString(p.TestID)
+		permitsByTest[key] = append(permitsByTest[key], RetakePermitView{
+			ID:              data.UUIDString(p.ID),
+			TestID:          key,
+			TargetAttemptNo: p.TargetAttemptNo,
+			GrantedByEmail:  p.GrantedByEmail,
+			Reason:          p.Reason,
+			GrantedAt:       p.GrantedAt.Time.UTC().Format(time.RFC3339Nano),
+		})
 	}
 	items := make([]TestResultView, 0, len(tests))
 	for _, test := range tests {
@@ -274,6 +303,7 @@ func (s *Service) results(ctx context.Context, courseID, studentID pgtype.UUID) 
 		}
 		tv := testView(test)
 		testAttempts := attemptsForTest(byTest, tv.ID)
+		testPermits := permitsByTest[tv.ID]
 		var best *float64
 		passed := false
 		for _, attempt := range testAttempts {
@@ -286,7 +316,25 @@ func (s *Service) results(ctx context.Context, courseID, studentID pgtype.UUID) 
 				passed = true
 			}
 		}
-		items = append(items, TestResultView{Test: tv, Attempts: testAttempts, Passed: passed, BestScore: best})
+		nextNo := int32(len(testAttempts) + 1)
+		permitted := nextNo == 1
+		if nextNo >= 2 {
+			for _, p := range testPermits {
+				if p.TargetAttemptNo == nextNo {
+					permitted = true
+					break
+				}
+			}
+		}
+		items = append(items, TestResultView{
+			Test:            tv,
+			Attempts:        testAttempts,
+			Passed:          passed,
+			BestScore:       best,
+			NextAttemptNo:   nextNo,
+			RetakePermitted: permitted,
+			RetakePermits:   testPermits,
+		})
 	}
 	return CourseResultsView{CourseID: data.UUIDString(courseID), StudentID: data.UUIDString(studentID), Tests: items}, nil
 }
@@ -299,7 +347,7 @@ func attemptsForTest(byTest map[string][]AttemptView, testID string) []AttemptVi
 	return attempts
 }
 
-func (s *Service) RecordAttempt(ctx context.Context, userID, classIDValue, studentIDValue, testIDValue string, input AttemptInput) (AttemptView, error) {
+func (s *Service) RecordAttempt(ctx context.Context, userID, classIDValue, studentIDValue, testIDValue string, input AttemptInput, isAdmin bool) (AttemptView, error) {
 	classID, studentID, err := parsePair(classIDValue, studentIDValue)
 	if err != nil {
 		return AttemptView{}, ErrStudentNotActive
@@ -322,12 +370,14 @@ func (s *Service) RecordAttempt(ctx context.Context, userID, classIDValue, stude
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	q := s.queries.WithTx(tx)
-	assigned, err := q.CheckTeacherAssignedToClass(ctx, db.CheckTeacherAssignedToClassParams{ClassID: classID, UserID: actor})
-	if err != nil {
-		return AttemptView{}, err
-	}
-	if !assigned {
-		return AttemptView{}, ErrNotAssigned
+	if !isAdmin {
+		assigned, err := q.CheckTeacherAssignedToClass(ctx, db.CheckTeacherAssignedToClassParams{ClassID: classID, UserID: actor})
+		if err != nil {
+			return AttemptView{}, err
+		}
+		if !assigned {
+			return AttemptView{}, ErrNotAssigned
+		}
 	}
 	contextRow, err := q.GetTestScoreContext(ctx, db.GetTestScoreContextParams{ID: classID, ID_2: studentID})
 	if errors.Is(err, pgx.ErrNoRows) || contextRow.EnrollmentStatus != db.EnrollmentStatusEnrolled {
@@ -346,6 +396,15 @@ func (s *Service) RecordAttempt(ctx context.Context, userID, classIDValue, stude
 	no, err := q.NextStudentTestAttemptNo(ctx, db.NextStudentTestAttemptNoParams{TestID: testID, StudentID: studentID})
 	if err != nil {
 		return AttemptView{}, err
+	}
+	if no >= 2 && !isAdmin {
+		permitted, err := q.HasTestRetakePermit(ctx, db.HasTestRetakePermitParams{TestID: testID, StudentID: studentID, TargetAttemptNo: no})
+		if err != nil {
+			return AttemptView{}, err
+		}
+		if !permitted {
+			return AttemptView{}, ErrRetakeNotPermitted
+		}
 	}
 	taken := input.TakenAt
 	if taken.IsZero() {
@@ -368,6 +427,57 @@ func (s *Service) RecordAttempt(ctx context.Context, userID, classIDValue, stude
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return AttemptView{}, err
+	}
+	return view, nil
+}
+
+func (s *Service) GrantRetakePermit(ctx context.Context, actorID, courseIDValue, studentIDValue, testIDValue string, targetAttemptNo int32, reason string) (RetakePermitView, error) {
+	courseID, testID, err := parsePair(courseIDValue, testIDValue)
+	if err != nil {
+		return RetakePermitView{}, ErrTestNotFound
+	}
+	studentID, err := data.UUID(studentIDValue)
+	if err != nil {
+		return RetakePermitView{}, ErrStudentNotActive
+	}
+	actor, err := data.UUID(actorID)
+	if err != nil {
+		return RetakePermitView{}, ErrNotAssigned
+	}
+	if targetAttemptNo < 2 {
+		return RetakePermitView{}, fmt.Errorf("target attempt no must be at least 2")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return RetakePermitView{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	q := s.queries.WithTx(tx)
+	created, err := q.CreateTestRetakePermit(ctx, db.CreateTestRetakePermitParams{
+		TestID:          testID,
+		CourseID:        courseID,
+		StudentID:       studentID,
+		TargetAttemptNo: targetAttemptNo,
+		GrantedBy:       actor,
+		Reason:          reason,
+	})
+	if err != nil {
+		return RetakePermitView{}, fmt.Errorf("grant retake permit: %w", err)
+	}
+	userRow, _ := q.GetUserByID(ctx, actor)
+	view := RetakePermitView{
+		ID:              data.UUIDString(created.ID),
+		TestID:          data.UUIDString(created.TestID),
+		TargetAttemptNo: created.TargetAttemptNo,
+		GrantedByEmail:  userRow.Email,
+		Reason:          created.Reason,
+		GrantedAt:       created.GrantedAt.Time.UTC().Format(time.RFC3339Nano),
+	}
+	if err = audit.WriteWithReason(ctx, q, actorID, "test_retake_permit.grant", "student_test_retake_permit", created.ID, nil, view, reason); err != nil {
+		return RetakePermitView{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return RetakePermitView{}, err
 	}
 	return view, nil
 }

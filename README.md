@@ -1,4 +1,5 @@
 # NSA Training Platform
+# NSA Training Platform
 
 Training management platform for an automotive vocational training center. It manages the post-admission lifecycle: student accounts, class assignment, schedules, attendance, practical skill assessment, progress tracking, and course completion.
 
@@ -6,7 +7,7 @@ Training management platform for an automotive vocational training center. It ma
 
 ## Project Status
 
-**Current phase: Phase 25 implemented locally — ADMIN person 360° profiles**
+**Current phase: Phase 25 implemented locally — ADMIN person 360° profiles & Full-Spectrum Management**
 
 | Phase | Name | Status |
 | ----- | ---- | ------ |
@@ -29,13 +30,13 @@ Training management platform for an automotive vocational training center. It ma
 | 16 | Reports, notifications, and production hardening | ✅ Completed locally |
 | 17 | Tests, final exam, transfer-safe completion rules | ✅ Completed and validated locally |
 | 18 | Fixed training slots and paper-test operations | ✅ Completed and validated locally |
-| 19 | Student avatar persistence and attendance table polish | Implemented locally |
-| 20 | Admin attendance corrections and audit workflow | Implemented locally |
+| 19 | Student avatar persistence and attendance table polish | ✅ Completed and validated locally |
+| 20 | Admin attendance corrections and audit workflow | ✅ Completed and validated locally |
 | 21 | Operations UX, filters, and focused attendance workspaces | ✅ Completed and validated locally |
 | 22 | Dense schedule cells and withdrawal-safe re-enrollment | ✅ Completed and validated locally |
-| 23 | Two-state roll-call UX with legacy attendance compatibility | Implemented locally |
-| 24 | Student/teacher identity columns and persisted teacher avatars | Implemented locally |
-| 25 | ADMIN person 360° profiles, class history, and personal schedules | Implemented locally |
+| 23 | Two-state roll-call UX with legacy attendance compatibility | ✅ Completed and validated locally |
+| 24 | Student/teacher identity columns and persisted teacher avatars | ✅ Completed and validated locally |
+| 25 | ADMIN person 360° profiles, full-spectrum management & session drilldown | ✅ Completed and validated locally |
 
 See `docs/AI_CONTEXT.md` for the detailed, always-current implementation state.
 
@@ -415,7 +416,7 @@ Try it: `POST /api/v1/auth/login` with `{"email":"admin@nsa.local","password":"N
 
 ## Current Limitations
 
-- Attendance percentages count Present and Late as attended and exclude Excused records from the denominator; the formal threshold is fixed at 80%.
+- Attendance percentages count Present and Late as attended. In the 360° profile breakdown, attendance percentage is calculated against sessions recorded to date (`recorded_sessions`), excluding future unrecorded sessions. For formal course completion eligibility, Excused records are excluded from the denominator, and the required threshold is fixed at 80%.
 - Progress exposes deterministic Pending/Eligible status from attendance, required tests, and final exam; ADMIN records the final approval/rejection with immutable history and verifiable PDF certificates.
 - The latest submitted or locked rating for each required competency supersedes its earlier rating when progress is calculated.
 - Rate limiting is in-memory per instance (fine for the single-instance MVP).

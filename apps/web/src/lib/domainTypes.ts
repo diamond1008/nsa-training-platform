@@ -424,11 +424,23 @@ export interface TestAttempt {
   taken_at: string;
 }
 
+export interface TestRetakePermit {
+  id: string;
+  test_id: string;
+  target_attempt_no: number;
+  granted_by_email: string;
+  reason: string;
+  granted_at: string;
+}
+
 export interface TestResult {
   test: CourseTest;
   attempts: TestAttempt[];
   passed: boolean;
   best_score?: number | null;
+  next_attempt_no?: number;
+  retake_permitted?: boolean;
+  retake_permits?: TestRetakePermit[];
 }
 
 export interface CourseTestResults {
@@ -507,6 +519,7 @@ export interface PersonAcademicSummary {
   pass_score: number;
   class_id: string;
   class_name: string;
+  course_id: string;
   course_name: string;
   score: number;
   graded_at: string;

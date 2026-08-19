@@ -83,3 +83,23 @@ ORDER BY co.name,co.code;
 
 -- name: GetStudentIDByUser :one
 SELECT id FROM student_profiles WHERE user_id=$1;
+
+-- name: CreateTestRetakePermit :one
+INSERT INTO student_test_retake_permits (test_id, course_id, student_id, target_attempt_no, granted_by, reason)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (test_id, student_id, target_attempt_no) DO UPDATE SET reason=EXCLUDED.reason, granted_by=EXCLUDED.granted_by, granted_at=NOW()
+RETURNING *;
+
+-- name: HasTestRetakePermit :one
+SELECT EXISTS (
+  SELECT 1 FROM student_test_retake_permits
+  WHERE test_id = $1 AND student_id = $2 AND target_attempt_no = $3
+);
+
+-- name: ListStudentRetakePermits :many
+SELECT strp.*, u.email AS granted_by_email
+FROM student_test_retake_permits strp
+JOIN users u ON u.id = strp.granted_by
+WHERE strp.course_id = $1 AND strp.student_id = $2
+ORDER BY strp.target_attempt_no ASC;
+

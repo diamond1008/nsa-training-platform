@@ -98,7 +98,9 @@ func (h *Handler) RecordAttempt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := auth.UserIDFrom(r.Context())
-	view, err := h.service.RecordAttempt(r.Context(), user, chi.URLParam(r, "classID"), chi.URLParam(r, "studentID"), chi.URLParam(r, "testID"), input)
+	claims, _ := auth.ClaimsFrom(r.Context())
+	isAdmin := claims != nil && claims.HasAnyRole(auth.RoleAdmin)
+	view, err := h.service.RecordAttempt(r.Context(), user, chi.URLParam(r, "classID"), chi.URLParam(r, "studentID"), chi.URLParam(r, "testID"), input, isAdmin)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -120,6 +122,36 @@ func (h *Handler) correct(w http.ResponseWriter, r *http.Request, isAdmin bool) 
 	}
 	response.OK(w, view)
 }
+
+type grantRetakeRequest struct {
+	TargetAttemptNo int32  `json:"target_attempt_no"`
+	Reason          string `json:"reason"`
+}
+
+func (h *Handler) GrantRetakePermit(w http.ResponseWriter, r *http.Request) {
+	var body grantRetakeRequest
+	if request.DecodeJSON(w, r, &body) != nil {
+		response.Fail(w, http.StatusBadRequest, "INVALID_JSON", "Request body must be valid JSON")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason == "" || len([]rune(reason)) > 1000 {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "reason is required and must not exceed 1000 characters")
+		return
+	}
+	if body.TargetAttemptNo < 2 {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "target_attempt_no must be at least 2")
+		return
+	}
+	actor, _ := auth.UserIDFrom(r.Context())
+	view, err := h.service.GrantRetakePermit(r.Context(), actor, chi.URLParam(r, "courseID"), chi.URLParam(r, "studentID"), chi.URLParam(r, "testID"), body.TargetAttemptNo, reason)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.Created(w, view)
+}
+
 func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
 	items, err := h.service.History(r.Context(), chi.URLParam(r, "attemptID"))
 	if err != nil {
@@ -212,6 +244,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Fail(w, http.StatusConflict, "TEST_CONFLICT", "Test code, sequence, or final exam already exists")
 	case errors.Is(err, ErrInvalidFinalRule):
 		response.Fail(w, http.StatusBadRequest, "INVALID_FINAL_EXAM_RULE", "Final exam must be required with pass score 5")
+	case errors.Is(err, ErrRetakeNotPermitted):
+		response.Fail(w, http.StatusForbidden, "RETAKE_NOT_PERMITTED", "Lượt thi lại này chưa được Admin duyệt cấp phép. Vui lòng liên hệ Admin.")
 	default:
 		response.InternalError(w, h.log, auth.RequestIDFrom(r.Context()), err)
 	}
