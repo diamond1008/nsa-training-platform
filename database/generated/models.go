@@ -677,6 +677,10 @@ type Certificate struct {
 	RevokeReason      pgtype.Text        `json:"revoke_reason"`
 	IsCurrent         bool               `json:"is_current"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	DiplomaFileUrl    pgtype.Text        `json:"diploma_file_url"`
+	DiplomaFileName   pgtype.Text        `json:"diploma_file_name"`
+	DiplomaUploadedAt pgtype.Timestamptz `json:"diploma_uploaded_at"`
+	DiplomaUploadedBy pgtype.UUID        `json:"diploma_uploaded_by"`
 }
 
 type Class struct {

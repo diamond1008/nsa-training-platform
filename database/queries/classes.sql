@@ -339,8 +339,13 @@ INSERT INTO class_operation_history (
   class_id, event_type, entity_type, entity_id, reason, details, actor_user_id
 )
 VALUES (
-  sqlc.arg(class_id), sqlc.arg(event_type), sqlc.arg(entity_type), sqlc.narg(entity_id),
-  sqlc.narg(reason), sqlc.arg(details), sqlc.narg(actor_user_id)
+  sqlc.arg(class_id),
+  sqlc.arg(event_type),
+  sqlc.arg(entity_type),
+  sqlc.narg(entity_id),
+  sqlc.narg(reason),
+  COALESCE(NULLIF(sqlc.narg(details)::text, '')::jsonb, '{}'::jsonb),
+  sqlc.narg(actor_user_id)
 )
 RETURNING id, class_id, event_type, entity_type, entity_id, reason,
   details, actor_user_id, occurred_at;

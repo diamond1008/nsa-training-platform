@@ -386,6 +386,8 @@ export interface CompletionCandidate {
   failure_reasons: string[];
   current_certificate_id?: string | null;
   current_certificate_number?: string | null;
+  current_diploma_file_url?: string | null;
+  current_diploma_file_name?: string | null;
   is_eligible: boolean;
   status: string;
   review_note?: string | null;
@@ -466,6 +468,9 @@ export interface Certificate {
   is_current: boolean;
   revoked_at?: string | null;
   revoke_reason?: string | null;
+  diploma_file_url?: string | null;
+  diploma_file_name?: string | null;
+  diploma_uploaded_at?: string | null;
 }
 
 export interface CompletionDecisionResult {

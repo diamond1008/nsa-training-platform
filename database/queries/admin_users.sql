@@ -21,4 +21,13 @@ RETURNING id, email, status, must_change_password, created_at, updated_at;
 INSERT INTO audit_logs (
   actor_user_id, action, entity_type, entity_id, old_values, new_values, reason
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7);
+VALUES (
+  sqlc.narg(actor_user_id),
+  sqlc.arg(action),
+  sqlc.arg(entity_type),
+  sqlc.narg(entity_id),
+  NULLIF(sqlc.narg(old_values)::text, '')::jsonb,
+  NULLIF(sqlc.narg(new_values)::text, '')::jsonb,
+  sqlc.narg(reason)
+);
+

@@ -71,9 +71,13 @@ func nullableReason(reason string) pgtype.Text {
 	return pgtype.Text{String: reason, Valid: true}
 }
 
-func marshalNullable(value any) ([]byte, error) {
+func marshalNullable(value any) (pgtype.Text, error) {
 	if value == nil {
-		return nil, nil
+		return pgtype.Text{}, nil
 	}
-	return json.Marshal(value)
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return pgtype.Text{}, err
+	}
+	return pgtype.Text{String: string(bytes), Valid: true}, nil
 }

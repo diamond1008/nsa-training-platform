@@ -3,6 +3,7 @@ package completions
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -156,6 +157,69 @@ func (h *Handler) writePDF(w http.ResponseWriter, r *http.Request, view Certific
 
 func (h *Handler) Revoke(w http.ResponseWriter, r *http.Request)  { h.certificateAction(w, r, false) }
 func (h *Handler) Reissue(w http.ResponseWriter, r *http.Request) { h.certificateAction(w, r, true) }
+
+const maxDiplomaSizeBytes = 10 << 20 // 10 MB
+
+func (h *Handler) UploadDiploma(w http.ResponseWriter, r *http.Request) {
+	certificateID := chi.URLParam(r, "certificateID")
+	if certificateID == "" {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "certificateID is required")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxDiplomaSizeBytes+512<<10)
+	if err := r.ParseMultipartForm(maxDiplomaSizeBytes + 512<<10); err != nil {
+		response.Fail(w, http.StatusBadRequest, "FILE_TOO_LARGE", "File size must not exceed 10 MB")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "file is required (form-data field 'file')")
+		return
+	}
+	defer file.Close()
+
+	if header.Size > maxDiplomaSizeBytes {
+		response.Fail(w, http.StatusBadRequest, "FILE_TOO_LARGE", "File size must not exceed 10 MB")
+		return
+	}
+
+	sniff := make([]byte, 512)
+	n, _ := file.Read(sniff)
+	if n < 4 || string(sniff[:4]) != "%PDF" {
+		response.Fail(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "File must be a valid PDF document (%PDF signature)")
+		return
+	}
+
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		response.Fail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to process file")
+		return
+	}
+
+	actorID, _ := auth.UserIDFrom(r.Context())
+	view, err := h.service.UploadDiploma(r.Context(), actorID, certificateID, header.Filename, file, header.Size)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, view)
+}
+
+func (h *Handler) DeleteDiploma(w http.ResponseWriter, r *http.Request) {
+	certificateID := chi.URLParam(r, "certificateID")
+	if certificateID == "" {
+		response.Fail(w, http.StatusBadRequest, "VALIDATION_ERROR", "certificateID is required")
+		return
+	}
+	actorID, _ := auth.UserIDFrom(r.Context())
+	view, err := h.service.DeleteDiploma(r.Context(), actorID, certificateID)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.OK(w, view)
+}
 
 func (h *Handler) certificateAction(w http.ResponseWriter, r *http.Request, reissue bool) {
 	var body certificateActionRequest

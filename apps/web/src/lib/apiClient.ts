@@ -160,11 +160,21 @@ export async function apiCSV<T>(path: string, csv: string): Promise<T> {
   return parseEnvelope<T>(response);
 }
 
+/** Uploads a multipart/form-data body while retaining the same auth/refresh behavior as api(). */
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const response = await authenticatedRawFetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: formData,
+  });
+  return parseEnvelope<T>(response);
+}
+
 /** Downloads an authenticated binary/text response. */
 export async function apiDownload(path: string): Promise<Blob> {
   const response = await authenticatedRawFetch(path, {
     method: "GET",
-    headers: { Accept: "text/csv" },
+    headers: { Accept: "text/csv, application/pdf, */*" },
   });
   if (!response.ok) await parseEnvelope<never>(response);
   return response.blob();

@@ -29,8 +29,8 @@ WITH candidate_enrollments AS (
     (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status IN ('present','late') AND cs.status<>'cancelled') AS attended_sessions,
     (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status='excused' AND cs.status<>'cancelled') AS excused_sessions,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
-    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
-    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND COALESCE((SELECT sta.score>=ct.pass_score FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id ORDER BY sta.attempt_no DESC LIMIT 1), FALSE)) AS required_tests_passed,
+    (SELECT sta.score::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active ORDER BY sta.attempt_no DESC LIMIT 1) AS final_exam_score,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count
   FROM candidate_enrollments ce
   JOIN student_profiles sp ON sp.id=ce.student_id
@@ -81,7 +81,7 @@ func (q *Queries) CountCompletionCandidates(ctx context.Context, arg CountComple
 }
 
 const createCertificate = `-- name: CreateCertificate :one
-INSERT INTO certificates (completion_id, issued_by) VALUES ($1,$2) RETURNING id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at
+INSERT INTO certificates (completion_id, issued_by) VALUES ($1,$2) RETURNING id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at, diploma_file_url, diploma_file_name, diploma_uploaded_at, diploma_uploaded_by
 `
 
 type CreateCertificateParams struct {
@@ -104,6 +104,10 @@ func (q *Queries) CreateCertificate(ctx context.Context, arg CreateCertificatePa
 		&i.RevokeReason,
 		&i.IsCurrent,
 		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
 	)
 	return i, err
 }
@@ -158,7 +162,7 @@ func (q *Queries) CreateCompletionDecisionHistory(ctx context.Context, arg Creat
 }
 
 const getCertificateByVerificationCode = `-- name: GetCertificateByVerificationCode :one
-SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
+SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cert.diploma_file_url, cert.diploma_file_name, cert.diploma_uploaded_at, cert.diploma_uploaded_by, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
   co.code AS course_code, co.name AS course_name, sp.student_code, sp.full_name AS student_name
 FROM certificates cert JOIN course_completions cp ON cp.id=cert.completion_id
 JOIN classes c ON c.id=cp.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=cp.student_id
@@ -177,6 +181,10 @@ type GetCertificateByVerificationCodeRow struct {
 	RevokeReason      pgtype.Text        `json:"revoke_reason"`
 	IsCurrent         bool               `json:"is_current"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	DiplomaFileUrl    pgtype.Text        `json:"diploma_file_url"`
+	DiplomaFileName   pgtype.Text        `json:"diploma_file_name"`
+	DiplomaUploadedAt pgtype.Timestamptz `json:"diploma_uploaded_at"`
+	DiplomaUploadedBy pgtype.UUID        `json:"diploma_uploaded_by"`
 	ClassID           pgtype.UUID        `json:"class_id"`
 	StudentID         pgtype.UUID        `json:"student_id"`
 	ClassCode         string             `json:"class_code"`
@@ -202,6 +210,10 @@ func (q *Queries) GetCertificateByVerificationCode(ctx context.Context, verifica
 		&i.RevokeReason,
 		&i.IsCurrent,
 		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
 		&i.ClassID,
 		&i.StudentID,
 		&i.ClassCode,
@@ -215,7 +227,7 @@ func (q *Queries) GetCertificateByVerificationCode(ctx context.Context, verifica
 }
 
 const getCertificateDetail = `-- name: GetCertificateDetail :one
-SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
+SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cert.diploma_file_url, cert.diploma_file_name, cert.diploma_uploaded_at, cert.diploma_uploaded_by, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
   co.code AS course_code, co.name AS course_name, sp.student_code, sp.full_name AS student_name
 FROM certificates cert JOIN course_completions cp ON cp.id=cert.completion_id
 JOIN classes c ON c.id=cp.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=cp.student_id
@@ -234,6 +246,10 @@ type GetCertificateDetailRow struct {
 	RevokeReason      pgtype.Text        `json:"revoke_reason"`
 	IsCurrent         bool               `json:"is_current"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	DiplomaFileUrl    pgtype.Text        `json:"diploma_file_url"`
+	DiplomaFileName   pgtype.Text        `json:"diploma_file_name"`
+	DiplomaUploadedAt pgtype.Timestamptz `json:"diploma_uploaded_at"`
+	DiplomaUploadedBy pgtype.UUID        `json:"diploma_uploaded_by"`
 	ClassID           pgtype.UUID        `json:"class_id"`
 	StudentID         pgtype.UUID        `json:"student_id"`
 	ClassCode         string             `json:"class_code"`
@@ -259,6 +275,10 @@ func (q *Queries) GetCertificateDetail(ctx context.Context, id pgtype.UUID) (Get
 		&i.RevokeReason,
 		&i.IsCurrent,
 		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
 		&i.ClassID,
 		&i.StudentID,
 		&i.ClassCode,
@@ -289,19 +309,21 @@ WITH latest_ratings AS (
     (SELECT COUNT(*)::int FROM competency_criteria cr WHERE cr.course_id=c.course_id AND cr.is_required) AS required_competencies_total,
     (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id=lr.competency_criterion_id AND cr.is_required WHERE lr.course_id=c.course_id AND lr.student_id=ce.student_id AND lr.rating IN ('competent','good','excellent')) AS required_competencies_met,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
-    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
-    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=c.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND COALESCE((SELECT sta.score>=ct.pass_score FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id ORDER BY sta.attempt_no DESC LIMIT 1), FALSE)) AS required_tests_passed,
+    (SELECT sta.score::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=c.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active ORDER BY sta.attempt_no DESC LIMIT 1) AS final_exam_score,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count,
     (SELECT COUNT(*)::int FROM class_sessions cs WHERE cs.class_id=c.id AND cs.session_type='assessment' AND cs.status<>'cancelled') AS required_assessments,
     (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id=sa.session_id WHERE sa.class_id=c.id AND sa.student_id=ce.student_id AND sa.status IN ('submitted','locked') AND cs.session_type='assessment' AND cs.status<>'cancelled') AS completed_assessments,
     cp.id AS completion_id, cp.status AS persisted_status, cp.reviewed_by, cp.reviewed_at, cp.review_note,
     (SELECT cert.id FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_certificate_id,
-    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number
+    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number,
+    (SELECT cert.diploma_file_url FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_url,
+    (SELECT cert.diploma_file_name FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_name
   FROM class_enrollments ce JOIN classes c ON c.id=ce.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=ce.student_id
   LEFT JOIN course_completions cp ON cp.course_id=c.course_id AND cp.student_id=ce.student_id
   WHERE ce.class_id=$1 AND ce.student_id=$2 AND ce.status IN ('enrolled','completed')
 )
-SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number,
+SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number, current_diploma_file_url, current_diploma_file_name,
   CASE WHEN attendance_records-excused_sessions<=0 THEN 0::numeric(5,2) ELSE ROUND(100.0*attended_sessions/(attendance_records-excused_sessions),2)::numeric(5,2) END AS attendance_pct,
   COALESCE(((CASE WHEN attendance_records-excused_sessions<=0 THEN 0
              ELSE 100.0*attended_sessions/(attendance_records-excused_sessions) END)>=minimum_attendance_pct
@@ -348,6 +370,8 @@ type GetCompletionCandidateRow struct {
 	ReviewNote                pgtype.Text          `json:"review_note"`
 	CurrentCertificateID      pgtype.UUID          `json:"current_certificate_id"`
 	CurrentCertificateNumber  string               `json:"current_certificate_number"`
+	CurrentDiplomaFileUrl     pgtype.Text          `json:"current_diploma_file_url"`
+	CurrentDiplomaFileName    pgtype.Text          `json:"current_diploma_file_name"`
 	AttendancePct             pgtype.Numeric       `json:"attendance_pct"`
 	IsEligible                bool                 `json:"is_eligible"`
 }
@@ -388,6 +412,8 @@ func (q *Queries) GetCompletionCandidate(ctx context.Context, arg GetCompletionC
 		&i.ReviewNote,
 		&i.CurrentCertificateID,
 		&i.CurrentCertificateNumber,
+		&i.CurrentDiplomaFileUrl,
+		&i.CurrentDiplomaFileName,
 		&i.AttendancePct,
 		&i.IsEligible,
 	)
@@ -395,7 +421,7 @@ func (q *Queries) GetCompletionCandidate(ctx context.Context, arg GetCompletionC
 }
 
 const getCurrentCertificateByCompletion = `-- name: GetCurrentCertificateByCompletion :one
-SELECT id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at FROM certificates WHERE completion_id=$1 AND is_current
+SELECT id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at, diploma_file_url, diploma_file_name, diploma_uploaded_at, diploma_uploaded_by FROM certificates WHERE completion_id=$1 AND is_current
 `
 
 func (q *Queries) GetCurrentCertificateByCompletion(ctx context.Context, completionID pgtype.UUID) (Certificate, error) {
@@ -413,12 +439,16 @@ func (q *Queries) GetCurrentCertificateByCompletion(ctx context.Context, complet
 		&i.RevokeReason,
 		&i.IsCurrent,
 		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
 	)
 	return i, err
 }
 
 const getStudentCertificate = `-- name: GetStudentCertificate :one
-SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
+SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cert.diploma_file_url, cert.diploma_file_name, cert.diploma_uploaded_at, cert.diploma_uploaded_by, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
   co.code AS course_code, co.name AS course_name, sp.student_code, sp.full_name AS student_name
 FROM certificates cert JOIN course_completions cp ON cp.id=cert.completion_id
 JOIN classes c ON c.id=cp.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=cp.student_id
@@ -442,6 +472,10 @@ type GetStudentCertificateRow struct {
 	RevokeReason      pgtype.Text        `json:"revoke_reason"`
 	IsCurrent         bool               `json:"is_current"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	DiplomaFileUrl    pgtype.Text        `json:"diploma_file_url"`
+	DiplomaFileName   pgtype.Text        `json:"diploma_file_name"`
+	DiplomaUploadedAt pgtype.Timestamptz `json:"diploma_uploaded_at"`
+	DiplomaUploadedBy pgtype.UUID        `json:"diploma_uploaded_by"`
 	ClassID           pgtype.UUID        `json:"class_id"`
 	StudentID         pgtype.UUID        `json:"student_id"`
 	ClassCode         string             `json:"class_code"`
@@ -467,6 +501,10 @@ func (q *Queries) GetStudentCertificate(ctx context.Context, arg GetStudentCerti
 		&i.RevokeReason,
 		&i.IsCurrent,
 		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
 		&i.ClassID,
 		&i.StudentID,
 		&i.ClassCode,
@@ -507,19 +545,21 @@ WITH candidate_enrollments AS (
     (SELECT COUNT(*)::int FROM competency_criteria cr WHERE cr.course_id=ce.course_id AND cr.is_required) AS required_competencies_total,
     (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id=lr.competency_criterion_id AND cr.is_required WHERE lr.course_id=ce.course_id AND lr.student_id=ce.student_id AND lr.rating IN ('competent','good','excellent')) AS required_competencies_met,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
-    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
-    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND COALESCE((SELECT sta.score>=ct.pass_score FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id ORDER BY sta.attempt_no DESC LIMIT 1), FALSE)) AS required_tests_passed,
+    (SELECT sta.score::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active ORDER BY sta.attempt_no DESC LIMIT 1) AS final_exam_score,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count,
     (SELECT COUNT(*)::int FROM class_sessions cs JOIN classes c2 ON c2.id=cs.class_id WHERE c2.course_id=ce.course_id AND cs.session_type='assessment' AND cs.status<>'cancelled') AS required_assessments,
     (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id=sa.session_id WHERE sa.course_id=ce.course_id AND sa.student_id=ce.student_id AND sa.status IN ('submitted','locked') AND cs.session_type='assessment' AND cs.status<>'cancelled') AS completed_assessments,
     cp.id AS completion_id,cp.status AS persisted_status,cp.reviewed_by,cp.reviewed_at,cp.review_note,
     (SELECT cert.id FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_certificate_id,
-    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number
+    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number,
+    (SELECT cert.diploma_file_url FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_url,
+    (SELECT cert.diploma_file_name FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_name
   FROM candidate_enrollments ce
   JOIN student_profiles sp ON sp.id = ce.student_id
   LEFT JOIN course_completions cp ON cp.course_id=ce.course_id AND cp.student_id=ce.student_id
 )
-SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number,
+SELECT class_id, class_code, class_name, class_status, student_id, student_code, student_name, student_user_id, course_id, course_code, course_name, total_sessions, minimum_attendance_pct, completed_sessions, attendance_records, attended_sessions, excused_sessions, required_competencies_total, required_competencies_met, required_tests_total, required_tests_passed, final_exam_score, final_exam_count, required_assessments, completed_assessments, completion_id, persisted_status, reviewed_by, reviewed_at, review_note, current_certificate_id, current_certificate_number, current_diploma_file_url, current_diploma_file_name,
   CASE WHEN attendance_records - excused_sessions <= 0 THEN 0::numeric(5,2)
        ELSE ROUND(100.0 * attended_sessions / (attendance_records - excused_sessions), 2)::numeric(5,2) END AS attendance_pct,
   COALESCE(((CASE WHEN attendance_records - excused_sessions <= 0 THEN 0
@@ -602,6 +642,8 @@ type ListCompletionCandidatesRow struct {
 	ReviewNote                pgtype.Text          `json:"review_note"`
 	CurrentCertificateID      pgtype.UUID          `json:"current_certificate_id"`
 	CurrentCertificateNumber  string               `json:"current_certificate_number"`
+	CurrentDiplomaFileUrl     pgtype.Text          `json:"current_diploma_file_url"`
+	CurrentDiplomaFileName    pgtype.Text          `json:"current_diploma_file_name"`
 	AttendancePct             pgtype.Numeric       `json:"attendance_pct"`
 	IsEligible                bool                 `json:"is_eligible"`
 }
@@ -658,6 +700,8 @@ func (q *Queries) ListCompletionCandidates(ctx context.Context, arg ListCompleti
 			&i.ReviewNote,
 			&i.CurrentCertificateID,
 			&i.CurrentCertificateNumber,
+			&i.CurrentDiplomaFileUrl,
+			&i.CurrentDiplomaFileName,
 			&i.AttendancePct,
 			&i.IsEligible,
 		); err != nil {
@@ -736,7 +780,7 @@ func (q *Queries) ListCompletionDecisionHistory(ctx context.Context, arg ListCom
 }
 
 const listStudentCertificates = `-- name: ListStudentCertificates :many
-SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
+SELECT cert.id, cert.completion_id, cert.certificate_number, cert.verification_code, cert.issued_by, cert.issued_at, cert.revoked_at, cert.revoked_by, cert.revoke_reason, cert.is_current, cert.created_at, cert.diploma_file_url, cert.diploma_file_name, cert.diploma_uploaded_at, cert.diploma_uploaded_by, cp.class_id, cp.student_id, c.class_code, c.name AS class_name,
   co.code AS course_code, co.name AS course_name, sp.student_code, sp.full_name AS student_name
 FROM certificates cert JOIN course_completions cp ON cp.id=cert.completion_id
 JOIN classes c ON c.id=cp.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=cp.student_id
@@ -755,6 +799,10 @@ type ListStudentCertificatesRow struct {
 	RevokeReason      pgtype.Text        `json:"revoke_reason"`
 	IsCurrent         bool               `json:"is_current"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	DiplomaFileUrl    pgtype.Text        `json:"diploma_file_url"`
+	DiplomaFileName   pgtype.Text        `json:"diploma_file_name"`
+	DiplomaUploadedAt pgtype.Timestamptz `json:"diploma_uploaded_at"`
+	DiplomaUploadedBy pgtype.UUID        `json:"diploma_uploaded_by"`
 	ClassID           pgtype.UUID        `json:"class_id"`
 	StudentID         pgtype.UUID        `json:"student_id"`
 	ClassCode         string             `json:"class_code"`
@@ -786,6 +834,10 @@ func (q *Queries) ListStudentCertificates(ctx context.Context, userID pgtype.UUI
 			&i.RevokeReason,
 			&i.IsCurrent,
 			&i.CreatedAt,
+			&i.DiplomaFileUrl,
+			&i.DiplomaFileName,
+			&i.DiplomaUploadedAt,
+			&i.DiplomaUploadedBy,
 			&i.ClassID,
 			&i.StudentID,
 			&i.ClassCode,
@@ -805,9 +857,42 @@ func (q *Queries) ListStudentCertificates(ctx context.Context, userID pgtype.UUI
 	return items, nil
 }
 
+const removeCertificateDiplomaFile = `-- name: RemoveCertificateDiplomaFile :one
+UPDATE certificates
+SET diploma_file_url = NULL,
+    diploma_file_name = NULL,
+    diploma_uploaded_at = NULL,
+    diploma_uploaded_by = NULL
+WHERE id = $1
+RETURNING id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at, diploma_file_url, diploma_file_name, diploma_uploaded_at, diploma_uploaded_by
+`
+
+func (q *Queries) RemoveCertificateDiplomaFile(ctx context.Context, id pgtype.UUID) (Certificate, error) {
+	row := q.db.QueryRow(ctx, removeCertificateDiplomaFile, id)
+	var i Certificate
+	err := row.Scan(
+		&i.ID,
+		&i.CompletionID,
+		&i.CertificateNumber,
+		&i.VerificationCode,
+		&i.IssuedBy,
+		&i.IssuedAt,
+		&i.RevokedAt,
+		&i.RevokedBy,
+		&i.RevokeReason,
+		&i.IsCurrent,
+		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
+	)
+	return i, err
+}
+
 const revokeCurrentCertificate = `-- name: RevokeCurrentCertificate :one
 UPDATE certificates SET is_current=FALSE, revoked_at=NOW(), revoked_by=$2, revoke_reason=$3
-WHERE completion_id=$1 AND is_current RETURNING id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at
+WHERE completion_id=$1 AND is_current RETURNING id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at, diploma_file_url, diploma_file_name, diploma_uploaded_at, diploma_uploaded_by
 `
 
 type RevokeCurrentCertificateParams struct {
@@ -831,6 +916,55 @@ func (q *Queries) RevokeCurrentCertificate(ctx context.Context, arg RevokeCurren
 		&i.RevokeReason,
 		&i.IsCurrent,
 		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
+	)
+	return i, err
+}
+
+const updateCertificateDiplomaFile = `-- name: UpdateCertificateDiplomaFile :one
+UPDATE certificates
+SET diploma_file_url = $2,
+    diploma_file_name = $3,
+    diploma_uploaded_at = NOW(),
+    diploma_uploaded_by = $4
+WHERE id = $1
+RETURNING id, completion_id, certificate_number, verification_code, issued_by, issued_at, revoked_at, revoked_by, revoke_reason, is_current, created_at, diploma_file_url, diploma_file_name, diploma_uploaded_at, diploma_uploaded_by
+`
+
+type UpdateCertificateDiplomaFileParams struct {
+	ID                pgtype.UUID `json:"id"`
+	DiplomaFileUrl    pgtype.Text `json:"diploma_file_url"`
+	DiplomaFileName   pgtype.Text `json:"diploma_file_name"`
+	DiplomaUploadedBy pgtype.UUID `json:"diploma_uploaded_by"`
+}
+
+func (q *Queries) UpdateCertificateDiplomaFile(ctx context.Context, arg UpdateCertificateDiplomaFileParams) (Certificate, error) {
+	row := q.db.QueryRow(ctx, updateCertificateDiplomaFile,
+		arg.ID,
+		arg.DiplomaFileUrl,
+		arg.DiplomaFileName,
+		arg.DiplomaUploadedBy,
+	)
+	var i Certificate
+	err := row.Scan(
+		&i.ID,
+		&i.CompletionID,
+		&i.CertificateNumber,
+		&i.VerificationCode,
+		&i.IssuedBy,
+		&i.IssuedAt,
+		&i.RevokedAt,
+		&i.RevokedBy,
+		&i.RevokeReason,
+		&i.IsCurrent,
+		&i.CreatedAt,
+		&i.DiplomaFileUrl,
+		&i.DiplomaFileName,
+		&i.DiplomaUploadedAt,
+		&i.DiplomaUploadedBy,
 	)
 	return i, err
 }

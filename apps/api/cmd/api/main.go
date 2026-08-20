@@ -31,6 +31,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/health"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/logging"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/middleware"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/storage"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/progress"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/reports"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
@@ -92,9 +93,10 @@ func run() error {
 	attendanceService := attendance.NewService(pool)
 	attendanceHandler := attendance.NewHandler(attendanceService, log)
 	go attendanceService.RunAutoLockWorker(ctx, log)
+	storageService := storage.NewStorage(cfg)
 	assessmentHandler := assessments.NewHandler(assessments.NewService(pool), log)
 	progressHandler := progress.NewHandler(progress.NewService(pool), log)
-	completionHandler := completions.NewHandler(completions.NewService(pool), log)
+	completionHandler := completions.NewHandler(completions.NewService(pool, storageService), log)
 	notificationHandler := notifications.NewHandler(notifications.NewService(pool), log)
 	reportHandler := reports.NewHandler(reports.NewService(pool), log)
 	testScoreHandler := testscores.NewHandler(testscores.NewService(pool), log)
@@ -320,6 +322,8 @@ func mountAdminRoutes(
 		r.Put("/completions/{classID}/{studentID}", completionHandler.Decide)
 		r.Get("/completions/{classID}/{studentID}/history", completionHandler.History)
 		r.Get("/certificates/{certificateID}/pdf", completionHandler.AdminPDF)
+		r.Post("/certificates/{certificateID}/diploma", completionHandler.UploadDiploma)
+		r.Delete("/certificates/{certificateID}/diploma", completionHandler.DeleteDiploma)
 		r.Post("/certificates/{certificateID}/revoke", completionHandler.Revoke)
 		r.Post("/certificates/{certificateID}/reissue", completionHandler.Reissue)
 		r.Get("/reports/summary", reportHandler.Summary)

@@ -27,14 +27,16 @@ WITH candidate_enrollments AS (
     (SELECT COUNT(*)::int FROM competency_criteria cr WHERE cr.course_id=ce.course_id AND cr.is_required) AS required_competencies_total,
     (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id=lr.competency_criterion_id AND cr.is_required WHERE lr.course_id=ce.course_id AND lr.student_id=ce.student_id AND lr.rating IN ('competent','good','excellent')) AS required_competencies_met,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
-    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
-    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND COALESCE((SELECT sta.score>=ct.pass_score FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id ORDER BY sta.attempt_no DESC LIMIT 1), FALSE)) AS required_tests_passed,
+    (SELECT sta.score::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active ORDER BY sta.attempt_no DESC LIMIT 1) AS final_exam_score,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count,
     (SELECT COUNT(*)::int FROM class_sessions cs JOIN classes c2 ON c2.id=cs.class_id WHERE c2.course_id=ce.course_id AND cs.session_type='assessment' AND cs.status<>'cancelled') AS required_assessments,
     (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id=sa.session_id WHERE sa.course_id=ce.course_id AND sa.student_id=ce.student_id AND sa.status IN ('submitted','locked') AND cs.session_type='assessment' AND cs.status<>'cancelled') AS completed_assessments,
     cp.id AS completion_id,cp.status AS persisted_status,cp.reviewed_by,cp.reviewed_at,cp.review_note,
     (SELECT cert.id FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_certificate_id,
-    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number
+    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number,
+    (SELECT cert.diploma_file_url FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_url,
+    (SELECT cert.diploma_file_name FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_name
   FROM candidate_enrollments ce
   JOIN student_profiles sp ON sp.id = ce.student_id
   LEFT JOIN course_completions cp ON cp.course_id=ce.course_id AND cp.student_id=ce.student_id
@@ -95,8 +97,8 @@ WITH candidate_enrollments AS (
     (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status IN ('present','late') AND cs.status<>'cancelled') AS attended_sessions,
     (SELECT COUNT(*)::int FROM attendance_records ar JOIN class_sessions cs ON cs.id=ar.class_session_id JOIN classes c2 ON c2.id=ar.class_id WHERE c2.course_id=ce.course_id AND ar.student_id=ce.student_id AND ar.status='excused' AND cs.status<>'cancelled') AS excused_sessions,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
-    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
-    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND COALESCE((SELECT sta.score>=ct.pass_score FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id ORDER BY sta.attempt_no DESC LIMIT 1), FALSE)) AS required_tests_passed,
+    (SELECT sta.score::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active ORDER BY sta.attempt_no DESC LIMIT 1) AS final_exam_score,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count
   FROM candidate_enrollments ce
   JOIN student_profiles sp ON sp.id=ce.student_id
@@ -144,14 +146,16 @@ WITH latest_ratings AS (
     (SELECT COUNT(*)::int FROM competency_criteria cr WHERE cr.course_id=c.course_id AND cr.is_required) AS required_competencies_total,
     (SELECT COUNT(*)::int FROM latest_ratings lr JOIN competency_criteria cr ON cr.id=lr.competency_criterion_id AND cr.is_required WHERE lr.course_id=c.course_id AND lr.student_id=ce.student_id AND lr.rating IN ('competent','good','excellent')) AS required_competencies_met,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests_total,
-    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS required_tests_passed,
-    (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=c.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+    (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND COALESCE((SELECT sta.score>=ct.pass_score FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id ORDER BY sta.attempt_no DESC LIMIT 1), FALSE)) AS required_tests_passed,
+    (SELECT sta.score::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=c.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active ORDER BY sta.attempt_no DESC LIMIT 1) AS final_exam_score,
     (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=c.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count,
     (SELECT COUNT(*)::int FROM class_sessions cs WHERE cs.class_id=c.id AND cs.session_type='assessment' AND cs.status<>'cancelled') AS required_assessments,
     (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id=sa.session_id WHERE sa.class_id=c.id AND sa.student_id=ce.student_id AND sa.status IN ('submitted','locked') AND cs.session_type='assessment' AND cs.status<>'cancelled') AS completed_assessments,
     cp.id AS completion_id, cp.status AS persisted_status, cp.reviewed_by, cp.reviewed_at, cp.review_note,
     (SELECT cert.id FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_certificate_id,
-    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number
+    COALESCE((SELECT cert.certificate_number FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current),'')::text AS current_certificate_number,
+    (SELECT cert.diploma_file_url FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_url,
+    (SELECT cert.diploma_file_name FROM certificates cert WHERE cert.completion_id=cp.id AND cert.is_current) AS current_diploma_file_name
   FROM class_enrollments ce JOIN classes c ON c.id=ce.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=ce.student_id
   LEFT JOIN course_completions cp ON cp.course_id=c.course_id AND cp.student_id=ce.student_id
   WHERE ce.class_id=$1 AND ce.student_id=$2 AND ce.status IN ('enrolled','completed')
@@ -217,6 +221,24 @@ FROM certificates cert JOIN course_completions cp ON cp.id=cert.completion_id
 JOIN classes c ON c.id=cp.class_id JOIN courses co ON co.id=c.course_id JOIN student_profiles sp ON sp.id=cp.student_id
 WHERE cert.id=$1 AND sp.user_id=$2;
 
+-- name: UpdateCertificateDiplomaFile :one
+UPDATE certificates
+SET diploma_file_url = $2,
+    diploma_file_name = $3,
+    diploma_uploaded_at = NOW(),
+    diploma_uploaded_by = $4
+WHERE id = $1
+RETURNING *;
+
+-- name: RemoveCertificateDiplomaFile :one
+UPDATE certificates
+SET diploma_file_url = NULL,
+    diploma_file_name = NULL,
+    diploma_uploaded_at = NULL,
+    diploma_uploaded_by = NULL
+WHERE id = $1
+RETURNING *;
+
 -- name: ListCompletionDecisionHistory :many
 SELECT cdh.*, u.email AS decided_by_email
 FROM completion_decision_history cdh
@@ -224,3 +246,4 @@ JOIN course_completions cp ON cp.id=cdh.completion_id
 JOIN users u ON u.id=cdh.decided_by
 WHERE cp.class_id=$1 AND cp.student_id=$2
 ORDER BY cdh.decided_at DESC, cdh.id DESC;
+

@@ -215,8 +215,13 @@ INSERT INTO class_operation_history (
   class_id, event_type, entity_type, entity_id, reason, details, actor_user_id
 )
 VALUES (
-  $1, $2, $3, $4,
-  $5, $6, $7
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  COALESCE(NULLIF($6::text, '')::jsonb, '{}'::jsonb),
+  $7
 )
 RETURNING id, class_id, event_type, entity_type, entity_id, reason,
   details, actor_user_id, occurred_at
@@ -228,7 +233,7 @@ type CreateClassOperationEventParams struct {
 	EntityType  string      `json:"entity_type"`
 	EntityID    pgtype.UUID `json:"entity_id"`
 	Reason      pgtype.Text `json:"reason"`
-	Details     []byte      `json:"details"`
+	Details     pgtype.Text `json:"details"`
 	ActorUserID pgtype.UUID `json:"actor_user_id"`
 }
 

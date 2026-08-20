@@ -20,9 +20,13 @@ func Write(ctx context.Context, q *db.Queries, actorID string, classID pgtype.UU
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(details)
-	if err != nil {
-		return fmt.Errorf("marshal class operation details: %w", err)
+	var detailsText pgtype.Text
+	if details != nil {
+		payload, err := json.Marshal(details)
+		if err != nil {
+			return fmt.Errorf("marshal class operation details: %w", err)
+		}
+		detailsText = pgtype.Text{String: string(payload), Valid: true}
 	}
 	var reasonValue *string
 	if normalized := strings.TrimSpace(reason); normalized != "" {
@@ -30,7 +34,7 @@ func Write(ctx context.Context, q *db.Queries, actorID string, classID pgtype.UU
 	}
 	if _, err := q.CreateClassOperationEvent(ctx, db.CreateClassOperationEventParams{
 		ClassID: classID, EventType: eventType, EntityType: entityType,
-		EntityID: entityID, Reason: data.Text(reasonValue), Details: payload,
+		EntityID: entityID, Reason: data.Text(reasonValue), Details: detailsText,
 		ActorUserID: actor,
 	}); err != nil {
 		return fmt.Errorf("write class operation history: %w", err)

@@ -542,7 +542,7 @@ export function StudentAssessmentsPage() {
             <Card key={course.course_id}>
               <SectionHeader
                 title={`${course.course_code} · ${course.course_name}`}
-                subtitle="Hệ thống dùng kết quả cao nhất của từng bài để xét hoàn thành."
+                subtitle="Hệ thống dùng kết quả thi chính thức (Lần 2 nếu có thi lại) để xét hoàn thành."
               />
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {course.tests.map((result) => (
@@ -564,7 +564,7 @@ export function StudentAssessmentsPage() {
                       {result.best_score == null ? "—" : result.best_score.toFixed(2)}
                     </p>
                     <p className="text-xs text-gtext">
-                      Điểm cao nhất · {result.attempts.length} lần ghi nhận
+                      Điểm chính thức · {result.attempts.length}/2 lần thi
                     </p>
                   </div>
                 ))}
@@ -743,14 +743,35 @@ export function StudentProgressPage() {
                   Mã xác thực: {certificate.verification_code}
                 </p>
                 {certificate.is_current && (
-                  <Button
-                    className="mt-4"
-                    onClick={() =>
-                      void downloadCertificate(certificate.id, certificate.certificate_number)
-                    }
-                  >
-                    Tải chứng nhận PDF
-                  </Button>
+                  <div className="mt-4 space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() =>
+                          void downloadCertificate(certificate.id, certificate.certificate_number)
+                        }
+                      >
+                        Tải chứng nhận điện tử (PDF)
+                      </Button>
+                      {certificate.diploma_file_url && (
+                        <a
+                          href={certificate.diploma_file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center justify-center rounded-lg bg-gold-dark px-4 py-2 text-sm font-semibold text-white hover:bg-gold"
+                        >
+                          📄 Tải bản scan bằng tốt nghiệp ↗
+                        </a>
+                      )}
+                    </div>
+                    {certificate.diploma_file_name && (
+                      <p className="text-xs text-gtext">
+                        Đã đính kèm bản scan chính thức:{" "}
+                        <span className="font-medium text-navy">
+                          {certificate.diploma_file_name}
+                        </span>
+                      </p>
+                    )}
+                  </div>
                 )}
               </Card>
             ))}

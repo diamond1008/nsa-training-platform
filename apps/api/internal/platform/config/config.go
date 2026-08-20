@@ -36,6 +36,13 @@ type Config struct {
 	RefreshTokenTTLDays int
 	// BcryptCost is the bcrypt work factor for password hashing.
 	BcryptCost int
+
+	// Cloudflare R2 Object Storage credentials and bucket details.
+	R2AccountID       string
+	R2AccessKeyID     string
+	R2SecretAccessKey string
+	R2BucketName      string
+	R2PublicDomain    string
 }
 
 // Load reads configuration from environment variables.
@@ -57,6 +64,12 @@ func Load() (*Config, error) {
 		AccessTokenTTL:      time.Duration(getEnvInt("ACCESS_TOKEN_TTL_MINUTES", 15)) * time.Minute,
 		RefreshTokenTTLDays: getEnvInt("REFRESH_TOKEN_TTL_DAYS", 30),
 		BcryptCost:          getEnvInt("BCRYPT_COST", 10),
+
+		R2AccountID:       strings.TrimSpace(os.Getenv("R2_ACCOUNT_ID")),
+		R2AccessKeyID:     strings.TrimSpace(os.Getenv("R2_ACCESS_KEY_ID")),
+		R2SecretAccessKey: strings.TrimSpace(os.Getenv("R2_SECRET_ACCESS_KEY")),
+		R2BucketName:      getEnv("R2_BUCKET_NAME", "nsa-diplomas"),
+		R2PublicDomain:    strings.TrimRight(getEnv("R2_PUBLIC_DOMAIN", ""), "/"),
 	}
 
 	if cfg.DatabaseURL == "" {

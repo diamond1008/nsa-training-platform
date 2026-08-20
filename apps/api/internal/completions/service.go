@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/classhistory"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/data"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/pagination"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/storage"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
@@ -54,6 +56,8 @@ type CandidateView struct {
 	FailureReasons            []string `json:"failure_reasons"`
 	CurrentCertificateID      *string  `json:"current_certificate_id"`
 	CurrentCertificateNumber  *string  `json:"current_certificate_number"`
+	CurrentDiplomaFileURL     *string  `json:"current_diploma_file_url"`
+	CurrentDiplomaFileName    *string  `json:"current_diploma_file_name"`
 }
 
 type CertificateView struct {
@@ -71,6 +75,9 @@ type CertificateView struct {
 	IsCurrent         bool    `json:"is_current"`
 	RevokedAt         *string `json:"revoked_at"`
 	RevokeReason      *string `json:"revoke_reason"`
+	DiplomaFileURL    *string `json:"diploma_file_url"`
+	DiplomaFileName   *string `json:"diploma_file_name"`
+	DiplomaUploadedAt *string `json:"diploma_uploaded_at"`
 }
 
 type DecisionHistoryView struct {
@@ -102,9 +109,12 @@ type ListFilter struct {
 type Service struct {
 	pool    *pgxpool.Pool
 	queries *db.Queries
+	storage storage.Storage
 }
 
-func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool, queries: db.New(pool)} }
+func NewService(pool *pgxpool.Pool, storage storage.Storage) *Service {
+	return &Service{pool: pool, queries: db.New(pool), storage: storage}
+}
 
 func (s *Service) List(ctx context.Context, filter ListFilter) (pagination.Result[CandidateView], error) {
 	courseID, err := optionalUUID(filter.CourseID)
@@ -398,13 +408,13 @@ func candidateStatus(p db.NullCompletionStatus, eligible bool) string {
 	return "pending"
 }
 func candidateFromList(r db.ListCompletionCandidatesRow) CandidateView {
-	return buildCandidate(r.ClassID, r.ClassCode, r.ClassName, r.StudentID, r.StudentCode, r.StudentName, r.CourseCode, r.CourseName, r.CompletedSessions, r.TotalSessions, r.AttendancePct, r.MinimumAttendancePct, r.RequiredCompetenciesMet, r.RequiredCompetenciesTotal, r.RequiredTestsPassed, r.RequiredTestsTotal, r.FinalExamScore, r.CompletedAssessments, r.RequiredAssessments, r.IsEligible, r.PersistedStatus, r.ReviewNote, r.ReviewedAt, r.CurrentCertificateID, r.CurrentCertificateNumber)
+	return buildCandidate(r.ClassID, r.ClassCode, r.ClassName, r.StudentID, r.StudentCode, r.StudentName, r.CourseCode, r.CourseName, r.CompletedSessions, r.TotalSessions, r.AttendancePct, r.MinimumAttendancePct, r.RequiredCompetenciesMet, r.RequiredCompetenciesTotal, r.RequiredTestsPassed, r.RequiredTestsTotal, r.FinalExamScore, r.CompletedAssessments, r.RequiredAssessments, r.IsEligible, r.PersistedStatus, r.ReviewNote, r.ReviewedAt, r.CurrentCertificateID, r.CurrentCertificateNumber, r.CurrentDiplomaFileUrl, r.CurrentDiplomaFileName)
 }
 func candidateFromGet(r db.GetCompletionCandidateRow) CandidateView {
-	return buildCandidate(r.ClassID, r.ClassCode, r.ClassName, r.StudentID, r.StudentCode, r.StudentName, r.CourseCode, r.CourseName, r.CompletedSessions, r.TotalSessions, r.AttendancePct, r.MinimumAttendancePct, r.RequiredCompetenciesMet, r.RequiredCompetenciesTotal, r.RequiredTestsPassed, r.RequiredTestsTotal, r.FinalExamScore, r.CompletedAssessments, r.RequiredAssessments, r.IsEligible, r.PersistedStatus, r.ReviewNote, r.ReviewedAt, r.CurrentCertificateID, r.CurrentCertificateNumber)
+	return buildCandidate(r.ClassID, r.ClassCode, r.ClassName, r.StudentID, r.StudentCode, r.StudentName, r.CourseCode, r.CourseName, r.CompletedSessions, r.TotalSessions, r.AttendancePct, r.MinimumAttendancePct, r.RequiredCompetenciesMet, r.RequiredCompetenciesTotal, r.RequiredTestsPassed, r.RequiredTestsTotal, r.FinalExamScore, r.CompletedAssessments, r.RequiredAssessments, r.IsEligible, r.PersistedStatus, r.ReviewNote, r.ReviewedAt, r.CurrentCertificateID, r.CurrentCertificateNumber, r.CurrentDiplomaFileUrl, r.CurrentDiplomaFileName)
 }
 
-func buildCandidate(classID pgtype.UUID, classCode, className string, studentID pgtype.UUID, studentCode, studentName, courseCode, courseName string, completedSessions, totalSessions int32, attendance, minimum pgtype.Numeric, competenciesMet, competenciesTotal, testsPassed, testsTotal int32, finalScore pgtype.Numeric, completedAssessments, requiredAssessments int32, eligible bool, persisted db.NullCompletionStatus, note pgtype.Text, reviewedAt pgtype.Timestamptz, certificateID pgtype.UUID, certificateNumber string) CandidateView {
+func buildCandidate(classID pgtype.UUID, classCode, className string, studentID pgtype.UUID, studentCode, studentName, courseCode, courseName string, completedSessions, totalSessions int32, attendance, minimum pgtype.Numeric, competenciesMet, competenciesTotal, testsPassed, testsTotal int32, finalScore pgtype.Numeric, completedAssessments, requiredAssessments int32, eligible bool, persisted db.NullCompletionStatus, note pgtype.Text, reviewedAt pgtype.Timestamptz, certificateID pgtype.UUID, certificateNumber string, diplomaFileURL, diplomaFileName pgtype.Text) CandidateView {
 	attendancePct := data.NumericFloat(attendance)
 	minimumPct := data.NumericFloat(minimum)
 	final := numericPointer(finalScore)
@@ -421,7 +431,7 @@ func buildCandidate(classID pgtype.UUID, classCode, className string, studentID 
 	} else if !finalPassed {
 		reasons = append(reasons, fmt.Sprintf("Điểm thi kết thúc %.2f, yêu cầu trên 5", *final))
 	}
-	return CandidateView{ClassID: data.UUIDString(classID), ClassCode: classCode, ClassName: className, StudentID: data.UUIDString(studentID), StudentCode: studentCode, StudentName: studentName, CourseCode: courseCode, CourseName: courseName, CompletedSessions: completedSessions, TotalSessions: totalSessions, AttendancePct: attendancePct, MinimumAttendancePct: minimumPct, RequiredCompetenciesMet: competenciesMet, RequiredCompetenciesTotal: competenciesTotal, RequiredTestsPassed: testsPassed, RequiredTestsTotal: testsTotal, FinalExamScore: final, FinalExamPassed: finalPassed, CompletedAssessments: completedAssessments, RequiredAssessments: requiredAssessments, IsEligible: eligible, Status: candidateStatus(persisted, eligible), ReviewNote: data.TextPointer(note), ReviewedAt: data.TimeString(reviewedAt), FailureReasons: reasons, CurrentCertificateID: data.UUIDPointer(certificateID), CurrentCertificateNumber: nonEmptyPointer(certificateNumber)}
+	return CandidateView{ClassID: data.UUIDString(classID), ClassCode: classCode, ClassName: className, StudentID: data.UUIDString(studentID), StudentCode: studentCode, StudentName: studentName, CourseCode: courseCode, CourseName: courseName, CompletedSessions: completedSessions, TotalSessions: totalSessions, AttendancePct: attendancePct, MinimumAttendancePct: minimumPct, RequiredCompetenciesMet: competenciesMet, RequiredCompetenciesTotal: competenciesTotal, RequiredTestsPassed: testsPassed, RequiredTestsTotal: testsTotal, FinalExamScore: final, FinalExamPassed: finalPassed, CompletedAssessments: completedAssessments, RequiredAssessments: requiredAssessments, IsEligible: eligible, Status: candidateStatus(persisted, eligible), ReviewNote: data.TextPointer(note), ReviewedAt: data.TimeString(reviewedAt), FailureReasons: reasons, CurrentCertificateID: data.UUIDPointer(certificateID), CurrentCertificateNumber: nonEmptyPointer(certificateNumber), CurrentDiplomaFileURL: data.TextPointer(diplomaFileURL), CurrentDiplomaFileName: data.TextPointer(diplomaFileName)}
 }
 
 func nonEmptyPointer(value string) *string {
@@ -439,6 +449,130 @@ func numericPointer(value pgtype.Numeric) *float64 {
 	return &v
 }
 
+func (s *Service) UploadDiploma(ctx context.Context, actorID string, certificateID string, filename string, r io.Reader, size int64) (CertificateView, error) {
+	aid, err := data.UUID(actorID)
+	if err != nil {
+		return CertificateView{}, err
+	}
+	cid, err := data.UUID(certificateID)
+	if err != nil {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	detail, err := s.queries.GetCertificateDetail(ctx, cid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CertificateView{}, ErrCertificateNotFound
+		}
+		return CertificateView{}, fmt.Errorf("get certificate for diploma upload: %w", err)
+	}
+	if !detail.IsCurrent {
+		return CertificateView{}, ErrCertificateRevoked
+	}
+
+	fileURL, err := s.storage.UploadDiplomaPDF(ctx, certificateID, filename, r, size)
+	if err != nil {
+		return CertificateView{}, fmt.Errorf("upload diploma to storage: %w", err)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return CertificateView{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.queries.WithTx(tx)
+
+	_, err = q.UpdateCertificateDiplomaFile(ctx, db.UpdateCertificateDiplomaFileParams{
+		ID:                cid,
+		DiplomaFileUrl:    pgtype.Text{String: fileURL, Valid: true},
+		DiplomaFileName:   pgtype.Text{String: filename, Valid: true},
+		DiplomaUploadedBy: aid,
+	})
+	if err != nil {
+		return CertificateView{}, fmt.Errorf("update certificate diploma file: %w", err)
+	}
+
+	detail, err = q.GetCertificateDetail(ctx, cid)
+	if err != nil {
+		return CertificateView{}, fmt.Errorf("get updated certificate detail: %w", err)
+	}
+	result := certificateFromDetail(detail)
+
+	if err := audit.WriteWithReason(ctx, q, actorID, "certificate.diploma_uploaded", "certificates", cid, nil, map[string]any{
+		"certificate_number": detail.CertificateNumber,
+		"student_code":       detail.StudentCode,
+		"diploma_file_url":   fileURL,
+		"diploma_file_name":  filename,
+	}, "Tải lên bản scan bằng tốt nghiệp"); err != nil {
+		return CertificateView{}, err
+	}
+	if err := classhistory.Write(ctx, q, actorID, detail.ClassID, "certificate.diploma_uploaded", "certificates", cid, "Tải lên bản scan bằng tốt nghiệp", result); err != nil {
+		return CertificateView{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CertificateView{}, err
+	}
+
+	return result, nil
+}
+
+func (s *Service) DeleteDiploma(ctx context.Context, actorID string, certificateID string) (CertificateView, error) {
+	_, err := data.UUID(actorID)
+	if err != nil {
+		return CertificateView{}, err
+	}
+	cid, err := data.UUID(certificateID)
+	if err != nil {
+		return CertificateView{}, ErrCertificateNotFound
+	}
+	detail, err := s.queries.GetCertificateDetail(ctx, cid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CertificateView{}, ErrCertificateNotFound
+		}
+		return CertificateView{}, fmt.Errorf("get certificate for diploma delete: %w", err)
+	}
+	if !detail.IsCurrent {
+		return CertificateView{}, ErrCertificateRevoked
+	}
+
+	if detail.DiplomaFileUrl.Valid && detail.DiplomaFileUrl.String != "" {
+		_ = s.storage.DeleteDiplomaPDF(ctx, detail.DiplomaFileUrl.String)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return CertificateView{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.queries.WithTx(tx)
+
+	_, err = q.RemoveCertificateDiplomaFile(ctx, cid)
+	if err != nil {
+		return CertificateView{}, fmt.Errorf("remove certificate diploma file: %w", err)
+	}
+
+	detail, err = q.GetCertificateDetail(ctx, cid)
+	if err != nil {
+		return CertificateView{}, fmt.Errorf("get updated certificate detail: %w", err)
+	}
+	result := certificateFromDetail(detail)
+
+	if err := audit.WriteWithReason(ctx, q, actorID, "certificate.diploma_removed", "certificates", cid, nil, map[string]any{
+		"certificate_number": detail.CertificateNumber,
+		"student_code":       detail.StudentCode,
+	}, "Xóa bản scan bằng tốt nghiệp"); err != nil {
+		return CertificateView{}, err
+	}
+	if err := classhistory.Write(ctx, q, actorID, detail.ClassID, "certificate.diploma_removed", "certificates", cid, "Xóa bản scan bằng tốt nghiệp", result); err != nil {
+		return CertificateView{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CertificateView{}, err
+	}
+
+	return result, nil
+}
+
 type certificateData struct {
 	ID, CompletionID, VerificationCode                                     pgtype.UUID
 	CertificateNumber                                                      string
@@ -446,20 +580,40 @@ type certificateData struct {
 	RevokeReason                                                           pgtype.Text
 	IsCurrent                                                              bool
 	ClassCode, ClassName, CourseCode, CourseName, StudentCode, StudentName string
+	DiplomaFileURL, DiplomaFileName                                        pgtype.Text
+	DiplomaUploadedAt                                                      pgtype.Timestamptz
 }
 
 func certificateView(r certificateData) CertificateView {
-	return CertificateView{ID: data.UUIDString(r.ID), CompletionID: data.UUIDString(r.CompletionID), CertificateNumber: r.CertificateNumber, VerificationCode: data.UUIDString(r.VerificationCode), ClassCode: r.ClassCode, ClassName: r.ClassName, CourseCode: r.CourseCode, CourseName: r.CourseName, StudentCode: r.StudentCode, StudentName: r.StudentName, IssuedAt: r.IssuedAt.Time.UTC().Format(time.RFC3339Nano), IsCurrent: r.IsCurrent, RevokedAt: data.TimeString(r.RevokedAt), RevokeReason: data.TextPointer(r.RevokeReason)}
+	return CertificateView{
+		ID:                data.UUIDString(r.ID),
+		CompletionID:      data.UUIDString(r.CompletionID),
+		CertificateNumber: r.CertificateNumber,
+		VerificationCode:  data.UUIDString(r.VerificationCode),
+		ClassCode:         r.ClassCode,
+		ClassName:         r.ClassName,
+		CourseCode:        r.CourseCode,
+		CourseName:        r.CourseName,
+		StudentCode:       r.StudentCode,
+		StudentName:       r.StudentName,
+		IssuedAt:          r.IssuedAt.Time.UTC().Format(time.RFC3339Nano),
+		IsCurrent:         r.IsCurrent,
+		RevokedAt:         data.TimeString(r.RevokedAt),
+		RevokeReason:      data.TextPointer(r.RevokeReason),
+		DiplomaFileURL:    data.TextPointer(r.DiplomaFileURL),
+		DiplomaFileName:   data.TextPointer(r.DiplomaFileName),
+		DiplomaUploadedAt: data.TimeString(r.DiplomaUploadedAt),
+	}
 }
 func certificateFromDetail(r db.GetCertificateDetailRow) CertificateView {
-	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName, r.DiplomaFileUrl, r.DiplomaFileName, r.DiplomaUploadedAt})
 }
 func certificateFromVerify(r db.GetCertificateByVerificationCodeRow) CertificateView {
-	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName, r.DiplomaFileUrl, r.DiplomaFileName, r.DiplomaUploadedAt})
 }
 func certificateFromStudent(r db.ListStudentCertificatesRow) CertificateView {
-	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName, r.DiplomaFileUrl, r.DiplomaFileName, r.DiplomaUploadedAt})
 }
 func certificateFromStudentGet(r db.GetStudentCertificateRow) CertificateView {
-	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName})
+	return certificateView(certificateData{r.ID, r.CompletionID, r.VerificationCode, r.CertificateNumber, r.IssuedAt, r.RevokedAt, r.RevokeReason, r.IsCurrent, r.ClassCode, r.ClassName, r.CourseCode, r.CourseName, r.StudentCode, r.StudentName, r.DiplomaFileUrl, r.DiplomaFileName, r.DiplomaUploadedAt})
 }

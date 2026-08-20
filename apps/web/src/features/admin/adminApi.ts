@@ -1,4 +1,4 @@
-import { api, apiCSV, apiDownload } from "../../lib/apiClient";
+import { api, apiCSV, apiDownload, apiUpload } from "../../lib/apiClient";
 import type {
   ClassSession,
   CompletionCandidate,
@@ -200,6 +200,13 @@ export const adminApi = {
       body: { status, note },
     }),
   certificatePDF: (id: string) => apiDownload(`/admin/certificates/${id}/pdf`),
+  uploadDiploma: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiUpload<Certificate>(`/admin/certificates/${id}/diploma`, formData);
+  },
+  deleteDiploma: (id: string) =>
+    api<Certificate>(`/admin/certificates/${id}/diploma`, { method: "DELETE" }),
   revokeCertificate: (id: string, reason: string) =>
     api<Certificate>(`/admin/certificates/${id}/revoke`, { method: "POST", body: { reason } }),
   reissueCertificate: (id: string, reason: string) =>

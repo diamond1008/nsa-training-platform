@@ -13,29 +13,13 @@ import {
 } from "../../components/data";
 import { Icon } from "../../components/icons";
 import { FilterBar, useDebouncedValue } from "../../components/filters";
-import {
-  Button,
-  Card,
-  ErrorBanner,
-  Input,
-  PageHeader,
-  Select,
-  Textarea,
-} from "../../components/ui";
+import { Button, Card, ErrorBanner, Input, Modal, PageHeader, Select } from "../../components/ui";
 import { ApiRequestError } from "../../lib/apiClient";
-import type { CompetencyRating } from "../../lib/domainTypes";
 import { formatDate, formatDateTime, statusLabel } from "../../lib/format";
 import { patchListQuery, readListQuery } from "../../lib/listQuery";
 import type { ListQueryConfig } from "../../lib/listQuery";
 import { teacherApi } from "./teacherApi";
 
-const ratings: CompetencyRating[] = [
-  "not_assessed",
-  "needs_improvement",
-  "competent",
-  "good",
-  "excellent",
-];
 const errorText = (error: unknown) =>
   error instanceof ApiRequestError
     ? error.message
@@ -323,7 +307,7 @@ export function TeacherClassDetailPage() {
                     <Link
                       to={`/teacher/lop-phu-trach/${classId}/hoc-vien/${student.student_id}/danh-gia`}
                     >
-                      <Button variant="ghost">Đánh giá kỹ năng</Button>
+                      <Button variant="ghost">Nhập điểm kiểm tra</Button>
                     </Link>
                   </div>
                 ))}
@@ -544,11 +528,6 @@ export function AssessmentPage() {
     queryFn: () => teacherApi.classDetail(classId),
     enabled: !!classId,
   });
-  const history = useQuery({
-    queryKey: ["teacher", "assessments", classId, studentId],
-    queryFn: () => teacherApi.assessments(classId, studentId),
-    enabled: !!classId && !!studentId,
-  });
   const testResults = useQuery({
     queryKey: ["teacher", "test-results", classId, studentId],
     queryFn: () => teacherApi.testResults(classId, studentId),
@@ -556,67 +535,9 @@ export function AssessmentPage() {
   });
   const [scoreMap, setScoreMap] = useState<Record<string, string>>({});
   const [scoreNotes, setScoreNotes] = useState<Record<string, string>>({});
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [overall, setOverall] = useState("");
-  const [evidenceURL, setEvidenceURL] = useState("");
-  const [ratingMap, setRatingMap] = useState<Record<string, CompetencyRating>>({});
-  const [comments, setComments] = useState<Record<string, string>>({});
-  useEffect(() => {
-    if (detail.data && !editingId)
-      setRatingMap(
-        Object.fromEntries((detail.data.competencies ?? []).map((c) => [c.id, "not_assessed"])),
-      );
-  }, [detail.data, editingId]);
-  useEffect(() => {
-    const draft = history.data?.items?.find((item) => item.status === "draft");
-    if (!draft) {
-      setEditingId(null);
-      setOverall("");
-      setEvidenceURL("");
-      setComments({});
-      return;
-    }
-    setEditingId(draft.id);
-    setOverall(draft.overall_comment ?? "");
-    setEvidenceURL(draft.evidence_url ?? "");
-    setRatingMap(
-      Object.fromEntries(
-        (draft.items ?? []).map((item) => [item.competency_criterion_id, item.rating]),
-      ),
-    );
-    setComments(
-      Object.fromEntries(
-        (draft.items ?? [])
-          .filter((item) => item.comment)
-          .map((item) => [item.competency_criterion_id, item.comment ?? ""]),
-      ),
-    );
-  }, [history.data]);
+
   const student = (detail.data?.students ?? []).find((s) => s.student_id === studentId);
-  const assessmentBody = {
-    session_id: null,
-    overall_comment: overall || null,
-    evidence_url: evidenceURL.trim() || null,
-    items: (detail.data?.competencies ?? []).map((c) => ({
-      competency_criterion_id: c.id,
-      rating: ratingMap[c.id] ?? ("not_assessed" as CompetencyRating),
-      comment: comments[c.id] || null,
-    })),
-  };
-  const create = useMutation({
-    mutationFn: () =>
-      editingId
-        ? teacherApi.updateAssessment(editingId, assessmentBody)
-        : teacherApi.createAssessment(classId, studentId, assessmentBody),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: ["teacher", "assessments", classId, studentId] }),
-  });
-  const transition = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "submit" | "lock" }) =>
-      action === "submit" ? teacherApi.submitAssessment(id) : teacherApi.lockAssessment(id),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: ["teacher", "assessments", classId, studentId] }),
-  });
+
   const recordScore = useMutation({
     mutationFn: (testId: string) =>
       teacherApi.recordTestAttempt(classId, studentId, testId, {
@@ -629,29 +550,50 @@ export function AssessmentPage() {
       void client.invalidateQueries({ queryKey: ["teacher", "test-results", classId, studentId] });
     },
   });
+  const [correctingAttempt, setCorrectingAttempt] = useState<{
+    attemptId: string;
+    testTitle: string;
+    attemptNo: number;
+    oldScore: number;
+    oldNote?: string | null;
+  } | null>(null);
+  const [correctForm, setCorrectForm] = useState({
+    score: 0,
+    note: "",
+    reason: "",
+  });
+
   const correctScore = useMutation({
-    mutationFn: ({ attemptId, oldScore }: { attemptId: string; oldScore: number }) => {
-      const nextScore = window.prompt("Điểm mới (0-10)", String(oldScore));
-      if (nextScore === null) throw new Error("Đã hủy chỉnh sửa");
-      const reason = window.prompt("Lý do chỉnh sửa điểm");
-      if (!reason?.trim()) throw new Error("Cần nhập lý do chỉnh sửa");
+    mutationFn: ({
+      attemptId,
+      score,
+      note,
+      reason,
+    }: {
+      attemptId: string;
+      score: number;
+      note: string | null;
+      reason: string;
+    }) => {
       return teacherApi.correctTestAttempt(attemptId, {
-        score: Number(nextScore),
-        note: null,
-        reason: reason.trim(),
+        score,
+        note,
+        reason,
       });
     },
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: ["teacher", "test-results", classId, studentId] }),
+    onSuccess: () => {
+      setCorrectingAttempt(null);
+      void client.invalidateQueries({ queryKey: ["teacher", "test-results", classId, studentId] });
+    },
   });
   return (
     <div>
       <PageHeader
-        title={`Đánh giá kỹ năng${student ? ` — ${student.full_name}` : ""}`}
+        title={`Điểm kiểm tra${student ? ` — ${student.full_name}` : ""}`}
         subtitle={
           student
             ? `${student.student_code} · ${detail.data?.class.class_code}`
-            : "Tạo đánh giá thực hành theo tiêu chí khóa học."
+            : "Nhập và quản lý điểm kiểm tra của học viên."
         }
         actions={
           <Link to={`/teacher/lop-phu-trach/${classId}`}>
@@ -660,15 +602,15 @@ export function AssessmentPage() {
         }
       />
       <QueryState
-        loading={detail.isLoading || history.isLoading || testResults.isLoading}
-        error={detail.error || history.error || testResults.error}
+        loading={detail.isLoading || testResults.isLoading}
+        error={detail.error || testResults.error}
       >
         {detail.data && (
           <div className="space-y-6">
             <Card>
               <SectionHeader
                 title="Điểm kiểm tra và thi kết thúc khóa"
-                subtitle="Học viên làm bài trên giấy. Nhập điểm sau khi chấm; hệ thống dùng điểm cao nhất để xét hoàn thành."
+                subtitle="Học viên làm bài trên giấy. Nhập điểm sau khi chấm; nếu thi lại (Lần 2), điểm Lần 2 là điểm chính thức và được lưu cố định."
               />
               {(recordScore.error || correctScore.error) && (
                 <ErrorBanner message={errorText(recordScore.error || correctScore.error)} />
@@ -690,34 +632,64 @@ export function AssessmentPage() {
                       <StatusBadge value={result.passed ? "passed" : "pending"} />
                     </div>
                     <div className="mt-3 space-y-2">
-                      {(result.attempts ?? []).map((attempt) => (
-                        <div
-                          key={attempt.id}
-                          className="flex items-center justify-between rounded-lg bg-gbg2 px-3 py-2 text-sm"
-                        >
-                          <span>
-                            Lần {attempt.attempt_no}: <b>{attempt.score.toFixed(2)}</b> ·{" "}
-                            {formatDateTime(attempt.taken_at)}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              correctScore.mutate({
-                                attemptId: attempt.id,
-                                oldScore: attempt.score,
-                              })
-                            }
+                      {(result.attempts ?? []).map((attempt) => {
+                        const totalAttempts = result.attempts?.length ?? 0;
+                        const isOfficial =
+                          totalAttempts >= 2 ? attempt.attempt_no === 2 : attempt.attempt_no === 1;
+                        const canEdit = attempt.attempt_no === 1 && totalAttempts < 2;
+
+                        return (
+                          <div
+                            key={attempt.id}
+                            className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
+                              isOfficial
+                                ? "border border-gold/30 bg-amber-500/10 font-medium text-navy"
+                                : "bg-gbg2 text-gtext"
+                            }`}
                           >
-                            Sửa
-                          </Button>
-                        </div>
-                      ))}
-                      {(result.next_attempt_no ?? 1) >= 2 && !result.retake_permitted ? (
-                        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-                          🔒 <b>Cần Admin duyệt cấp phép thi lại (Lần {result.next_attempt_no}):</b>{" "}
-                          Học viên đã có kết quả Lần {(result.next_attempt_no ?? 2) - 1}. Giảng viên
-                          không thể tự nhập điểm Lần {result.next_attempt_no} trừ khi Admin đã phê
-                          duyệt mở quyền thi lại.
+                            <span className="flex items-center gap-2">
+                              <span>
+                                Lần {attempt.attempt_no}:{" "}
+                                <b className={isOfficial ? "font-bold text-navy-heading" : ""}>
+                                  {attempt.score.toFixed(2)}
+                                </b>{" "}
+                                · {formatDateTime(attempt.taken_at)}
+                              </span>
+                              {isOfficial && (
+                                <span className="rounded bg-gold/20 px-2 py-0.5 text-[11px] font-bold text-navy">
+                                  Điểm chính thức
+                                </span>
+                              )}
+                            </span>
+                            {canEdit && (
+                              <Button
+                                variant="ghost"
+                                onClick={() => {
+                                  setCorrectingAttempt({
+                                    attemptId: attempt.id,
+                                    testTitle: `${result.test.code} · ${result.test.title}`,
+                                    attemptNo: attempt.attempt_no,
+                                    oldScore: attempt.score,
+                                    oldNote: attempt.note,
+                                  });
+                                  setCorrectForm({
+                                    score: attempt.score,
+                                    note: attempt.note || "",
+                                    reason: "",
+                                  });
+                                }}
+                              >
+                                Sửa
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {(result.attempts?.length ?? 0) >= 2 ? (
+                        <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-800 dark:text-emerald-300">
+                          ✓ <b>Đã hoàn thành 2 lần thi.</b> Điểm <b>Lần 2</b> là điểm chính thức của
+                          bài thi này và đã được lưu cố định.
                         </div>
                       ) : (
                         <div className="mt-4 grid gap-3 sm:grid-cols-[120px_1fr_auto] sm:items-end">
@@ -727,7 +699,7 @@ export function AssessmentPage() {
                             max={10}
                             step={0.01}
                             type="number"
-                            label={`Điểm (Lần ${result.next_attempt_no ?? 1})`}
+                            label={`Điểm (Lần ${(result.attempts?.length ?? 0) + 1})`}
                             value={scoreMap[result.test.id] ?? ""}
                             onChange={(e) =>
                               setScoreMap((old) => ({ ...old, [result.test.id]: e.target.value }))
@@ -737,7 +709,10 @@ export function AssessmentPage() {
                             label="Ghi chú"
                             value={scoreNotes[result.test.id] ?? ""}
                             onChange={(e) =>
-                              setScoreNotes((old) => ({ ...old, [result.test.id]: e.target.value }))
+                              setScoreNotes((old) => ({
+                                ...old,
+                                [result.test.id]: e.target.value,
+                              }))
                             }
                           />
                           <Button
@@ -762,135 +737,90 @@ export function AssessmentPage() {
                 )}
               </div>
             </Card>
-            <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
-              <Card>
-                <h2 className="mb-4 text-lg font-bold text-navy">Phiếu đánh giá mới</h2>
-                {create.error && <ErrorBanner message={errorText(create.error)} />}
-                <div className="space-y-4">
-                  {(detail.data.competencies ?? []).map((criterion) => (
-                    <div key={criterion.id} className="rounded-xl border border-gborder p-4">
-                      <div className="mb-3 flex justify-between gap-2">
-                        <div>
-                          <b>
-                            {criterion.code} — {criterion.name}
-                          </b>
-                          {criterion.description && (
-                            <p className="mt-1 text-xs text-gtext">{criterion.description}</p>
-                          )}
-                        </div>
-                        {criterion.is_required && (
-                          <span className="text-xs font-semibold text-error">Bắt buộc</span>
-                        )}
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <Select
-                          label="Mức đánh giá"
-                          value={ratingMap[criterion.id] ?? "not_assessed"}
-                          onChange={(e) =>
-                            setRatingMap((old) => ({
-                              ...old,
-                              [criterion.id]: e.target.value as CompetencyRating,
-                            }))
-                          }
-                        >
-                          {ratings.map((r) => (
-                            <option key={r} value={r}>
-                              {statusLabel(r)}
-                            </option>
-                          ))}
-                        </Select>
-                        <Input
-                          label="Nhận xét"
-                          value={comments[criterion.id] ?? ""}
-                          onChange={(e) =>
-                            setComments((old) => ({ ...old, [criterion.id]: e.target.value }))
-                          }
-                        />
-                      </div>
+
+            <Modal
+              open={Boolean(correctingAttempt)}
+              title="Hiệu chỉnh điểm bài kiểm tra"
+              onClose={() => setCorrectingAttempt(null)}
+            >
+              {correctingAttempt && (
+                <form
+                  className="space-y-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    correctScore.mutate({
+                      attemptId: correctingAttempt.attemptId,
+                      score: Number(correctForm.score),
+                      note: correctForm.note.trim() || null,
+                      reason: correctForm.reason.trim(),
+                    });
+                  }}
+                >
+                  <div className="space-y-1 rounded-xl bg-gbg2 p-3.5 text-sm">
+                    <div className="font-semibold text-navy-heading">
+                      {correctingAttempt.testTitle}
                     </div>
-                  ))}
-                  {!(detail.data.competencies ?? []).length && (
-                    <p className="text-sm text-gtext">
-                      Khóa học chưa được cấu hình tiêu chí đánh giá kỹ năng.
-                    </p>
-                  )}
-                  <Textarea
-                    label="Nhận xét chung"
-                    value={overall}
-                    onChange={(e) => setOverall(e.target.value)}
-                  />
+                    <div className="text-xs text-gtext">
+                      Lần thi: <b>Lần {correctingAttempt.attemptNo}</b> · Điểm hiện tại:{" "}
+                      <b className="font-bold text-gold">{correctingAttempt.oldScore.toFixed(2)}</b>
+                    </div>
+                  </div>
+
                   <Input
-                    type="url"
-                    label="Liên kết minh chứng (tùy chọn)"
-                    placeholder="https://drive.google.com/..."
-                    value={evidenceURL}
-                    onChange={(e) => setEvidenceURL(e.target.value)}
+                    required
+                    min={0}
+                    max={10}
+                    step={0.01}
+                    type="number"
+                    label="Điểm mới (thang điểm 0 - 10)"
+                    value={correctForm.score}
+                    onChange={(e) =>
+                      setCorrectForm((f) => ({ ...f, score: Number(e.target.value) }))
+                    }
                   />
-                  <div className="flex justify-end">
-                    <Button loading={create.isPending} onClick={() => create.mutate()}>
-                      Lưu bản nháp
+
+                  <Input
+                    label="Ghi chú cập nhật (tùy chọn)"
+                    value={correctForm.note}
+                    placeholder="Ghi chú về bài làm của học viên..."
+                    onChange={(e) => setCorrectForm((f) => ({ ...f, note: e.target.value }))}
+                  />
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-navy-heading">
+                      Lý do chỉnh sửa <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      required
+                      rows={3}
+                      className="w-full rounded-xl border border-gborder bg-white p-3 text-sm text-navy placeholder:text-gtext focus:border-gold focus:outline-none focus:ring-1 focus:ring-gold"
+                      placeholder="Ví dụ: Chấm lại bài phúc khảo, cộng điểm câu tự luận..."
+                      value={correctForm.reason}
+                      onChange={(e) => setCorrectForm((f) => ({ ...f, reason: e.target.value }))}
+                    />
+                    <p className="mt-1 text-xs text-gtext">
+                      Lý do chỉnh sửa sẽ được lưu lại trong lịch sử vận hành lớp học để đối soát.
+                    </p>
+                  </div>
+
+                  {correctScore.error && <ErrorBanner message={errorText(correctScore.error)} />}
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setCorrectingAttempt(null)}
+                      disabled={correctScore.isPending}
+                    >
+                      Hủy
+                    </Button>
+                    <Button type="submit" loading={correctScore.isPending}>
+                      Lưu điểm hiệu chỉnh
                     </Button>
                   </div>
-                </div>
-              </Card>
-              <Card>
-                <h2 className="mb-4 text-lg font-bold text-navy">Lịch sử đánh giá</h2>
-                {transition.error && <ErrorBanner message={errorText(transition.error)} />}
-                <div className="space-y-3">
-                  {(history.data?.items ?? []).map((a) => (
-                    <div key={a.id} className="rounded-xl border border-gborder p-4">
-                      <div className="flex justify-between">
-                        <b>Lần #{a.assessment_no}</b>
-                        <StatusBadge value={a.status} />
-                      </div>
-                      <p className="mt-2 text-sm text-gtext">
-                        {a.overall_comment || "Không có nhận xét chung"}
-                      </p>
-                      {a.evidence_url && (
-                        <a
-                          className="mt-2 inline-flex text-xs font-semibold text-gold-dark hover:underline"
-                          href={a.evidence_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Xem minh chứng ↗
-                        </a>
-                      )}
-                      <p className="mt-2 text-xs text-gtext">
-                        {
-                          (a.items ?? []).filter((i) =>
-                            ["competent", "good", "excellent"].includes(i.rating),
-                          ).length
-                        }
-                        /{(a.items ?? []).length} tiêu chí đạt
-                      </p>
-                      <div className="mt-3 flex gap-2">
-                        {a.status === "draft" && (
-                          <Button
-                            loading={transition.isPending}
-                            onClick={() => transition.mutate({ id: a.id, action: "submit" })}
-                          >
-                            Gửi đánh giá
-                          </Button>
-                        )}
-                        {a.status === "submitted" && (
-                          <Button
-                            variant="accent"
-                            loading={transition.isPending}
-                            onClick={() => transition.mutate({ id: a.id, action: "lock" })}
-                          >
-                            Khóa kết quả
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {!(history.data?.items ?? []).length && (
-                    <p className="text-sm text-gtext">Chưa có đánh giá.</p>
-                  )}
-                </div>
-              </Card>
-            </div>
+                </form>
+              )}
+            </Modal>
           </div>
         )}
       </QueryState>

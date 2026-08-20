@@ -46,8 +46,8 @@ SELECT
   (SELECT COUNT(*)::int FROM class_sessions cs JOIN classes c2 ON c2.id=cs.class_id WHERE c2.course_id=ce.course_id AND cs.session_type='assessment' AND cs.status<>'cancelled') AS required_assessments,
   (SELECT COUNT(DISTINCT sa.session_id)::int FROM student_assessments sa JOIN class_sessions cs ON cs.id=sa.session_id WHERE sa.course_id=ce.course_id AND sa.student_id=ce.student_id AND sa.status IN ('submitted','locked') AND cs.session_type='assessment' AND cs.status<>'cancelled') AS completed_assessments,
   (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active) AS required_tests,
-  (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND EXISTS (SELECT 1 FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id AND sta.score>=ct.pass_score)) AS tests_passed,
-  (SELECT MAX(sta.score)::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_score,
+  (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='class_test' AND ct.is_required AND ct.is_active AND COALESCE((SELECT sta.score>=ct.pass_score FROM student_test_attempts sta WHERE sta.test_id=ct.id AND sta.student_id=ce.student_id ORDER BY sta.attempt_no DESC LIMIT 1), FALSE)) AS tests_passed,
+  (SELECT sta.score::numeric(4,2) FROM student_test_attempts sta JOIN course_tests ct ON ct.id=sta.test_id WHERE sta.course_id=ce.course_id AND sta.student_id=ce.student_id AND ct.kind='final_exam' AND ct.is_active ORDER BY sta.attempt_no DESC LIMIT 1) AS final_exam_score,
   (SELECT COUNT(*)::int FROM course_tests ct WHERE ct.course_id=ce.course_id AND ct.kind='final_exam' AND ct.is_active) AS final_exam_count,
   cp.status AS persisted_completion_status
 FROM candidate_enrollments ce

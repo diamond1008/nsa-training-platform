@@ -70,7 +70,15 @@ const insertAuditLog = `-- name: InsertAuditLog :exec
 INSERT INTO audit_logs (
   actor_user_id, action, entity_type, entity_id, old_values, new_values, reason
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  NULLIF($5::text, '')::jsonb,
+  NULLIF($6::text, '')::jsonb,
+  $7
+)
 `
 
 type InsertAuditLogParams struct {
@@ -78,8 +86,8 @@ type InsertAuditLogParams struct {
 	Action      string      `json:"action"`
 	EntityType  string      `json:"entity_type"`
 	EntityID    pgtype.UUID `json:"entity_id"`
-	OldValues   []byte      `json:"old_values"`
-	NewValues   []byte      `json:"new_values"`
+	OldValues   pgtype.Text `json:"old_values"`
+	NewValues   pgtype.Text `json:"new_values"`
 	Reason      pgtype.Text `json:"reason"`
 }
 

@@ -304,35 +304,28 @@ func (s *Service) results(ctx context.Context, courseID, studentID pgtype.UUID) 
 		tv := testView(test)
 		testAttempts := attemptsForTest(byTest, tv.ID)
 		testPermits := permitsByTest[tv.ID]
-		var best *float64
+		var officialScore *float64
 		passed := false
-		for _, attempt := range testAttempts {
-			score := attempt.Score
-			if best == nil || score > *best {
-				v := score
-				best = &v
-			}
-			if attempt.Passed {
-				passed = true
-			}
-		}
-		nextNo := int32(len(testAttempts) + 1)
-		permitted := nextNo == 1
-		if nextNo >= 2 {
-			for _, p := range testPermits {
-				if p.TargetAttemptNo == nextNo {
-					permitted = true
-					break
+		if len(testAttempts) > 0 {
+			// Find attempt with the highest attempt_no (e.g. Lần 2 if exists, else Lần 1)
+			latest := testAttempts[0]
+			for _, a := range testAttempts {
+				if a.AttemptNo > latest.AttemptNo {
+					latest = a
 				}
 			}
+			score := latest.Score
+			officialScore = &score
+			passed = latest.Passed
 		}
+		nextNo := int32(len(testAttempts) + 1)
 		items = append(items, TestResultView{
 			Test:            tv,
 			Attempts:        testAttempts,
 			Passed:          passed,
-			BestScore:       best,
+			BestScore:       officialScore,
 			NextAttemptNo:   nextNo,
-			RetakePermitted: permitted,
+			RetakePermitted: nextNo <= 2,
 			RetakePermits:   testPermits,
 		})
 	}
@@ -397,14 +390,8 @@ func (s *Service) RecordAttempt(ctx context.Context, userID, classIDValue, stude
 	if err != nil {
 		return AttemptView{}, err
 	}
-	if no >= 2 && !isAdmin {
-		permitted, err := q.HasTestRetakePermit(ctx, db.HasTestRetakePermitParams{TestID: testID, StudentID: studentID, TargetAttemptNo: no})
-		if err != nil {
-			return AttemptView{}, err
-		}
-		if !permitted {
-			return AttemptView{}, ErrRetakeNotPermitted
-		}
+	if no > 2 {
+		return AttemptView{}, errors.New("mỗi bài kiểm tra chỉ được nhập tối đa 2 lần thi (Lần 1 và Lần 2)")
 	}
 	taken := input.TakenAt
 	if taken.IsZero() {
@@ -507,6 +494,9 @@ func (s *Service) CorrectAttempt(ctx context.Context, userID, attemptIDValue str
 	}
 	if err != nil {
 		return AttemptView{}, err
+	}
+	if old.AttemptNo >= 2 && !isAdmin {
+		return AttemptView{}, errors.New("điểm thi lại (Lần 2) đã được lưu cố định và không được phép chỉnh sửa")
 	}
 	if !isAdmin {
 		assigned, err := q.CheckTeacherAssignedToClass(ctx, db.CheckTeacherAssignedToClassParams{ClassID: old.ClassID, UserID: actor})

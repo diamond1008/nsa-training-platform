@@ -193,6 +193,38 @@ export function AdminOperationsPage() {
       void queryClient.invalidateQueries({ queryKey: ["admin", "reports", "summary"] });
     },
   });
+  const [selectedDiplomaCandidate, setSelectedDiplomaCandidate] =
+    useState<CompletionCandidate | null>(null);
+  const [diplomaFile, setDiplomaFile] = useState<File | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const uploadDiplomaMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDiplomaCandidate?.current_certificate_id || !diplomaFile) return;
+      return adminApi.uploadDiploma(selectedDiplomaCandidate.current_certificate_id, diplomaFile);
+    },
+    onSuccess: () => {
+      setDiplomaFile(null);
+      setUploadError(null);
+      setSelectedDiplomaCandidate(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "completions"] });
+    },
+    onError: (err: unknown) => {
+      setUploadError(err instanceof Error ? err.message : "Tải lên bản scan thất bại");
+    },
+  });
+
+  const deleteDiplomaMutation = useMutation({
+    mutationFn: async (certId: string) => {
+      if (!window.confirm("Bạn có chắc chắn muốn xóa bản scan bằng tốt nghiệp này không?")) return;
+      return adminApi.deleteDiploma(certId);
+    },
+    onSuccess: () => {
+      setSelectedDiplomaCandidate(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin", "completions"] });
+    },
+  });
+
   const certificateAction = useMutation({
     mutationFn: ({ id, action }: { id: string; action: "revoke" | "reissue" }) => {
       const reason = window.prompt(
@@ -416,6 +448,18 @@ export function AdminOperationsPage() {
                           Tải {item.current_certificate_number}
                         </Button>
                         <Button
+                          variant={item.current_diploma_file_url ? "soft" : "ghost"}
+                          onClick={() => {
+                            setSelectedDiplomaCandidate(item);
+                            setDiplomaFile(null);
+                            setUploadError(null);
+                          }}
+                        >
+                          {item.current_diploma_file_url
+                            ? "📄 Bản scan bằng"
+                            : "📤 Tải scan bằng PDF"}
+                        </Button>
+                        <Button
                           variant="soft"
                           loading={certificateAction.isPending}
                           onClick={() =>
@@ -507,6 +551,122 @@ export function AdminOperationsPage() {
               >
                 Lưu quyết định
               </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!selectedDiplomaCandidate}
+        title="Bản scan bằng tốt nghiệp (Cloudflare R2)"
+        onClose={() => {
+          setSelectedDiplomaCandidate(null);
+          setDiplomaFile(null);
+          setUploadError(null);
+        }}
+      >
+        {selectedDiplomaCandidate && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-gbg2 p-4">
+              <p className="text-xs font-semibold text-gold-dark">
+                Chứng chỉ: {selectedDiplomaCandidate.current_certificate_number}
+              </p>
+              <h3 className="font-bold text-navy">
+                {selectedDiplomaCandidate.student_code} — {selectedDiplomaCandidate.student_name}
+              </h3>
+              <p className="mt-1 text-sm text-gtext">
+                {selectedDiplomaCandidate.class_code} · {selectedDiplomaCandidate.course_name}
+              </p>
+            </div>
+
+            {selectedDiplomaCandidate.current_diploma_file_url ? (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium text-gtext">Bản scan PDF hiện tại:</p>
+                    <p className="font-semibold text-navy">
+                      {selectedDiplomaCandidate.current_diploma_file_name ||
+                        "Bản scan bằng tốt nghiệp"}
+                    </p>
+                  </div>
+                  <Badge tone="green">Cloudflare R2</Badge>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <a
+                    href={selectedDiplomaCandidate.current_diploma_file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-navy/90"
+                  >
+                    Xem / Tải file scan ↗
+                  </a>
+                  <Button
+                    variant="soft"
+                    loading={deleteDiplomaMutation.isPending}
+                    onClick={() =>
+                      deleteDiplomaMutation.mutate(selectedDiplomaCandidate.current_certificate_id!)
+                    }
+                  >
+                    Xóa file scan
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border-2 border-dashed border-border p-5 text-center">
+                <p className="text-sm font-medium text-navy">
+                  Chưa có bản scan bằng tốt nghiệp chính thức cho học viên này.
+                </p>
+                <p className="mt-1 text-xs text-gtext">
+                  Chọn tệp PDF (bản scan bằng tốt nghiệp có mộc đỏ, dung lượng tối đa 10 MB) để lưu
+                  trữ lên Cloudflare R2 Object Storage.
+                </p>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="mt-4 block w-full text-sm text-gtext file:mr-4 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-primary-dark"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      if (!f.name.toLowerCase().endsWith(".pdf") && f.type !== "application/pdf") {
+                        setUploadError("Vui lòng chỉ chọn tệp PDF (.pdf)");
+                        setDiplomaFile(null);
+                        return;
+                      }
+                      if (f.size > 10 * 1024 * 1024) {
+                        setUploadError("Dung lượng tệp không được vượt quá 10 MB");
+                        setDiplomaFile(null);
+                        return;
+                      }
+                      setUploadError(null);
+                      setDiplomaFile(f);
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            {uploadError && <ErrorBanner message={uploadError} />}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setSelectedDiplomaCandidate(null);
+                  setDiplomaFile(null);
+                  setUploadError(null);
+                }}
+              >
+                Đóng
+              </Button>
+              {diplomaFile && (
+                <Button
+                  variant="accent"
+                  loading={uploadDiplomaMutation.isPending}
+                  onClick={() => uploadDiplomaMutation.mutate()}
+                >
+                  Tải lên R2 ({diplomaFile.name})
+                </Button>
+              )}
             </div>
           </div>
         )}
