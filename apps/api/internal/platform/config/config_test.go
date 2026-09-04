@@ -9,7 +9,7 @@ import (
 func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
-		"APP_ENV", "API_PORT", "DATABASE_URL", "LOG_LEVEL",
+		"APP_ENV", "PORT", "API_PORT", "DATABASE_URL", "LOG_LEVEL",
 		"CORS_ALLOWED_ORIGINS", "SHUTDOWN_TIMEOUT_SECONDS", "OPENAPI_PATH",
 		"JWT_ACCESS_SECRET", "ACCESS_TOKEN_TTL_MINUTES", "REFRESH_TOKEN_TTL_DAYS", "BCRYPT_COST",
 	} {
@@ -147,5 +147,20 @@ func TestLoad_RejectsInsecureProductionCORS(t *testing.T) {
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
 		t.Fatalf("expected production CORS error, got %v", err)
+	}
+}
+
+func TestLoad_PrioritizesPORT(t *testing.T) {
+	clearEnv(t)
+	setRequiredEnv(t)
+	t.Setenv("PORT", "10000")
+	t.Setenv("API_PORT", "8080")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPPort != 10000 {
+		t.Fatalf("expected HTTPPort 10000, got %d", cfg.HTTPPort)
 	}
 }

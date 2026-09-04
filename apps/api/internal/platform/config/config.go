@@ -53,7 +53,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		Env:                getEnv("APP_ENV", "development"),
-		HTTPPort:           getEnvInt("API_PORT", getEnvInt("PORT", 8080)),
+		HTTPPort:           getEnvInt("PORT", getEnvInt("API_PORT", 8080)),
 		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		LogLevel:           strings.ToLower(getEnv("LOG_LEVEL", "info")),
 		CORSAllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{"http://localhost:5173"}),

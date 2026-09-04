@@ -133,7 +133,9 @@ func run() error {
 
 	// Operational endpoints (unversioned by design).
 	r.Get("/health", healthHandler.Health)
+	r.Head("/health", healthHandler.Health)
 	r.Get("/ready", healthHandler.Ready)
+	r.Head("/ready", healthHandler.Ready)
 
 	// API documentation (Swagger UI + the OpenAPI contract).
 	r.Get("/docs", docsHandler.SwaggerUI)
