@@ -14,7 +14,11 @@ BEGIN;
 INSERT INTO users (id, email, password_hash, status, must_change_password) VALUES
   ('11111111-1111-1111-1111-111111111111', 'admin@nsa.local',   '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
   ('22222222-2222-2222-2222-222222222222', 'teacher@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
-  ('33333333-3333-3333-3333-333333333333', 'student@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
+  ('33333333-3333-3333-3333-333333333333', 'student@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
+  ('44444444-4444-4444-4444-444444444440', 'sale_admin@nsa.local', '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
+  ('44444444-4444-4444-4444-444444444444', 'sale@nsa.local',    '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
+  ('44444444-4444-4444-4444-444444444445', 'sale2@nsa.local',   '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE),
+  ('44444444-4444-4444-4444-444444444446', 'sale3@nsa.local',   '$2a$10$GsxiaGCj4KByEhya9W2DKuBXIXe2rFCEPSqwArzcHJkRes85Q2AQe', 'active', FALSE)
 ON CONFLICT (email) DO NOTHING;
 
 -- ---------- Role assignments (resolved by code, not hardcoded ids) ----------
@@ -31,6 +35,16 @@ ON CONFLICT (user_id, role_id) DO NOTHING;
 INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'STUDENT'
 WHERE u.email = 'student@nsa.local'
+ON CONFLICT (user_id, role_id) DO NOTHING;
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'SALE_ADMIN'
+WHERE u.email = 'sale_admin@nsa.local'
+ON CONFLICT (user_id, role_id) DO NOTHING;
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id FROM users u JOIN roles r ON r.code = 'SALE'
+WHERE u.email IN ('sale@nsa.local', 'sale2@nsa.local', 'sale3@nsa.local')
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- ---------- Demo profiles ----------

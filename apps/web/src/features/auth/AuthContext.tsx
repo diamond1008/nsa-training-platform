@@ -27,6 +27,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function homePathFor(user: UserInfo | null | undefined): string {
   if (!user) return "/login";
   if (user.roles.includes("ADMIN")) return "/admin";
+  if (user.roles.includes("SALE_ADMIN") || user.roles.includes("SALE")) return "/sale";
   if (user.roles.includes("TEACHER")) return "/teacher";
   return "/student";
 }

@@ -97,7 +97,7 @@ db-reset: ## Remove containers AND the local data volume, then start fresh
 
 db-seed: ## Load DEV-ONLY demo data (database/seeds/dev.sql) — never in production
 	docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) < database/seeds/dev.sql
-	@echo Dev seed loaded. Demo logins: admin@nsa.local / teacher@nsa.local / student@nsa.local (password: NsaDemo@123)
+	@echo Dev seed loaded. Demo logins: admin@nsa.local / teacher@nsa.local / student@nsa.local / sale@nsa.local (password: NsaDemo@123)
 
 db-seed-e2e: ## Load deterministic E2E data after db-seed using a byte-preserving container copy
 	docker compose cp database/seeds/e2e.sql postgres:/tmp/nsa-e2e.sql

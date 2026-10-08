@@ -107,6 +107,14 @@ const StudentSchedulePage = lazyLoad(
   "StudentSchedulePage",
 );
 
+// Sale pages lazy bundle
+const SaleDashboardPage = lazyLoad(() => import("../features/sale/SalePages"), "SaleDashboardPage");
+const LeadPipelinePage = lazyLoad(() => import("../features/sale/SalePages"), "LeadPipelinePage");
+const LeadProfilePage = lazyLoad(() => import("../features/sale/SalePages"), "LeadProfilePage");
+const LeadConvertPage = lazyLoad(() => import("../features/sale/SalePages"), "LeadConvertPage");
+const OrdersPage = lazyLoad(() => import("../features/sale/SalePages"), "OrdersPage");
+const SaleReportsPage = lazyLoad(() => import("../features/sale/SalePages"), "SaleReportsPage");
+
 /** Blocks everything until the silent refresh finishes; forces login when anonymous. */
 function RequireAuth({ children }: { children?: ReactNode }) {
   const { status, user } = useAuth();
@@ -124,9 +132,18 @@ function RequireAuth({ children }: { children?: ReactNode }) {
 }
 
 /** Role gate INSIDE the authenticated area. Wrong role → 403 page. */
-function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
+function RequireRole({
+  role,
+  roles,
+  children,
+}: {
+  role?: Role;
+  roles?: Role[];
+  children: ReactNode;
+}) {
   const { hasRole } = useAuth();
-  if (!hasRole(role)) return <ForbiddenPage />;
+  const allowed = roles ? roles.some((r) => hasRole(r)) : role ? hasRole(role) : false;
+  if (!allowed) return <ForbiddenPage />;
   return <>{children}</>;
 }
 
@@ -172,6 +189,63 @@ export const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
+          // Sale CRM routes
+          {
+            path: "/sale",
+            element: (
+              <RequireRole roles={["SALE", "SALE_ADMIN", "ADMIN"]}>
+                <SaleDashboardPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/sale/leads",
+            element: (
+              <RequireRole roles={["SALE", "SALE_ADMIN", "ADMIN"]}>
+                <LeadPipelinePage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/sale/leads/:id",
+            element: (
+              <RequireRole roles={["SALE", "SALE_ADMIN", "ADMIN"]}>
+                <LeadProfilePage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/sale/leads/:id/convert",
+            element: (
+              <RequireRole roles={["SALE", "SALE_ADMIN", "ADMIN"]}>
+                <LeadConvertPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/sale/don-hang",
+            element: (
+              <RequireRole roles={["SALE", "SALE_ADMIN", "ADMIN"]}>
+                <OrdersPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/sale/don-hang/:id",
+            element: (
+              <RequireRole roles={["SALE", "SALE_ADMIN", "ADMIN"]}>
+                <OrdersPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/sale/bao-cao",
+            element: (
+              <RequireRole roles={["SALE_ADMIN", "ADMIN"]}>
+                <SaleReportsPage />
+              </RequireRole>
+            ),
+          },
           {
             path: "/admin",
             element: (

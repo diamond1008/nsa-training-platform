@@ -20,12 +20,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const buttonStyles: Record<ButtonVariant, string> = {
   primary:
-    "border border-navy bg-navy text-white shadow-sm hover:-translate-y-0.5 hover:bg-navy-soft hover:shadow-md disabled:bg-navy/50",
+    "border border-navy bg-navy text-white shadow-sm hover:-translate-y-0.5 hover:bg-navy-soft hover:shadow-md active:translate-y-0 active:scale-[0.96] active:bg-[#15233e] active:shadow-inner disabled:bg-navy/50",
   accent:
-    "border border-gold bg-gold text-navy shadow-sm hover:-translate-y-0.5 hover:bg-[#F5CB62] hover:shadow-md disabled:bg-gold/50",
-  ghost: "border border-gborder bg-white text-navy hover:border-slate-300 hover:bg-gbg2",
-  danger: "border border-error bg-error text-white hover:bg-error/90 disabled:bg-error/50",
-  soft: "border border-transparent bg-gbg2 text-navy hover:bg-gborder",
+    "border border-gold bg-gold text-navy shadow-sm hover:-translate-y-0.5 hover:bg-[#F5CB62] hover:shadow-md active:translate-y-0 active:scale-[0.96] active:bg-[#e2b740] active:shadow-inner disabled:bg-gold/50",
+  ghost:
+    "border border-gborder bg-white text-navy shadow-2xs hover:-translate-y-0.5 hover:border-slate-300 hover:bg-gbg2 hover:shadow-xs active:translate-y-0 active:scale-[0.96] active:bg-slate-100 disabled:bg-white/50",
+  danger:
+    "border border-error bg-error text-white shadow-sm hover:-translate-y-0.5 hover:bg-error/90 hover:shadow-md active:translate-y-0 active:scale-[0.96] active:bg-red-700 active:shadow-inner disabled:bg-error/50",
+  soft: "border border-transparent bg-gbg2 text-navy hover:-translate-y-0.5 hover:bg-gborder active:translate-y-0 active:scale-[0.96] active:bg-slate-200 disabled:bg-gbg2/50",
 };
 
 export function Button({
@@ -39,8 +41,9 @@ export function Button({
   return (
     <button
       className={clsx(
-        "inline-flex h-10 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-[background-color,border-color,color,box-shadow,transform] duration-200 motion-reduce:transition-none",
-        "disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none",
+        "inline-flex h-10 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold select-none cursor-pointer",
+        "transition-all duration-150 ease-out active:duration-75 active:ease-in motion-reduce:transition-none",
+        "disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none disabled:active:scale-100",
         buttonStyles[variant],
         className,
       )}

@@ -9,6 +9,8 @@ const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "Quản trị viên",
   TEACHER: "Giảng viên",
   STUDENT: "Học viên",
+  SALE: "Chuyên viên Tuyển sinh",
+  SALE_ADMIN: "Quản lý Tuyển sinh",
 };
 
 interface ModuleCard {
@@ -30,6 +32,40 @@ const MODULES: Record<Role, ModuleCard[]> = {
       title: "Lịch học",
       description: "Xếp lịch buổi học lý thuyết và thực hành",
       phase: "Phase 9",
+    },
+  ],
+  SALE_ADMIN: [
+    {
+      title: "Quản lý Lead & Phân bổ",
+      description: "Tiếp nhận, phân bổ và theo dõi khách hàng tiềm năng",
+      phase: "Phase 26",
+    },
+    {
+      title: "Đơn hàng & Doanh thu",
+      description: "Quản lý đơn hàng, duyệt thanh toán và doanh thu tuyển sinh",
+      phase: "Phase 26",
+    },
+    {
+      title: "Báo cáo Tuyển sinh",
+      description: "Hiệu quả chuyển đổi theo kênh và theo nhân viên",
+      phase: "Phase 26",
+    },
+  ],
+  SALE: [
+    {
+      title: "Quản lý Lead",
+      description: "Tiếp nhận và tư vấn khách hàng tiềm năng",
+      phase: "Phase 26",
+    },
+    {
+      title: "Đơn hàng & Thu học phí",
+      description: "Quản lý đơn hàng và chuyển đổi học viên",
+      phase: "Phase 26",
+    },
+    {
+      title: "Nhắc việc & Lịch hẹn",
+      description: "Lịch hẹn gọi lại và chăm sóc khách hàng",
+      phase: "Phase 26",
     },
   ],
   TEACHER: [

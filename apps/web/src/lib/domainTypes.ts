@@ -565,3 +565,190 @@ export interface ClassSessionAttendanceItem {
   attendance_status: string;
   remarks: string;
 }
+
+// ---------------------------------------------------------------------------
+// Sale CRM Domain Types (Phase 26)
+// ---------------------------------------------------------------------------
+
+export type LeadSource =
+  | "facebook"
+  | "tiktok"
+  | "google"
+  | "zalo"
+  | "website"
+  | "referral"
+  | "walk_in"
+  | "event"
+  | "other";
+
+export type LeadPipelineStatus =
+  | "data_moi"
+  | "knm_thue_bao"
+  | "goi_lai_sau"
+  | "follow"
+  | "tu_choi"
+  | "da_dang_ky"
+  | "dang_hoc"
+  | "ket_thuc";
+
+export type InteractionChannel =
+  "phone_call" | "zalo" | "facebook" | "email" | "in_person" | "sms" | "other";
+
+export type OrderStatus = "pending" | "paid" | "cancelled" | "refunded";
+
+export interface Lead {
+  id: string;
+  full_name: string;
+  phone?: string | null;
+  email?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  address?: string | null;
+  source: LeadSource;
+  source_detail?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
+  interested_course_id?: string | null;
+  interested_course_code?: string | null;
+  interested_course_name?: string | null;
+  notes?: string | null;
+  pipeline_status: LeadPipelineStatus;
+  assigned_to?: string | null;
+  assigned_to_email?: string | null;
+  assigned_at?: string | null;
+  assigned_by?: string | null;
+  assigned_by_email?: string | null;
+  converted_student_id?: string | null;
+  converted_student_code?: string | null;
+  converted_student_name?: string | null;
+  converted_at?: string | null;
+  converted_by?: string | null;
+  created_by: string;
+  created_by_email?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeadInteraction {
+  id: string;
+  lead_id: string;
+  channel: InteractionChannel;
+  summary: string;
+  outcome?: string | null;
+  created_by: string;
+  created_by_email?: string | null;
+  created_at: string;
+}
+
+export interface LeadPipelineHistory {
+  id: string;
+  lead_id: string;
+  old_status?: LeadPipelineStatus | null;
+  new_status: LeadPipelineStatus;
+  reason?: string | null;
+  changed_by: string;
+  changed_by_email?: string | null;
+  changed_at: string;
+}
+
+export interface LeadTask {
+  id: string;
+  lead_id: string;
+  lead_name?: string;
+  lead_phone?: string;
+  assigned_to: string;
+  assigned_to_email?: string;
+  title: string;
+  description?: string | null;
+  due_at: string;
+  completed_at?: string | null;
+  created_by: string;
+  created_by_email?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Order {
+  id: string;
+  order_code: string;
+  lead_id?: string | null;
+  lead_name?: string | null;
+  student_id?: string | null;
+  student_code?: string | null;
+  student_name?: string | null;
+  course_id?: string | null;
+  course_code?: string | null;
+  course_name?: string | null;
+  class_id?: string | null;
+  class_code?: string | null;
+  class_name?: string | null;
+  amount: number;
+  discount_amount: number;
+  final_amount: number;
+  discount_note?: string | null;
+  status: OrderStatus;
+  payment_method?: string | null;
+  paid_at?: string | null;
+  notes?: string | null;
+  created_by: string;
+  created_by_email?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SaleStaff {
+  id: string;
+  email: string;
+}
+
+export interface SaleDashboardStats {
+  assigned_leads: number;
+  new_leads_today: number;
+  overdue_tasks: number;
+  today_tasks: number;
+  converted_this_month: number;
+  total_this_month: number;
+  conversion_rate: number;
+}
+
+export interface DashboardOverview {
+  by_status: Record<string, number>;
+  by_source: Record<string, number>;
+  by_assignee: Array<{
+    user_id: string;
+    email: string;
+    total_leads: number;
+    converted_leads: number;
+  }>;
+}
+
+export interface RevenueReport {
+  summary: {
+    month_revenue: number;
+    total_revenue: number;
+    month_orders: number;
+    month_paid_orders: number;
+  };
+  by_month: Array<{
+    month: string;
+    total_orders: number;
+    paid_orders: number;
+    total_revenue: number;
+  }>;
+  by_source: Array<{
+    source: string;
+    total_orders: number;
+    revenue: number;
+  }>;
+}
+
+export interface ConvertResult {
+  student_id: string;
+  student_code: string;
+  order_id: string;
+  order_code: string;
+  initial_password?: string;
+}

@@ -24,7 +24,10 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/classes"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/completions"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/courses"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/interactions"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/leads"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/notifications"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/orders"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/config"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/database"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/platform/docs"
@@ -36,6 +39,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/reports"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/schedules"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/students"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/tasks"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/testscores"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
@@ -100,6 +104,10 @@ func run() error {
 	notificationHandler := notifications.NewHandler(notifications.NewService(pool), log)
 	reportHandler := reports.NewHandler(reports.NewService(pool), log)
 	testScoreHandler := testscores.NewHandler(testscores.NewService(pool), log)
+	leadHandler := leads.NewHandler(leads.NewService(pool, cfg.BcryptCost), log)
+	interactionHandler := interactions.NewHandler(interactions.NewService(pool), log)
+	taskHandler := tasks.NewHandler(tasks.NewService(pool), log)
+	orderHandler := orders.NewHandler(orders.NewService(pool), log)
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -167,6 +175,10 @@ func run() error {
 			r, tokenService, classHandler, scheduleHandler, attendanceHandler,
 			assessmentHandler, progressHandler, completionHandler,
 			testScoreHandler,
+		)
+		mountSaleRoutes(
+			r, tokenService, leadHandler, interactionHandler,
+			taskHandler, orderHandler, courseHandler, classHandler,
 		)
 		r.Route("/notifications", func(r chi.Router) {
 			r.Use(auth.Authenticate(tokenService))
@@ -377,5 +389,64 @@ func mountRoleRoutes(
 		r.Get("/progress", progressHandler.Dashboard)
 		r.Get("/certificates", completionHandler.StudentList)
 		r.Get("/certificates/{certificateID}/pdf", completionHandler.StudentPDF)
+	})
+}
+
+// mountSaleRoutes provides the CRM workspace for SALE staff and ADMIN.
+func mountSaleRoutes(
+	r chi.Router,
+	tokenService *auth.TokenService,
+	leadHandler *leads.Handler,
+	interactionHandler *interactions.Handler,
+	taskHandler *tasks.Handler,
+	orderHandler *orders.Handler,
+	courseHandler *courses.Handler,
+	classHandler *classes.Handler,
+) {
+	r.Route("/sale", func(r chi.Router) {
+		r.Use(auth.Authenticate(tokenService))
+		r.Use(auth.RequireRole(auth.RoleSale, auth.RoleSaleAdmin, auth.RoleAdmin))
+
+		r.Get("/staff", leadHandler.ListStaff)
+		r.Get("/courses", courseHandler.List)
+		r.Get("/classes", classHandler.List)
+
+		r.Route("/dashboard", func(r chi.Router) {
+			r.Get("/my-stats", leadHandler.MyStats)
+			r.With(auth.RequireRole(auth.RoleSaleAdmin, auth.RoleAdmin)).Get("/overview", leadHandler.Overview)
+			r.With(auth.RequireRole(auth.RoleSaleAdmin, auth.RoleAdmin)).Get("/revenue", orderHandler.Revenue)
+		})
+
+		r.Route("/leads", func(r chi.Router) {
+			r.Get("/", leadHandler.List)
+			r.Post("/", leadHandler.Create)
+			r.Get("/template", leadHandler.Template)
+			r.Post("/import", leadHandler.Import)
+			r.Get("/{leadID}", leadHandler.Get)
+			r.Put("/{leadID}", leadHandler.Update)
+			r.Patch("/{leadID}/status", leadHandler.UpdateStatus)
+			r.With(auth.RequireRole(auth.RoleSaleAdmin, auth.RoleAdmin)).Patch("/{leadID}/assign", leadHandler.Assign)
+			r.Post("/{leadID}/convert", leadHandler.Convert)
+
+			r.Get("/{leadID}/interactions", interactionHandler.List)
+			r.Post("/{leadID}/interactions", interactionHandler.Create)
+			r.Get("/{leadID}/pipeline-history", interactionHandler.PipelineHistory)
+
+			r.Post("/{leadID}/tasks", taskHandler.Create)
+			r.Get("/{leadID}/tasks", taskHandler.ListByLead)
+		})
+
+		r.Route("/tasks", func(r chi.Router) {
+			r.Get("/", taskHandler.List)
+			r.Put("/{taskID}", taskHandler.Update)
+			r.Patch("/{taskID}/complete", taskHandler.Complete)
+		})
+
+		r.Route("/orders", func(r chi.Router) {
+			r.Get("/", orderHandler.List)
+			r.Post("/", orderHandler.Create)
+			r.Get("/{orderID}", orderHandler.Get)
+			r.Patch("/{orderID}/status", orderHandler.UpdateStatus)
+		})
 	})
 }

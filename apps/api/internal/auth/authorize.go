@@ -11,9 +11,11 @@ import (
 
 // Role codes used across the API (mirror the roles table seed).
 const (
-	RoleAdmin   = "ADMIN"
-	RoleTeacher = "TEACHER"
-	RoleStudent = "STUDENT"
+	RoleAdmin     = "ADMIN"
+	RoleTeacher   = "TEACHER"
+	RoleStudent   = "STUDENT"
+	RoleSale      = "SALE"
+	RoleSaleAdmin = "SALE_ADMIN"
 )
 
 // IsSelf reports whether the authenticated user acts on their own account.

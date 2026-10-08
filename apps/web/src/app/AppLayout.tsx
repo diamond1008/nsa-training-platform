@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
 import { Icon } from "../components/icons";
@@ -11,51 +11,137 @@ import type { NotificationList } from "../lib/domainTypes";
 import { formatDateTime } from "../lib/format";
 import type { Role } from "../lib/types";
 
-interface NavItem {
+export interface NavSubItem {
   to: string;
   label: string;
-  icon: IconName;
+  end?: boolean;
 }
-const NAV_BY_ROLE: Record<Role, NavItem[]> = {
+
+export interface NavGroup {
+  id: string;
+  label: string;
+  icon: IconName;
+  items: NavSubItem[];
+}
+
+const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
   ADMIN: [
-    { to: "/admin", label: "Tổng quan", icon: "home" },
-    { to: "/admin/hoc-vien", label: "Học viên", icon: "users" },
-    { to: "/admin/giang-vien", label: "Giảng viên", icon: "teacher" },
-    { to: "/admin/khoa-hoc", label: "Khóa học", icon: "book" },
-    { to: "/admin/lop-hoc", label: "Lớp học", icon: "school" },
-    { to: "/admin/lich-hoc", label: "Lịch học", icon: "calendar" },
-    { to: "/admin/diem-danh", label: "Điểm danh", icon: "check" },
-    { to: "/admin/van-hanh", label: "Vận hành", icon: "chart" },
+    {
+      id: "tuyen-sinh",
+      label: "Tuyển sinh",
+      icon: "user",
+      items: [
+        { to: "/sale", label: "Tổng quan", end: true },
+        { to: "/sale/leads", label: "Quản lý Lead" },
+        { to: "/sale/don-hang", label: "Đơn hàng" },
+        { to: "/sale/bao-cao", label: "Báo cáo" },
+      ],
+    },
+    {
+      id: "dao-tao",
+      label: "Đào tạo",
+      icon: "academic",
+      items: [
+        { to: "/admin", label: "Tổng quan", end: true },
+        { to: "/admin/hoc-vien", label: "Học viên" },
+        { to: "/admin/giang-vien", label: "Giảng viên" },
+        { to: "/admin/khoa-hoc", label: "Khóa học" },
+        { to: "/admin/lop-hoc", label: "Lớp học" },
+        { to: "/admin/lich-hoc", label: "Lịch học" },
+        { to: "/admin/diem-danh", label: "Điểm danh" },
+        { to: "/admin/van-hanh", label: "Vận hành" },
+      ],
+    },
+  ],
+  SALE_ADMIN: [
+    {
+      id: "tuyen-sinh",
+      label: "Tuyển sinh",
+      icon: "user",
+      items: [
+        { to: "/sale", label: "Tổng quan", end: true },
+        { to: "/sale/leads", label: "Quản lý Lead" },
+        { to: "/sale/don-hang", label: "Đơn hàng" },
+        { to: "/sale/bao-cao", label: "Báo cáo" },
+      ],
+    },
+  ],
+  SALE: [
+    {
+      id: "tuyen-sinh",
+      label: "Tuyển sinh",
+      icon: "user",
+      items: [
+        { to: "/sale", label: "Tổng quan", end: true },
+        { to: "/sale/leads", label: "Quản lý Lead" },
+        { to: "/sale/don-hang", label: "Đơn hàng" },
+      ],
+    },
   ],
   TEACHER: [
-    { to: "/teacher", label: "Tổng quan", icon: "home" },
-    { to: "/teacher/lop-phu-trach", label: "Lớp phụ trách", icon: "school" },
-    { to: "/teacher/lich-day", label: "Lịch dạy", icon: "calendar" },
-    { to: "/teacher/diem-danh", label: "Điểm danh", icon: "check" },
-    { to: "/teacher/danh-gia", label: "Đánh giá", icon: "award" },
+    {
+      id: "giang-day",
+      label: "Giảng dạy",
+      icon: "teacher",
+      items: [
+        { to: "/teacher", label: "Tổng quan", end: true },
+        { to: "/teacher/lop-phu-trach", label: "Lớp phụ trách" },
+        { to: "/teacher/lich-day", label: "Lịch dạy" },
+        { to: "/teacher/diem-danh", label: "Điểm danh" },
+        { to: "/teacher/danh-gia", label: "Đánh giá" },
+      ],
+    },
   ],
   STUDENT: [
-    { to: "/student", label: "Tổng quan", icon: "home" },
-    { to: "/student/khoa-hoc", label: "Khóa học", icon: "book" },
-    { to: "/student/lich-hoc", label: "Lịch học", icon: "calendar" },
-    { to: "/student/diem-danh", label: "Điểm danh", icon: "check" },
-    { to: "/student/danh-gia", label: "Đánh giá", icon: "award" },
-    { to: "/student/tien-do", label: "Tiến độ", icon: "chart" },
+    {
+      id: "hoc-tap",
+      label: "Học tập",
+      icon: "academic",
+      items: [
+        { to: "/student", label: "Tổng quan", end: true },
+        { to: "/student/khoa-hoc", label: "Khóa học" },
+        { to: "/student/lich-hoc", label: "Lịch học" },
+        { to: "/student/diem-danh", label: "Điểm danh" },
+        { to: "/student/danh-gia", label: "Đánh giá" },
+        { to: "/student/tien-do", label: "Tiến độ học tập" },
+      ],
+    },
   ],
 };
 
-function navItemsFor(roles: Role[]): NavItem[] {
-  const seen = new Set<string>();
-  const out: NavItem[] = [];
+function navGroupsFor(roles: Role[]): NavGroup[] {
+  const groupMap = new Map<string, NavGroup>();
   for (const role of roles) {
-    for (const item of NAV_BY_ROLE[role] ?? []) {
-      if (!seen.has(item.to)) {
-        seen.add(item.to);
-        out.push(item);
+    for (const group of NAV_GROUPS_BY_ROLE[role] ?? []) {
+      if (!groupMap.has(group.id)) {
+        groupMap.set(group.id, {
+          ...group,
+          items: [...group.items],
+        });
+      } else {
+        const existing = groupMap.get(group.id)!;
+        const seenTos = new Set(existing.items.map((it) => it.to));
+        for (const item of group.items) {
+          if (!seenTos.has(item.to)) {
+            seenTos.add(item.to);
+            existing.items.push(item);
+          }
+        }
       }
     }
   }
-  return out;
+  return Array.from(groupMap.values());
+}
+
+function isItemActive(pathname: string, item: NavSubItem): boolean {
+  if (item.end) {
+    return pathname === item.to;
+  }
+  return pathname === item.to || pathname.startsWith(item.to + "/");
+}
+
+function isGroupActive(pathname: string, group: NavGroup): boolean {
+  return group.items.some((item) => isItemActive(pathname, item));
 }
 
 export default function AppLayout() {
@@ -157,9 +243,128 @@ export default function AppLayout() {
     mutationFn: (id: string) => notificationApi.markRead(id),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
+  const location = useLocation();
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
+  const [showTooltipBadge, setShowTooltipBadge] = useState(false);
+  const [isHoveredLogo, setIsHoveredLogo] = useState(false);
+  const [isHoveredCollapse, setIsHoveredCollapse] = useState(false);
+  const hoverTimeoutRef = useRef<number | null>(null);
+  const tooltipDelayTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setIsHoveredLogo(false);
+    setIsHoveredCollapse(false);
+  }, [isCollapsed]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current !== null) {
+        window.clearTimeout(hoverTimeoutRef.current);
+      }
+      if (tooltipDelayTimeoutRef.current !== null) {
+        window.clearTimeout(tooltipDelayTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleMouseEnterIconButton = (groupId: string) => {
+    if (hoverTimeoutRef.current !== null) {
+      window.clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    setHoveredGroupId(groupId);
+
+    // Tooltip timer should ONLY run while hovering directly on this icon button
+    setShowTooltipBadge(false);
+    if (tooltipDelayTimeoutRef.current !== null) {
+      window.clearTimeout(tooltipDelayTimeoutRef.current);
+      tooltipDelayTimeoutRef.current = null;
+    }
+    tooltipDelayTimeoutRef.current = window.setTimeout(() => {
+      setShowTooltipBadge(true);
+    }, 1000);
+  };
+
+  const handleMouseLeaveIconButton = () => {
+    // When mouse leaves the exact icon button:
+    // 1. Cancel the 1s timer so it never shows if user moved away early
+    if (tooltipDelayTimeoutRef.current !== null) {
+      window.clearTimeout(tooltipDelayTimeoutRef.current);
+      tooltipDelayTimeoutRef.current = null;
+    }
+    // 2. Hide immediately if already shown
+    setShowTooltipBadge(false);
+  };
+
+  const handleMouseEnterFlyout = (groupId: string) => {
+    if (hoverTimeoutRef.current !== null) {
+      window.clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    setHoveredGroupId(groupId);
+
+    // In the flyout menu, tooltip badge does NOT show and timer is cancelled
+    if (tooltipDelayTimeoutRef.current !== null) {
+      window.clearTimeout(tooltipDelayTimeoutRef.current);
+      tooltipDelayTimeoutRef.current = null;
+    }
+    setShowTooltipBadge(false);
+  };
+
+  const handleMouseLeaveGroup = () => {
+    if (hoverTimeoutRef.current !== null) {
+      window.clearTimeout(hoverTimeoutRef.current);
+    }
+    hoverTimeoutRef.current = window.setTimeout(() => {
+      setHoveredGroupId(null);
+      setShowTooltipBadge(false);
+      if (tooltipDelayTimeoutRef.current !== null) {
+        window.clearTimeout(tooltipDelayTimeoutRef.current);
+        tooltipDelayTimeoutRef.current = null;
+      }
+    }, 180);
+  };
+
+  const handleClickGroup = (group: NavGroup, collapsed: boolean, mobile: boolean) => {
+    if (collapsed && !mobile) {
+      const overviewItem = group.items.find((it) => it.label === "Tổng quan") ?? group.items[0];
+      if (overviewItem) {
+        navigate(overviewItem.to);
+      }
+      setHoveredGroupId(null);
+      setShowTooltipBadge(false);
+      if (tooltipDelayTimeoutRef.current !== null) {
+        window.clearTimeout(tooltipDelayTimeoutRef.current);
+        tooltipDelayTimeoutRef.current = null;
+      }
+      if (hoverTimeoutRef.current !== null) {
+        window.clearTimeout(hoverTimeoutRef.current);
+        hoverTimeoutRef.current = null;
+      }
+    } else {
+      toggleGroup(group.id, group);
+    }
+  };
+
+  const isGroupExpanded = (groupId: string, group: NavGroup) => {
+    if (expandedGroups[groupId] !== undefined) {
+      return expandedGroups[groupId];
+    }
+    return isGroupActive(location.pathname, group);
+  };
+
+  const toggleGroup = (groupId: string, group: NavGroup) => {
+    const current = isGroupExpanded(groupId, group);
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [groupId]: !current,
+    }));
+  };
+
   if (!user) return null;
 
-  const items = navItemsFor(user.roles);
+  const groups = navGroupsFor(user.roles);
   const displayName =
     user.teacher_profile?.full_name ?? user.student_profile?.full_name ?? user.email;
   const initials = displayName
@@ -180,163 +385,335 @@ export default function AppLayout() {
     return (
       <aside
         className={clsx(
-          "relative flex h-full flex-col text-navy transition-[width,background-color,border-color] duration-300 ease-in-out select-none z-30",
+          "relative flex h-full flex-col text-navy transition-[width,background-color,border-color] duration-200 ease-in-out select-none z-30",
           mobile
             ? "w-[min(22rem,85vw)] sm:w-80 bg-white shadow-2xl rounded-r-3xl border-r border-gborder/40"
             : collapsed
-              ? "w-[4.5rem] overflow-visible bg-gbg border-r border-transparent"
-              : "w-[16rem] bg-[#F0F4F9] border-r border-gborder",
+              ? "w-14 overflow-visible bg-gbg border-r-0"
+              : "w-64 bg-[#F0F4F9] border-r border-gborder",
         )}
       >
+        {/* Top Header */}
         <div
           className={clsx(
-            "flex h-[4.5rem] shrink-0 items-center justify-between border-b px-4 overflow-visible transition-colors duration-300",
-            collapsed && !mobile ? "border-transparent" : "border-gborder/70",
+            "relative flex h-[4.5rem] shrink-0 items-center overflow-visible transition-colors duration-200",
+            collapsed && !mobile ? "border-b-0" : "border-b border-gborder/70",
           )}
         >
-          {!collapsed || mobile ? (
-            <>
-              <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gold font-extrabold text-navy shadow-xs">
-                    N
-                  </div>
-                </div>
-                <div className="truncate">
-                  <p className="text-sm font-bold tracking-tight text-navy">NSA Training</p>
-                  <p className="text-[10px] text-gtext">Learning Platform</p>
-                </div>
-              </div>
-              {mobile ? (
-                <button
-                  type="button"
-                  onClick={closeMobileMenu}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-navy/75 hover:bg-gbg2 active:scale-90 active:bg-slate-200 transition-all"
-                  aria-label="Đóng menu"
-                >
-                  <Icon name="close" className="h-5 w-5" />
-                </button>
-              ) : (
-                <div className="relative group shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsCollapsed(true)}
-                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full text-navy/80 transition-all duration-200 hover:bg-[#E9EEF6] active:scale-90 active:bg-[#D8E4F8] hover:text-navy motion-reduce:transition-none"
-                    aria-label="Thu nhỏ thanh điều hướng"
-                  >
-                    <Icon name="sidebar" className="h-5 w-5 group-hover:hidden" />
-                    <Icon name="sidebar-collapse" className="h-5 w-5 hidden group-hover:block" />
-                  </button>
-                  <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
-                    Thu nhỏ thanh điều hướng
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="relative group flex items-center">
-              <button
-                type="button"
-                onClick={() => setIsCollapsed(false)}
-                className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-all duration-200 hover:bg-[#E9EEF6] active:scale-90 active:bg-[#D8E4F8] focus-visible:outline-none"
-                aria-label="Mở rộng thanh điều hướng"
-              >
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gold font-extrabold text-navy shadow-xs group-hover:hidden">
-                  N
-                </div>
-                <Icon
-                  name="sidebar-expand"
-                  className="h-5 w-5 text-navy hidden group-hover:block"
-                />
-              </button>
-              <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
-                Mở rộng thanh điều hướng
-              </div>
-            </div>
-          )}
-        </div>
-
-        <nav
-          className="flex-1 space-y-1.5 pb-4 pt-3 px-3 overflow-visible"
-          aria-label="Điều hướng chính"
-        >
-          {items.map((item) => (
-            <div key={item.to} className="relative group">
-              <NavLink
-                to={item.to}
-                end={["/admin", "/teacher", "/student"].includes(item.to)}
-                onClick={() => {
-                  if (mobile) closeMobileMenu();
-                }}
-                className={({ isActive }) =>
-                  clsx(
-                    "flex items-center overflow-hidden rounded-full text-sm font-medium transition-all duration-200 active:scale-[0.97] select-none",
-                    collapsed && !mobile ? "w-11" : "w-full",
-                    isActive
-                      ? "bg-[#D3E3FD] text-[#041E49] font-bold shadow-xs ring-1 ring-blue-300/40"
-                      : "text-navy/75 hover:bg-[#E9EEF6] hover:text-navy active:bg-[#D8E4F8]",
-                  )
+          {/* Logo slot: exactly w-14 (56px) shrink-0, centered at 28px in ALL states */}
+          <div className="relative flex h-11 w-14 shrink-0 items-center justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                if (collapsed && !mobile) {
+                  setIsCollapsed(false);
+                  setIsHoveredLogo(false);
                 }
-              >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center">
-                  <Icon
-                    name={item.icon}
-                    className="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-110 group-active:scale-95"
-                  />
-                </div>
-                {(!collapsed || mobile) && <span className="truncate pr-3.5">{item.label}</span>}
-              </NavLink>
-              {collapsed && !mobile && (
-                <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
-                  {item.label}
-                </div>
+              }}
+              onMouseEnter={() => {
+                if (collapsed && !mobile) setIsHoveredLogo(true);
+              }}
+              onMouseLeave={() => {
+                if (collapsed && !mobile) setIsHoveredLogo(false);
+              }}
+              className={clsx(
+                "flex h-9 w-9 items-center justify-center select-none cursor-pointer",
+                "transition-all duration-150 ease-out active:duration-75 active:scale-90",
+                collapsed && !mobile && isHoveredLogo
+                  ? "rounded-xl bg-[#E5E7EB] text-slate-800 shadow-xs"
+                  : "rounded-xl bg-gold font-extrabold text-navy shadow-xs",
               )}
-            </div>
-          ))}
-        </nav>
+              aria-label={collapsed && !mobile ? "Mở rộng thanh điều hướng" : "NSA Training"}
+            >
+              {collapsed && !mobile && isHoveredLogo ? (
+                <Icon name="sidebar-expand" className="h-5 w-5 shrink-0" />
+              ) : (
+                "N"
+              )}
+            </button>
 
-        <div
-          className={clsx(
-            "border-t p-3 space-y-1 overflow-visible transition-colors duration-300",
-            collapsed && !mobile ? "border-transparent" : "border-gborder/70",
-          )}
-        >
-          <div className="relative group">
-            <div className="flex h-11 items-center overflow-hidden rounded-full transition-[width] duration-300 motion-reduce:transition-none">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark cursor-pointer">
-                  {initials}
-                </div>
-              </div>
-              {(!collapsed || mobile) && (
-                <div className="min-w-0 flex-1 truncate pr-3">
-                  <p className="truncate text-xs font-semibold text-navy">{displayName}</p>
-                  <p className="truncate text-[10px] text-gtext">{user.email}</p>
-                </div>
-              )}
-            </div>
-            {collapsed && !mobile && (
-              <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
-                {displayName}
+            {/* Tagline tooltip when collapsed and hovering logo */}
+            {collapsed && !mobile && isHoveredLogo && (
+              <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-full bg-white px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-900 shadow-xl border border-slate-200/90 animate-in fade-in zoom-in-95 duration-150">
+                Mở rộng thanh điều hướng
               </div>
             )}
           </div>
 
+          {/* Right header slot: fades/slides smoothly */}
+          <div
+            className={clsx(
+              "flex items-center justify-between min-w-0 flex-1 pr-3 overflow-visible transition-opacity duration-200",
+              collapsed && !mobile ? "opacity-0 pointer-events-none w-0" : "opacity-100",
+            )}
+          >
+            <div className="truncate min-w-0">
+              <p className="text-sm font-bold tracking-tight text-navy truncate">NSA Training</p>
+              <p className="text-[10px] text-gtext truncate">Learning Platform</p>
+            </div>
+            {mobile ? (
+              <button
+                type="button"
+                onClick={closeMobileMenu}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-navy/75 hover:bg-gbg2 transition-all duration-150 ease-out active:duration-75 active:scale-90"
+                aria-label="Đóng menu"
+              >
+                <Icon name="close" className="h-5 w-5" />
+              </button>
+            ) : (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCollapsed(true);
+                    setIsHoveredCollapse(false);
+                  }}
+                  onMouseEnter={() => setIsHoveredCollapse(true)}
+                  onMouseLeave={() => setIsHoveredCollapse(false)}
+                  className={clsx(
+                    "flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all duration-150 ease-out active:duration-75 active:scale-90 select-none",
+                    isHoveredCollapse
+                      ? "bg-slate-200/70 text-slate-900 shadow-2xs"
+                      : "text-slate-700 bg-transparent hover:bg-slate-200/50",
+                  )}
+                  aria-label="Thu nhỏ thanh điều hướng"
+                >
+                  <Icon
+                    name={isHoveredCollapse ? "sidebar-collapse" : "sidebar"}
+                    className="h-5 w-5 shrink-0"
+                  />
+                </button>
+
+                {/* Tagline tooltip when hovering collapse button in expanded mode */}
+                {isHoveredCollapse && (
+                  <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-full bg-white px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-900 shadow-xl border border-slate-200/90 animate-in fade-in zoom-in-95 duration-150">
+                    Thu nhỏ thanh điều hướng
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Navigation list */}
+        <nav
+          className={clsx(
+            "flex-1 space-y-1 pb-4 pt-2 select-none",
+            collapsed && !mobile ? "overflow-visible" : "overflow-y-auto overflow-x-hidden",
+          )}
+          aria-label="Điều hướng chính"
+        >
+          {groups.map((group) => {
+            const isActiveGroup = isGroupActive(location.pathname, group);
+            const isOpen = isGroupExpanded(group.id, group);
+            const isHovered = hoveredGroupId === group.id;
+
+            return (
+              <div
+                key={group.id}
+                className="relative"
+                onMouseLeave={() => {
+                  if (collapsed && !mobile) handleMouseLeaveGroup();
+                }}
+              >
+                {/* Header row: same unified layout for both states */}
+                <button
+                  type="button"
+                  onClick={() => handleClickGroup(group, collapsed, mobile)}
+                  onMouseEnter={() => {
+                    if (collapsed && !mobile) handleMouseEnterIconButton(group.id);
+                  }}
+                  onMouseLeave={() => {
+                    if (collapsed && !mobile) handleMouseLeaveIconButton();
+                  }}
+                  className={clsx(
+                    "flex h-11 w-full items-center transition-all duration-150 ease-out active:duration-75 active:scale-[0.98] cursor-pointer select-none overflow-hidden",
+                    isHovered && collapsed && !mobile
+                      ? "bg-[#D1D5DB] text-slate-900 rounded-none"
+                      : isActiveGroup
+                        ? "bg-slate-200/50 text-[#0078D4] rounded-lg"
+                        : "text-slate-700 hover:bg-slate-200/50 active:bg-slate-200/80 rounded-lg",
+                  )}
+                  aria-label={group.label}
+                >
+                  {/* Left slot: exactly w-14 (56px) shrink-0, centered at 28px in ALL states */}
+                  <div className="flex h-11 w-14 shrink-0 items-center justify-center relative">
+                    {isActiveGroup && collapsed && !mobile && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r bg-[#0078D4]" />
+                    )}
+                    <Icon name={group.icon} className="h-5 w-5 shrink-0" />
+                  </div>
+
+                  {/* Right slot: expands/collapses smoothly */}
+                  <div
+                    className={clsx(
+                      "flex items-center justify-between min-w-0 flex-1 pr-3 overflow-hidden transition-opacity duration-200",
+                      collapsed && !mobile ? "opacity-0 pointer-events-none w-0" : "opacity-100",
+                    )}
+                  >
+                    <span className="truncate text-sm font-semibold">{group.label}</span>
+                    <Icon
+                      name={isOpen ? "chevron-up" : "chevron-down"}
+                      className="h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200"
+                    />
+                  </div>
+                </button>
+
+                {/* Collapsed Flyout on hover */}
+                {isHovered && collapsed && !mobile && (
+                  <div
+                    className="absolute left-full top-0 z-50 flex flex-col min-w-[210px] drop-shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+                    onMouseEnter={() => handleMouseEnterFlyout(group.id)}
+                    onMouseLeave={handleMouseLeaveGroup}
+                  >
+                    <div
+                      onClick={() => {
+                        const overviewItem =
+                          group.items.find((it) => it.label === "Tổng quan") ?? group.items[0];
+                        if (overviewItem) {
+                          navigate(overviewItem.to);
+                          setHoveredGroupId(null);
+                          setShowTooltipBadge(false);
+                        }
+                      }}
+                      className="flex h-11 items-center bg-[#D1D5DB] px-3.5 pr-6 rounded-tr-md rounded-l-none cursor-pointer transition-colors active:bg-[#C1C6CE] active:duration-75"
+                    >
+                      {showTooltipBadge ? (
+                        <div className="relative flex items-center bg-white px-3 py-1 text-xs font-semibold text-slate-800 rounded-md shadow-xs border border-slate-200/90 whitespace-nowrap animate-in fade-in duration-150">
+                          <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white border-l border-b border-slate-200/90 rotate-45" />
+                          <span className="relative z-10 pl-0.5">{group.label}</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-semibold text-[#0F6CBD] pl-1 tracking-tight select-none">
+                          {group.label}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="bg-white border-b border-l border-r border-slate-200/90 rounded-b-lg shadow-2xl py-1.5 flex flex-col">
+                      {group.items.map((sub) => {
+                        const isSubActive = isItemActive(location.pathname, sub);
+                        return (
+                          <NavLink
+                            key={sub.to}
+                            to={sub.to}
+                            end={sub.end}
+                            onClick={() => {
+                              setHoveredGroupId(null);
+                              if (mobile) closeMobileMenu();
+                            }}
+                            className={clsx(
+                              "group/sub relative flex h-9 items-center px-4 text-sm transition-all duration-150 ease-out active:duration-75 active:scale-[0.98] select-none cursor-pointer",
+                              isSubActive
+                                ? "font-semibold text-slate-900 bg-slate-50"
+                                : "text-slate-700 hover:text-slate-900 hover:bg-slate-100 active:bg-slate-200/80",
+                            )}
+                          >
+                            <div className="w-3.5 flex items-center justify-start shrink-0 mr-1.5">
+                              {isSubActive && (
+                                <span className="h-4.5 w-[3.5px] rounded-full bg-[#0078D4]" />
+                              )}
+                            </div>
+                            <span className="truncate">{sub.label}</span>
+                          </NavLink>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Expanded Subitems */}
+                {isOpen && (!collapsed || mobile) && (
+                  <div className="space-y-0.5 pt-0.5 pb-1">
+                    {group.items.map((sub) => {
+                      const isSubActive = isItemActive(location.pathname, sub);
+                      return (
+                        <NavLink
+                          key={sub.to}
+                          to={sub.to}
+                          end={sub.end}
+                          onClick={() => {
+                            if (mobile) closeMobileMenu();
+                          }}
+                          className={clsx(
+                            "relative flex items-center h-9 text-sm transition-all duration-150 ease-out active:duration-75 active:scale-[0.98] rounded-lg select-none pl-14 pr-3 cursor-pointer",
+                            isSubActive
+                              ? "font-semibold text-slate-900 bg-slate-200/50"
+                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/40 active:bg-slate-200/70",
+                          )}
+                        >
+                          {isSubActive && (
+                            <span className="absolute left-10 top-1/2 -translate-y-1/2 h-4.5 w-[3.5px] rounded-full bg-[#0078D4]" />
+                          )}
+                          <span className="truncate">{sub.label}</span>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+
+        {/* Bottom User Profile & Logout */}
+        <div
+          className={clsx(
+            "space-y-1 overflow-visible transition-colors duration-200",
+            collapsed && !mobile ? "border-t-0 py-2" : "border-t border-gborder/70 p-3",
+          )}
+        >
+          {/* User profile row */}
+          <div className="relative group">
+            <div className="flex h-11 w-full items-center overflow-hidden rounded-lg">
+              {/* Left slot: exactly w-14 (56px) shrink-0, centered at 28px in ALL states */}
+              <div className="flex h-11 w-14 shrink-0 items-center justify-center">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark cursor-pointer transition-all duration-150 ease-out active:duration-75 active:scale-90 hover:scale-105 shadow-2xs">
+                  {initials}
+                </div>
+              </div>
+              {/* Right slot */}
+              <div
+                className={clsx(
+                  "min-w-0 flex-1 truncate pr-2 transition-opacity duration-200",
+                  collapsed && !mobile ? "opacity-0 pointer-events-none w-0" : "opacity-100",
+                )}
+              >
+                <p className="truncate text-xs font-semibold text-slate-900">{displayName}</p>
+                <p className="truncate text-[10px] text-gtext">{user.email}</p>
+              </div>
+            </div>
+            {collapsed && !mobile && (
+              <div className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-lg bg-white text-slate-800 font-medium text-xs px-3 py-1.5 shadow-xl border border-slate-200">
+                <p className="font-semibold">{displayName}</p>
+                <p className="text-[10px] text-gtext">{user.email}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Logout button row */}
           <div className="relative group">
             <button
               type="button"
               onClick={handleLogout}
-              className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-full text-sm font-medium text-navy/75 transition-all duration-200 hover:bg-[#E9EEF6] hover:text-navy active:scale-[0.97] active:bg-red-50 active:text-red-700 select-none motion-reduce:transition-none"
+              className="flex h-10 w-full cursor-pointer items-center rounded-lg text-slate-700 transition-all duration-150 ease-out active:duration-75 active:scale-[0.96] hover:bg-red-50 hover:text-red-700 active:bg-red-100 select-none overflow-hidden"
             >
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center">
+              {/* Left slot: exactly w-14 (56px) shrink-0, centered at 28px in ALL states */}
+              <div className="flex h-10 w-14 shrink-0 items-center justify-center">
                 <Icon name="logout" className="h-5 w-5 shrink-0" />
               </div>
-              {(!collapsed || mobile) && (
-                <span className="truncate pr-3.5 font-medium">Đăng xuất</span>
-              )}
+              {/* Right slot */}
+              <span
+                className={clsx(
+                  "truncate pr-3 text-sm font-medium transition-opacity duration-200",
+                  collapsed && !mobile ? "opacity-0 pointer-events-none w-0" : "opacity-100",
+                )}
+              >
+                Đăng xuất
+              </span>
             </button>
             {collapsed && !mobile && (
-              <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-full bg-white text-navy font-medium text-xs px-3.5 py-1.5 shadow-elevated border border-gborder">
+              <div className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-lg bg-white text-slate-800 font-medium text-xs px-3 py-1.5 shadow-xl border border-slate-200">
                 Đăng xuất
               </div>
             )}

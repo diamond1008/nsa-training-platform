@@ -1,0 +1,706 @@
+import { useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+
+import { DataTable, Pagination, QueryState } from "../../components/data";
+import type { Column } from "../../components/data";
+import { FilterBar, useDebouncedValue } from "../../components/filters";
+import { Icon } from "../../components/icons";
+import {
+  Button,
+  ErrorBanner,
+  Input,
+  Modal,
+  PageHeader,
+  Select,
+  Textarea,
+} from "../../components/ui";
+import { useAuth } from "../auth/AuthContext";
+import type { Course, Lead, SaleStaff } from "../../lib/domainTypes";
+import { formatDate, mutationMessage } from "../../lib/format";
+import { saleApi } from "./saleApi";
+import type { CreateLeadInput, LeadImportResult } from "./saleApi";
+import {
+  getSourceLabel,
+  LeadPipelineBadge,
+  PIPELINE_STATUS_OPTIONS,
+  SOURCE_OPTIONS,
+} from "./saleShared";
+
+export function LeadPipelinePage() {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole("ADMIN", "SALE_ADMIN");
+  const queryClient = useQueryClient();
+
+  // Filters & Pagination
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [assignedFilter, setAssignedFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const perPage = 20;
+
+  // Create Modal
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [formData, setFormData] = useState<CreateLeadInput>({
+    full_name: "",
+    phone: "",
+    email: "",
+    source: "facebook",
+    source_detail: "",
+    interested_course_id: "",
+    notes: "",
+    assigned_to: "",
+  });
+
+  // Import Modal & State
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<LeadImportResult | null>(null);
+  const [importError, setImportError] = useState("");
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDownloadTemplate = async (format: "xlsx" | "csv" = "xlsx") => {
+    setIsDownloadingTemplate(true);
+    setImportError("");
+    try {
+      const blob = await saleApi.downloadLeadTemplate(format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        format === "csv" ? "mau_nhap_lead_tuyen_sinh.csv" : "mau_nhap_lead_tuyen_sinh.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setImportError(mutationMessage(err));
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  };
+
+  const importMutation = useMutation({
+    mutationFn: async (file: File) => saleApi.importLeads(file),
+    onSuccess: (data) => {
+      setImportResult(data);
+      if (data.imported > 0) {
+        queryClient.invalidateQueries({ queryKey: ["sale", "leads"] });
+        queryClient.invalidateQueries({ queryKey: ["sale", "dashboard"] });
+      }
+    },
+    onError: (err) => {
+      setImportError(mutationMessage(err));
+    },
+  });
+
+  // Queries
+  const leadsQuery = useQuery({
+    queryKey: [
+      "sale",
+      "leads",
+      {
+        page,
+        per_page: perPage,
+        search: debouncedSearch,
+        pipeline_status: statusFilter,
+        source: sourceFilter,
+        assigned_to: assignedFilter,
+        created_from: fromDate,
+        created_to: toDate,
+      },
+    ],
+    queryFn: () =>
+      saleApi.listLeads({
+        page,
+        per_page: perPage,
+        search: debouncedSearch || undefined,
+        pipeline_status: statusFilter || undefined,
+        source: sourceFilter || undefined,
+        assigned_to: assignedFilter || undefined,
+        created_from: fromDate ? `${fromDate}T00:00:00Z` : undefined,
+        created_to: toDate ? `${toDate}T23:59:59Z` : undefined,
+        sort_by: "created_at",
+        sort_order: "desc",
+      }),
+  });
+
+  const staffQuery = useQuery({
+    queryKey: ["sale", "staff"],
+    queryFn: () => saleApi.listStaff(),
+    enabled: isAdmin,
+  });
+
+  const coursesQuery = useQuery({
+    queryKey: ["sale", "courses"],
+    queryFn: () => saleApi.listCourses(),
+  });
+
+  // Create Lead Mutation
+  const createMutation = useMutation({
+    mutationFn: (data: CreateLeadInput) => saleApi.createLead(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sale", "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["sale", "dashboard"] });
+      setIsCreateOpen(false);
+      setFormData({
+        full_name: "",
+        phone: "",
+        email: "",
+        source: "facebook",
+        source_detail: "",
+        interested_course_id: "",
+        notes: "",
+        assigned_to: "",
+      });
+      setFormError("");
+    },
+    onError: (err: unknown) => {
+      setFormError(mutationMessage(err));
+    },
+  });
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.full_name.trim()) {
+      setFormError("Họ và tên không được để trống.");
+      return;
+    }
+    createMutation.mutate({
+      ...formData,
+      interested_course_id: formData.interested_course_id || undefined,
+      assigned_to: formData.assigned_to || undefined,
+      phone: formData.phone?.trim() || undefined,
+      email: formData.email?.trim() || undefined,
+      source_detail: formData.source_detail?.trim() || undefined,
+      notes: formData.notes?.trim() || undefined,
+    });
+  };
+
+  const columns: Column<Lead>[] = [
+    {
+      header: "STT",
+      className: "w-12 text-center",
+      cell: (_, index) => (page - 1) * perPage + index + 1,
+    },
+    {
+      header: "Họ và tên",
+      className: "min-w-[160px]",
+      cell: (lead) => (
+        <div>
+          <Link
+            to={`/sale/leads/${lead.id}`}
+            className="font-semibold text-navy hover:text-gold-dark hover:underline"
+          >
+            {lead.full_name}
+          </Link>
+          {lead.email && <div className="text-xs text-gtext">{lead.email}</div>}
+        </div>
+      ),
+    },
+    {
+      header: "Số điện thoại",
+      className: "min-w-[120px]",
+      cell: (lead) => <span className="font-mono text-sm text-navy">{lead.phone || "—"}</span>,
+    },
+    {
+      header: "Nguồn",
+      className: "min-w-[110px]",
+      cell: (lead) => (
+        <span className="text-xs font-medium text-navy/80">{getSourceLabel(lead.source)}</span>
+      ),
+    },
+    {
+      header: "Khóa quan tâm",
+      className: "min-w-[150px]",
+      cell: (lead) => (
+        <span className="text-xs text-navy">{lead.interested_course_name || "—"}</span>
+      ),
+    },
+    {
+      header: "Trạng thái",
+      className: "min-w-[130px]",
+      cell: (lead) => <LeadPipelineBadge status={lead.pipeline_status} />,
+    },
+    {
+      header: "Phụ trách",
+      className: "min-w-[140px]",
+      cell: (lead) => (
+        <span className="text-xs text-navy/80 truncate block max-w-[160px]">
+          {lead.assigned_to_email || "Chưa gán"}
+        </span>
+      ),
+    },
+    {
+      header: "Ngày tạo",
+      className: "min-w-[100px]",
+      cell: (lead) => <span className="text-xs text-gtext">{formatDate(lead.created_at)}</span>,
+    },
+    {
+      header: "Thao tác",
+      className: "w-28 text-right",
+      cell: (lead) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <Link to={`/sale/leads/${lead.id}`}>
+            <Button variant="soft" className="h-8 px-2.5 text-xs">
+              Chi tiết
+            </Button>
+          </Link>
+          {!lead.converted_student_id && (
+            <Link to={`/sale/leads/${lead.id}/convert`}>
+              <Button
+                variant="accent"
+                className="h-8 px-2.5 text-xs"
+                title="Chuyển đổi thành Học viên"
+              >
+                Chốt
+              </Button>
+            </Link>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  const totalPages = leadsQuery.data?.meta.total_pages ?? 1;
+
+  const hasFilterActive =
+    Boolean(search) ||
+    Boolean(statusFilter) ||
+    Boolean(sourceFilter) ||
+    Boolean(assignedFilter) ||
+    Boolean(fromDate) ||
+    Boolean(toDate);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Quản lý Lead Tuyển sinh"
+        eyebrow="Pipeline Khách hàng"
+        subtitle="Danh sách khách hàng tiềm năng, theo dõi tiến độ chuyển đổi và quản lý thông tin tư vấn."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setImportError("");
+                setImportResult(null);
+                setImportFile(null);
+                setIsImportOpen(true);
+              }}
+            >
+              <Icon name="upload" className="h-4 w-4 mr-1.5" />
+              Nhập từ Excel/CSV
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setFormError("");
+                setIsCreateOpen(true);
+              }}
+            >
+              <Icon name="plus" className="h-4 w-4 mr-1.5" />
+              Thêm Lead mới
+            </Button>
+          </div>
+        }
+      />
+
+      {/* Filter Bar */}
+      <FilterBar
+        search={search}
+        onSearch={(val) => {
+          setSearch(val);
+          setPage(1);
+        }}
+        searchPlaceholder="Tìm theo họ tên, SĐT, email..."
+        resultCount={leadsQuery.data?.meta.total}
+        onClearAll={
+          hasFilterActive
+            ? () => {
+                setSearch("");
+                setStatusFilter("");
+                setSourceFilter("");
+                setAssignedFilter("");
+                setFromDate("");
+                setToDate("");
+                setPage(1);
+              }
+            : undefined
+        }
+        advancedFilters={
+          <>
+            <div className="w-48">
+              <Select
+                label="Trạng thái pipeline"
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">Tất cả trạng thái</option>
+                {PIPELINE_STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="w-44">
+              <Select
+                label="Nguồn Lead"
+                value={sourceFilter}
+                onChange={(e) => {
+                  setSourceFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">Tất cả nguồn</option>
+                {SOURCE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            {isAdmin && (
+              <div className="w-52">
+                <Select
+                  label="Sale phụ trách"
+                  value={assignedFilter}
+                  onChange={(e) => {
+                    setAssignedFilter(e.target.value);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">Tất cả Sale</option>
+                  {staffQuery.data?.map((staff: SaleStaff) => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.email}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
+
+            <div className="w-36">
+              <Input
+                label="Từ ngày"
+                type="date"
+                value={fromDate}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+
+            <div className="w-36">
+              <Input
+                label="Đến ngày"
+                type="date"
+                value={toDate}
+                onChange={(e) => {
+                  setToDate(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+          </>
+        }
+      />
+
+      {/* Leads Table */}
+      <QueryState
+        loading={leadsQuery.isLoading}
+        error={leadsQuery.error}
+        empty={leadsQuery.data?.items.length === 0}
+        emptyTitle="Không tìm thấy Lead nào phù hợp"
+      >
+        <DataTable items={leadsQuery.data?.items ?? []} columns={columns} />
+        <Pagination page={page} totalPages={totalPages} onPage={setPage} />
+      </QueryState>
+
+      {/* Modal: Thêm Lead Mới */}
+      <Modal
+        open={isCreateOpen}
+        title="Thêm Lead tiềm năng mới"
+        onClose={() => setIsCreateOpen(false)}
+      >
+        <form onSubmit={handleCreateSubmit} className="space-y-4">
+          {formError && <ErrorBanner message={formError} />}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="Họ và tên *"
+              required
+              placeholder="Nguyễn Văn A"
+              value={formData.full_name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, full_name: e.target.value }))}
+            />
+            <Input
+              label="Số điện thoại"
+              placeholder="0912345678"
+              value={formData.phone ?? ""}
+              onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="Email"
+              type="email"
+              placeholder="email@example.com"
+              value={formData.email ?? ""}
+              onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+            />
+            <Select
+              label="Nguồn khách hàng"
+              value={formData.source ?? "facebook"}
+              onChange={(e) => setFormData((prev) => ({ ...prev, source: e.target.value }))}
+            >
+              {SOURCE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="Chi tiết nguồn / Chiến dịch"
+              placeholder="VD: FB Ads T7, Hotline buổi sáng"
+              value={formData.source_detail ?? ""}
+              onChange={(e) => setFormData((prev) => ({ ...prev, source_detail: e.target.value }))}
+            />
+            <Select
+              label="Khóa học quan tâm"
+              value={formData.interested_course_id ?? ""}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  interested_course_id: e.target.value,
+                }))
+              }
+            >
+              <option value="">-- Chưa xác định --</option>
+              {coursesQuery.data?.items.map((c: Course) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} - {c.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          {isAdmin && (
+            <Select
+              label="Phân bổ cho Sale"
+              value={formData.assigned_to ?? ""}
+              onChange={(e) => setFormData((prev) => ({ ...prev, assigned_to: e.target.value }))}
+            >
+              <option value="">-- Tự phụ trách / Chưa phân bổ --</option>
+              {staffQuery.data?.map((staff: SaleStaff) => (
+                <option key={staff.id} value={staff.id}>
+                  {staff.email}
+                </option>
+              ))}
+            </Select>
+          )}
+
+          <Textarea
+            label="Ghi chú tư vấn"
+            placeholder="Nhu cầu khách hàng, thời gian có thể học..."
+            value={formData.notes ?? ""}
+            onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+          />
+
+          <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-gborder">
+            <Button type="button" variant="ghost" onClick={() => setIsCreateOpen(false)}>
+              Hủy
+            </Button>
+            <Button type="submit" variant="primary" loading={createMutation.isPending}>
+              Tạo Lead
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Import Modal */}
+      <Modal
+        open={isImportOpen}
+        onClose={() => {
+          setIsImportOpen(false);
+          setImportFile(null);
+          setImportResult(null);
+          setImportError("");
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }}
+        title="Nhập danh sách Lead từ Excel / CSV"
+      >
+        <div className="space-y-5">
+          {importError && <ErrorBanner message={importError} />}
+
+          {/* Step 1: Download Template */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-semibold text-navy">
+                  Bước 1: Tải file mẫu chuẩn Excel (.xlsx)
+                </h4>
+                <p className="mt-1 text-xs text-gtext leading-relaxed">
+                  File bảng tính Microsoft Excel (.xlsx) chuẩn với giao diện trực quan, tiêu đề rõ
+                  ràng và sẵn 3 dòng dữ liệu ví dụ.
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="primary"
+                  className="text-xs font-medium"
+                  loading={isDownloadingTemplate}
+                  onClick={() => void handleDownloadTemplate("xlsx")}
+                >
+                  <Icon name="download" className="h-4 w-4 mr-1.5" />
+                  Tải file Excel (.xlsx)
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="text-xs font-medium"
+                  loading={isDownloadingTemplate}
+                  title="Tải file định dạng CSV"
+                  onClick={() => void handleDownloadTemplate("csv")}
+                >
+                  .CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2: Upload File */}
+          <div className="rounded-xl border border-slate-200 p-4">
+            <h4 className="text-sm font-semibold text-navy">
+              Bước 2: Chọn file Excel (.xlsx) hoặc CSV đã điền để tải lên
+            </h4>
+            <p className="mt-1 text-xs text-gtext">
+              Hệ thống tự động nhận diện mã khóa học, email nhân viên và chuẩn hóa định dạng. Hỗ trợ
+              cả file .xlsx và .csv (tối đa 500 dòng/lần).
+            </p>
+
+            <div className="mt-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  setImportFile(file);
+                  setImportResult(null);
+                  setImportError("");
+                }}
+              />
+
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-6 transition hover:border-[#0A2540] hover:bg-slate-50"
+              >
+                <Icon name="upload" className="h-8 w-8 text-slate-400" />
+                {importFile ? (
+                  <div className="mt-2 text-center">
+                    <p className="text-sm font-semibold text-navy">{importFile.name}</p>
+                    <p className="text-xs text-gtext">
+                      {(importFile.size / 1024).toFixed(1)} KB — Nhấn để chọn file khác
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-center">
+                    <p className="text-sm font-medium text-navy">
+                      Nhấn vào đây để chọn file{" "}
+                      <span className="font-semibold text-emerald-700">.xlsx</span> hoặc{" "}
+                      <span className="font-semibold text-gold-dark">.csv</span>
+                    </p>
+                    <p className="text-xs text-gtext">hoặc kéo thả file vào khu vực này</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Import Result Feedback */}
+          {importResult && (
+            <div className="space-y-3">
+              {importResult.imported > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 p-4 text-sm text-emerald-800">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <Icon name="check" className="h-5 w-5 text-emerald-600" />
+                    Đã nhập thành công {importResult.imported} Lead vào hệ thống!
+                  </div>
+                  <p className="mt-1 text-xs text-emerald-700">
+                    Dữ liệu đã được cập nhật vào danh sách và pipeline tuyển sinh.
+                  </p>
+                </div>
+              )}
+
+              {importResult.failed > 0 && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50/90 p-4 text-sm text-rose-800">
+                  <div className="flex items-center gap-2 font-semibold text-rose-900">
+                    <Icon name="alert" className="h-5 w-5 text-rose-600" />
+                    Có {importResult.failed} dòng gặp lỗi không thể nhập:
+                  </div>
+                  <ul className="mt-2 max-h-40 overflow-y-auto space-y-1 text-xs text-rose-700 list-disc pl-5">
+                    {importResult.errors.map((err, idx) => (
+                      <li key={idx}>
+                        <strong>Dòng {err.row}:</strong> {err.message}{" "}
+                        {err.name && <span className="text-slate-600">({err.name})</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-gborder">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setIsImportOpen(false);
+                setImportFile(null);
+                setImportResult(null);
+                setImportError("");
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+            >
+              {importResult ? "Đóng" : "Hủy"}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={!importFile || importMutation.isPending}
+              loading={importMutation.isPending}
+              onClick={() => {
+                if (importFile) {
+                  importMutation.mutate(importFile);
+                }
+              }}
+            >
+              <Icon name="upload" className="h-4 w-4 mr-1.5" />
+              Tiến hành nhập dữ liệu
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

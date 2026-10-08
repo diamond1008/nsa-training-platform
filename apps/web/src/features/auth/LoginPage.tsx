@@ -227,31 +227,69 @@ export default function LoginPage() {
           <p className="mb-2.5 text-[11px] font-medium text-slate-500">
             Đăng nhập nhanh cho môi trường Demo:
           </p>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              disabled={isBusy}
-              onClick={() => void handleQuickLogin("admin@nsa.local")}
-              className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
-            >
-              Admin
-            </button>
-            <button
-              type="button"
-              disabled={isBusy}
-              onClick={() => void handleQuickLogin("teacher@nsa.local")}
-              className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
-            >
-              Giảng viên
-            </button>
-            <button
-              type="button"
-              disabled={isBusy}
-              onClick={() => void handleQuickLogin("student@nsa.local")}
-              className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
-            >
-              Học viên
-            </button>
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleQuickLogin("admin@nsa.local")}
+                className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              >
+                Admin (Tất cả)
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleQuickLogin("sale_admin@nsa.local")}
+                className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              >
+                Sale Admin
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleQuickLogin("sale@nsa.local")}
+                className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              >
+                Sale 1
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleQuickLogin("sale2@nsa.local")}
+                className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              >
+                Sale 2
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleQuickLogin("sale3@nsa.local")}
+                className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              >
+                Sale 3
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleQuickLogin("teacher@nsa.local")}
+                className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              >
+                Giảng viên
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleQuickLogin("student@nsa.local")}
+                className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/60 py-2 text-xs font-semibold text-[#0A2540] backdrop-blur-md transition-all duration-200 hover:border-[#0A2540]/40 hover:bg-white hover:shadow-md hover:scale-105 hover:-translate-y-0.5 active:scale-95 disabled:opacity-50"
+              >
+                Học viên
+              </button>
+            </div>
           </div>
         </div>
 

@@ -48,6 +48,8 @@ tags:
     description: Teacher schedule and assigned-class endpoints (Phase 5+)
   - name: student
     description: Student schedule and self-service endpoints (Phase 5+)
+  - name: sale
+    description: Sale CRM, Lead pipeline, interactions, tasks, and orders (Phase 26)
 
 paths:
   /health:
@@ -2035,6 +2037,430 @@ paths:
         "200": { description: Archived notification }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/sale/staff:
+    get:
+      tags: [sale]
+      summary: List sale staff for lead assignment
+      operationId: listSaleStaff
+      responses:
+        "200":
+          description: List of sale staff
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/courses:
+    get:
+      tags: [sale]
+      summary: List active courses for dropdowns
+      operationId: listSaleCourses
+      responses:
+        "200":
+          description: List of active courses
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/classes:
+    get:
+      tags: [sale]
+      summary: List classes with capacity for lead conversion
+      operationId: listSaleClasses
+      responses:
+        "200":
+          description: List of open classes
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/dashboard/my-stats:
+    get:
+      tags: [sale]
+      summary: Get personal stats for current sale staff
+      operationId: getSaleMyStats
+      responses:
+        "200":
+          description: Personal statistics
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/dashboard/overview:
+    get:
+      tags: [sale]
+      summary: Get overall team CRM overview (ADMIN only)
+      operationId: getSaleOverview
+      responses:
+        "200":
+          description: Overall team stats
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/sale/dashboard/revenue:
+    get:
+      tags: [sale]
+      summary: Get revenue report by month and source (ADMIN only)
+      operationId: getSaleRevenueReport
+      responses:
+        "200":
+          description: Revenue breakdown report
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/sale/leads:
+    get:
+      tags: [sale]
+      summary: List leads with filtering and pagination
+      operationId: listLeads
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: pipeline_status, in: query, schema: { type: string } }
+        - { name: source, in: query, schema: { type: string } }
+        - { name: assigned_to, in: query, schema: { type: string, format: uuid } }
+        - { name: created_from, in: query, schema: { type: string, format: date-time } }
+        - { name: created_to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: Paginated list of leads
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [sale]
+      summary: Create a new lead
+      operationId: createLead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLeadRequest" }
+      responses:
+        "201":
+          description: Created lead
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/leads/template:
+    get:
+      tags: [sale]
+      summary: Download lead Excel (.xlsx) or CSV template with sample rows
+      operationId: downloadLeadTemplate
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema: { type: string, enum: [xlsx, csv], default: xlsx }
+      responses:
+        "200":
+          description: Excel (.xlsx) or CSV template file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+            text/csv:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/leads/import:
+    post:
+      tags: [sale]
+      summary: Import leads from Excel (.xlsx) or CSV with row-level validation results
+      operationId: importLeads
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+          text/csv:
+            schema: { type: string, maxLength: 10485760 }
+      responses:
+        "200":
+          description: Import result with imported/failed counters and row-level errors
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudentImportResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/leads/{leadID}:
+    get:
+      tags: [sale]
+      summary: Get 360-degree lead profile details
+      operationId: getLead
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Lead profile
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [sale]
+      summary: Update lead information
+      operationId: updateLead
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLeadRequest" }
+      responses:
+        "200":
+          description: Updated lead
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sale/leads/{leadID}/status:
+    patch:
+      tags: [sale]
+      summary: Update lead pipeline status
+      operationId: updateLeadStatus
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pipeline_status]
+              properties:
+                pipeline_status: { $ref: "#/components/schemas/LeadPipelineStatus" }
+                reason: { type: string }
+      responses:
+        "200":
+          description: Updated lead
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sale/leads/{leadID}/assign:
+    patch:
+      tags: [sale]
+      summary: Assign or reassign lead to sale staff (ADMIN only)
+      operationId: assignLead
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assigned_to]
+              properties:
+                assigned_to: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Assigned lead
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sale/leads/{leadID}/convert:
+    post:
+      tags: [sale]
+      summary: 1-Click convert lead into enrolled student and create order
+      operationId: convertLead
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConvertLeadRequest" }
+      responses:
+        "200":
+          description: Conversion result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConvertLeadResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sale/leads/{leadID}/interactions:
+    get:
+      tags: [sale]
+      summary: List interactions for a lead
+      operationId: listLeadInteractions
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Interaction list
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [sale]
+      summary: Record interaction for a lead
+      operationId: createLeadInteraction
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLeadInteractionRequest" }
+      responses:
+        "201":
+          description: Created interaction
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/leads/{leadID}/pipeline-history:
+    get:
+      tags: [sale]
+      summary: List status transition history for a lead
+      operationId: listLeadPipelineHistory
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Pipeline history records
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/leads/{leadID}/tasks:
+    get:
+      tags: [sale]
+      summary: List tasks for a lead
+      operationId: listLeadTasksByLead
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Lead tasks
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [sale]
+      summary: Create a task for a lead
+      operationId: createLeadTask
+      parameters:
+        - { name: leadID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLeadTaskRequest" }
+      responses:
+        "201":
+          description: Created task
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/tasks:
+    get:
+      tags: [sale]
+      summary: List tasks for assigned staff
+      operationId: listSaleTasks
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: lead_id, in: query, schema: { type: string, format: uuid } }
+        - { name: assigned_to, in: query, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: List of tasks
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/tasks/{taskID}:
+    put:
+      tags: [sale]
+      summary: Update task details
+      operationId: updateSaleTask
+      parameters:
+        - { name: taskID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLeadTaskRequest" }
+      responses:
+        "200":
+          description: Updated task
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sale/tasks/{taskID}/complete:
+    patch:
+      tags: [sale]
+      summary: Mark task as completed
+      operationId: completeSaleTask
+      parameters:
+        - { name: taskID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Completed task
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sale/orders:
+    get:
+      tags: [sale]
+      summary: List orders with filters and pagination
+      operationId: listSaleOrders
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: student_id, in: query, schema: { type: string, format: uuid } }
+        - { name: lead_id, in: query, schema: { type: string, format: uuid } }
+        - { name: created_from, in: query, schema: { type: string, format: date-time } }
+        - { name: created_to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: Paginated orders list
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [sale]
+      summary: Create an order
+      operationId: createSaleOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOrderRequest" }
+      responses:
+        "201":
+          description: Created order
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/sale/orders/{orderID}:
+    get:
+      tags: [sale]
+      summary: Get order details
+      operationId: getSaleOrder
+      parameters:
+        - { name: orderID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Order details
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/sale/orders/{orderID}/status:
+    patch:
+      tags: [sale]
+      summary: Update order status (ADMIN only)
+      operationId: updateSaleOrderStatus
+      parameters:
+        - { name: orderID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: "#/components/schemas/OrderStatus" }
+      responses:
+        "200":
+          description: Updated order
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2188,7 +2614,7 @@ components:
         email: { type: string, example: admin@nsa.local }
         roles:
           type: array
-          items: { type: string, enum: [ADMIN, TEACHER, STUDENT] }
+          items: { type: string, enum: [ADMIN, TEACHER, STUDENT, SALE, SALE_ADMIN] }
           example: [ADMIN]
         must_change_password: { type: boolean, example: false }
         student_profile: { $ref: "#/components/schemas/ProfileRef" }
@@ -3653,6 +4079,96 @@ components:
                 type: object
                 additionalProperties: true
               default: []
+
+    # Sale CRM Schemas (Phase 26)
+    LeadSource:
+      type: string
+      enum: [facebook, tiktok, google, zalo, website, referral, walk_in, event, other]
+
+    LeadPipelineStatus:
+      type: string
+      enum: [data_moi, knm_thue_bao, goi_lai_sau, follow, tu_choi, da_dang_ky, dang_hoc, ket_thuc]
+
+    InteractionChannel:
+      type: string
+      enum: [phone_call, zalo, facebook, email, in_person, sms, other]
+
+    OrderStatus:
+      type: string
+      enum: [pending, paid, cancelled, refunded]
+
+    CreateLeadRequest:
+      type: object
+      required: [full_name]
+      properties:
+        full_name: { type: string, minLength: 1, maxLength: 200 }
+        phone: { type: string, maxLength: 20 }
+        email: { type: string, format: email }
+        date_of_birth: { type: string, format: date }
+        gender: { type: string, enum: [male, female, other] }
+        address: { type: string }
+        source: { $ref: "#/components/schemas/LeadSource" }
+        source_detail: { type: string }
+        utm_source: { type: string }
+        utm_medium: { type: string }
+        utm_campaign: { type: string }
+        utm_content: { type: string }
+        utm_term: { type: string }
+        interested_course_id: { type: string, format: uuid }
+        notes: { type: string }
+        assigned_to: { type: string, format: uuid }
+
+    ConvertLeadRequest:
+      type: object
+      required: [class_id, amount]
+      properties:
+        class_id: { type: string, format: uuid }
+        amount: { type: number, minimum: 0 }
+        discount_amount: { type: number, minimum: 0, default: 0 }
+        discount_note: { type: string }
+        payment_method: { type: string }
+        notes: { type: string }
+
+    ConvertLeadResponse:
+      type: object
+      required: [student_id, student_code, order_id, order_code]
+      properties:
+        student_id: { type: string, format: uuid }
+        student_code: { type: string }
+        order_id: { type: string, format: uuid }
+        order_code: { type: string }
+        initial_password: { type: string }
+
+    CreateLeadInteractionRequest:
+      type: object
+      required: [channel, summary]
+      properties:
+        channel: { $ref: "#/components/schemas/InteractionChannel" }
+        summary: { type: string, minLength: 1 }
+        outcome: { type: string }
+
+    CreateLeadTaskRequest:
+      type: object
+      required: [title, due_at]
+      properties:
+        assigned_to: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 300 }
+        description: { type: string }
+        due_at: { type: string, format: date-time }
+
+    CreateOrderRequest:
+      type: object
+      required: [amount]
+      properties:
+        lead_id: { type: string, format: uuid }
+        student_id: { type: string, format: uuid }
+        course_id: { type: string, format: uuid }
+        class_id: { type: string, format: uuid }
+        amount: { type: number, minimum: 0 }
+        discount_amount: { type: number, minimum: 0, default: 0 }
+        discount_note: { type: string }
+        payment_method: { type: string }
+        notes: { type: string }
 
 # Default security for all business endpoints; system endpoints opt out above.
 security:

@@ -364,6 +364,150 @@ func (ns NullEnrollmentStatus) Value() (driver.Value, error) {
 	return string(ns.EnrollmentStatus), nil
 }
 
+type InteractionChannel string
+
+const (
+	InteractionChannelPhoneCall InteractionChannel = "phone_call"
+	InteractionChannelZalo      InteractionChannel = "zalo"
+	InteractionChannelFacebook  InteractionChannel = "facebook"
+	InteractionChannelEmail     InteractionChannel = "email"
+	InteractionChannelInPerson  InteractionChannel = "in_person"
+	InteractionChannelSms       InteractionChannel = "sms"
+	InteractionChannelOther     InteractionChannel = "other"
+)
+
+func (e *InteractionChannel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InteractionChannel(s)
+	case string:
+		*e = InteractionChannel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InteractionChannel: %T", src)
+	}
+	return nil
+}
+
+type NullInteractionChannel struct {
+	InteractionChannel InteractionChannel `json:"interaction_channel"`
+	Valid              bool               `json:"valid"` // Valid is true if InteractionChannel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInteractionChannel) Scan(value interface{}) error {
+	if value == nil {
+		ns.InteractionChannel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InteractionChannel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInteractionChannel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InteractionChannel), nil
+}
+
+type LeadPipelineStatus string
+
+const (
+	LeadPipelineStatusDataMoi    LeadPipelineStatus = "data_moi"
+	LeadPipelineStatusKnmThueBao LeadPipelineStatus = "knm_thue_bao"
+	LeadPipelineStatusGoiLaiSau  LeadPipelineStatus = "goi_lai_sau"
+	LeadPipelineStatusFollow     LeadPipelineStatus = "follow"
+	LeadPipelineStatusTuChoi     LeadPipelineStatus = "tu_choi"
+	LeadPipelineStatusDaDangKy   LeadPipelineStatus = "da_dang_ky"
+	LeadPipelineStatusDangHoc    LeadPipelineStatus = "dang_hoc"
+	LeadPipelineStatusKetThuc    LeadPipelineStatus = "ket_thuc"
+)
+
+func (e *LeadPipelineStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = LeadPipelineStatus(s)
+	case string:
+		*e = LeadPipelineStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for LeadPipelineStatus: %T", src)
+	}
+	return nil
+}
+
+type NullLeadPipelineStatus struct {
+	LeadPipelineStatus LeadPipelineStatus `json:"lead_pipeline_status"`
+	Valid              bool               `json:"valid"` // Valid is true if LeadPipelineStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullLeadPipelineStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.LeadPipelineStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.LeadPipelineStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullLeadPipelineStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.LeadPipelineStatus), nil
+}
+
+type LeadSource string
+
+const (
+	LeadSourceFacebook LeadSource = "facebook"
+	LeadSourceTiktok   LeadSource = "tiktok"
+	LeadSourceGoogle   LeadSource = "google"
+	LeadSourceZalo     LeadSource = "zalo"
+	LeadSourceWebsite  LeadSource = "website"
+	LeadSourceReferral LeadSource = "referral"
+	LeadSourceWalkIn   LeadSource = "walk_in"
+	LeadSourceEvent    LeadSource = "event"
+	LeadSourceOther    LeadSource = "other"
+)
+
+func (e *LeadSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = LeadSource(s)
+	case string:
+		*e = LeadSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for LeadSource: %T", src)
+	}
+	return nil
+}
+
+type NullLeadSource struct {
+	LeadSource LeadSource `json:"lead_source"`
+	Valid      bool       `json:"valid"` // Valid is true if LeadSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullLeadSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.LeadSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.LeadSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullLeadSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.LeadSource), nil
+}
+
 type NotificationStatus string
 
 const (
@@ -405,6 +549,50 @@ func (ns NullNotificationStatus) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.NotificationStatus), nil
+}
+
+type OrderStatus string
+
+const (
+	OrderStatusPending   OrderStatus = "pending"
+	OrderStatusPaid      OrderStatus = "paid"
+	OrderStatusCancelled OrderStatus = "cancelled"
+	OrderStatusRefunded  OrderStatus = "refunded"
+)
+
+func (e *OrderStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrderStatus(s)
+	case string:
+		*e = OrderStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrderStatus: %T", src)
+	}
+	return nil
+}
+
+type NullOrderStatus struct {
+	OrderStatus OrderStatus `json:"order_status"`
+	Valid       bool        `json:"valid"` // Valid is true if OrderStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrderStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrderStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrderStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrderStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrderStatus), nil
 }
 
 type SessionStatus string
@@ -835,6 +1023,68 @@ type CourseTest struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Lead struct {
+	ID                 pgtype.UUID        `json:"id"`
+	FullName           string             `json:"full_name"`
+	Phone              pgtype.Text        `json:"phone"`
+	Email              pgtype.Text        `json:"email"`
+	DateOfBirth        pgtype.Date        `json:"date_of_birth"`
+	Gender             pgtype.Text        `json:"gender"`
+	Address            pgtype.Text        `json:"address"`
+	Source             LeadSource         `json:"source"`
+	SourceDetail       pgtype.Text        `json:"source_detail"`
+	UtmSource          pgtype.Text        `json:"utm_source"`
+	UtmMedium          pgtype.Text        `json:"utm_medium"`
+	UtmCampaign        pgtype.Text        `json:"utm_campaign"`
+	UtmContent         pgtype.Text        `json:"utm_content"`
+	UtmTerm            pgtype.Text        `json:"utm_term"`
+	InterestedCourseID pgtype.UUID        `json:"interested_course_id"`
+	Notes              pgtype.Text        `json:"notes"`
+	PipelineStatus     LeadPipelineStatus `json:"pipeline_status"`
+	AssignedTo         pgtype.UUID        `json:"assigned_to"`
+	AssignedAt         pgtype.Timestamptz `json:"assigned_at"`
+	AssignedBy         pgtype.UUID        `json:"assigned_by"`
+	ConvertedStudentID pgtype.UUID        `json:"converted_student_id"`
+	ConvertedAt        pgtype.Timestamptz `json:"converted_at"`
+	ConvertedBy        pgtype.UUID        `json:"converted_by"`
+	CreatedBy          pgtype.UUID        `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+type LeadInteraction struct {
+	ID        pgtype.UUID        `json:"id"`
+	LeadID    pgtype.UUID        `json:"lead_id"`
+	Channel   InteractionChannel `json:"channel"`
+	Summary   string             `json:"summary"`
+	Outcome   pgtype.Text        `json:"outcome"`
+	CreatedBy pgtype.UUID        `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type LeadPipelineHistory struct {
+	ID        pgtype.UUID            `json:"id"`
+	LeadID    pgtype.UUID            `json:"lead_id"`
+	OldStatus NullLeadPipelineStatus `json:"old_status"`
+	NewStatus LeadPipelineStatus     `json:"new_status"`
+	Reason    pgtype.Text            `json:"reason"`
+	ChangedBy pgtype.UUID            `json:"changed_by"`
+	ChangedAt pgtype.Timestamptz     `json:"changed_at"`
+}
+
+type LeadTask struct {
+	ID          pgtype.UUID        `json:"id"`
+	LeadID      pgtype.UUID        `json:"lead_id"`
+	AssignedTo  pgtype.UUID        `json:"assigned_to"`
+	Title       string             `json:"title"`
+	Description pgtype.Text        `json:"description"`
+	DueAt       pgtype.Timestamptz `json:"due_at"`
+	CompletedAt pgtype.Timestamptz `json:"completed_at"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Notification struct {
 	ID        pgtype.UUID        `json:"id"`
 	UserID    pgtype.UUID        `json:"user_id"`
@@ -846,6 +1096,26 @@ type Notification struct {
 	ReadAt    pgtype.Timestamptz `json:"read_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Order struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrderCode      string             `json:"order_code"`
+	LeadID         pgtype.UUID        `json:"lead_id"`
+	StudentID      pgtype.UUID        `json:"student_id"`
+	CourseID       pgtype.UUID        `json:"course_id"`
+	ClassID        pgtype.UUID        `json:"class_id"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	DiscountAmount pgtype.Numeric     `json:"discount_amount"`
+	FinalAmount    pgtype.Numeric     `json:"final_amount"`
+	DiscountNote   pgtype.Text        `json:"discount_note"`
+	Status         OrderStatus        `json:"status"`
+	PaymentMethod  pgtype.Text        `json:"payment_method"`
+	PaidAt         pgtype.Timestamptz `json:"paid_at"`
+	Notes          pgtype.Text        `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type RefreshToken struct {
