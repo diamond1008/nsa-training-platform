@@ -138,7 +138,8 @@ describe("TeacherAttendancePage", () => {
     renderPage();
     await screen.findByText("Trần Minh Bình");
 
-    fireEvent.click(screen.getByRole("button", { name: /Lưu 1 thay đổi/i }));
+    const saveButton = await screen.findByRole("button", { name: /Lưu 1 thay đổi/i });
+    fireEvent.click(saveButton);
     await waitFor(() =>
       expect(teacherApi.recordAttendance).toHaveBeenCalledWith("session-1", [
         expect.objectContaining({ student_id: "student-1", status: "absent" }),

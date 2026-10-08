@@ -58,11 +58,11 @@ function initialDraft(item: AttendanceRosterItem): DraftRecord {
 }
 
 function isDirty(item: AttendanceRosterItem, draft: DraftRecord | undefined) {
-  if (!draft) return false;
+  const current = draft ?? initialDraft(item);
   if (!item.attendance_id) return true;
   return (
-    draft.status !== projectAttendanceStatus(item.attendance_status) ||
-    draft.note !== (item.note ?? "")
+    current.status !== projectAttendanceStatus(item.attendance_status) ||
+    current.note !== (item.note ?? "")
   );
 }
 
@@ -132,19 +132,24 @@ export function TeacherAttendancePage() {
   );
 
   const save = useMutation({
-    mutationFn: () =>
-      teacherApi.recordAttendance(
-        sessionId,
-        dirtyItems.map((item) => ({
-          student_id: item.student_id,
-          status: attendanceStatusForSave(item.attendance_status, drafts[item.student_id].status),
-          note: drafts[item.student_id].note.trim() || null,
-        })),
-      ),
+    mutationFn: (records: Parameters<typeof teacherApi.recordAttendance>[1]) =>
+      teacherApi.recordAttendance(sessionId, records),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["teacher", "attendance", sessionId] });
     },
   });
+
+  const handleSave = () => {
+    const payload = dirtyItems.map((item) => {
+      const draft = drafts[item.student_id] ?? initialDraft(item);
+      return {
+        student_id: item.student_id,
+        status: attendanceStatusForSave(item.attendance_status, draft.status),
+        note: draft.note.trim() || null,
+      };
+    });
+    save.mutate(payload);
+  };
 
   const options = useMemo(() => {
     const map = new Map(
@@ -448,7 +453,7 @@ export function TeacherAttendancePage() {
               ) : null}
               {editState.editable && dirtyItems.length > 0 ? (
                 <div className="sticky bottom-3 z-20 flex justify-end rounded-2xl border border-gborder bg-white/95 p-3 shadow-elevated backdrop-blur">
-                  <Button loading={save.isPending} onClick={() => save.mutate()}>
+                  <Button loading={save.isPending} onClick={handleSave}>
                     Lưu {dirtyItems.length} thay đổi
                   </Button>
                 </div>
