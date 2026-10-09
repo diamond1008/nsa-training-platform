@@ -52,6 +52,30 @@ const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
         { to: "/admin/van-hanh", label: "Vận hành" },
       ],
     },
+    {
+      id: "he-thong",
+      label: "Hệ thống",
+      icon: "users",
+      items: [{ to: "/admin/tai-khoan", label: "Tài khoản & Phân quyền" }],
+    },
+  ],
+  ACADEMIC_ADMIN: [
+    {
+      id: "dao-tao",
+      label: "Đào tạo",
+      icon: "academic",
+      items: [
+        { to: "/admin", label: "Tổng quan", end: true },
+        { to: "/admin/hoc-vien", label: "Học viên" },
+        { to: "/admin/giang-vien", label: "Giảng viên" },
+        { to: "/admin/khoa-hoc", label: "Khóa học" },
+        { to: "/admin/lop-hoc", label: "Lớp học" },
+        { to: "/admin/lich-hoc", label: "Lịch học" },
+        { to: "/admin/diem-danh", label: "Điểm danh" },
+        { to: "/admin/van-hanh", label: "Vận hành" },
+        { to: "/admin/tai-khoan", label: "Tài khoản Đào tạo" },
+      ],
+    },
   ],
   SALE_ADMIN: [
     {
@@ -63,6 +87,7 @@ const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
         { to: "/sale/leads", label: "Quản lý Lead" },
         { to: "/sale/don-hang", label: "Đơn hàng" },
         { to: "/sale/bao-cao", label: "Báo cáo" },
+        { to: "/sale/nhan-vien", label: "Đội ngũ Sale" },
       ],
     },
   ],
@@ -387,17 +412,17 @@ export default function AppLayout() {
         className={clsx(
           "relative flex h-full flex-col text-navy transition-[width,background-color,border-color] duration-200 ease-in-out select-none z-30",
           mobile
-            ? "w-[min(22rem,85vw)] sm:w-80 bg-white shadow-2xl rounded-r-3xl border-r border-gborder/40"
+            ? "w-[min(22rem,85vw)] sm:w-80 bg-white/85 backdrop-blur-3xl shadow-2xl rounded-r-3xl border-r border-white/80"
             : collapsed
-              ? "w-14 overflow-visible bg-gbg border-r-0"
-              : "w-64 bg-[#F0F4F9] border-r border-gborder",
+              ? "w-14 overflow-visible bg-transparent border-r-0 shadow-none backdrop-blur-none"
+              : "w-64 bg-white/65 backdrop-blur-2xl border-r border-white/60 shadow-[4px_0_24px_rgba(7,20,38,0.02)]",
         )}
       >
         {/* Top Header */}
         <div
           className={clsx(
             "relative flex h-[4.5rem] shrink-0 items-center overflow-visible transition-colors duration-200",
-            collapsed && !mobile ? "border-b-0" : "border-b border-gborder/70",
+            collapsed && !mobile ? "border-b-0 bg-transparent" : "border-b border-white/60",
           )}
         >
           {/* Logo slot: exactly w-14 (56px) shrink-0, centered at 28px in ALL states */}
@@ -421,7 +446,7 @@ export default function AppLayout() {
                 "transition-all duration-150 ease-out active:duration-75 active:scale-90",
                 collapsed && !mobile && isHoveredLogo
                   ? "rounded-xl bg-[#E5E7EB] text-slate-800 shadow-xs"
-                  : "rounded-xl bg-gold font-extrabold text-navy shadow-xs",
+                  : "rounded-xl bg-navy font-extrabold text-white shadow-xs",
               )}
               aria-label={collapsed && !mobile ? "Mở rộng thanh điều hướng" : "NSA Training"}
             >
@@ -529,17 +554,17 @@ export default function AppLayout() {
                   className={clsx(
                     "flex h-11 w-full items-center transition-all duration-150 ease-out active:duration-75 active:scale-[0.98] cursor-pointer select-none overflow-hidden",
                     isHovered && collapsed && !mobile
-                      ? "bg-[#D1D5DB] text-slate-900 rounded-none"
+                      ? "bg-white/90 text-slate-900 rounded-none shadow-xs"
                       : isActiveGroup
-                        ? "bg-slate-200/50 text-[#0078D4] rounded-lg"
-                        : "text-slate-700 hover:bg-slate-200/50 active:bg-slate-200/80 rounded-lg",
+                        ? "bg-white/80 text-[#0532e6] rounded-lg shadow-xs border border-white/90"
+                        : "text-slate-700 hover:bg-white/50 active:bg-white/70 rounded-lg",
                   )}
                   aria-label={group.label}
                 >
                   {/* Left slot: exactly w-14 (56px) shrink-0, centered at 28px in ALL states */}
                   <div className="flex h-11 w-14 shrink-0 items-center justify-center relative">
                     {isActiveGroup && collapsed && !mobile && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r bg-[#0078D4]" />
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r bg-[#0532e6]" />
                     )}
                     <Icon name={group.icon} className="h-5 w-5 shrink-0" />
                   </div>
@@ -576,21 +601,21 @@ export default function AppLayout() {
                           setShowTooltipBadge(false);
                         }
                       }}
-                      className="flex h-11 items-center bg-[#D1D5DB] px-3.5 pr-6 rounded-tr-md rounded-l-none cursor-pointer transition-colors active:bg-[#C1C6CE] active:duration-75"
+                      className="flex h-11 items-center bg-white/90 px-3.5 pr-6 rounded-tr-xl rounded-l-none cursor-pointer transition-colors active:bg-white/95 border-t border-r border-white/90"
                     >
                       {showTooltipBadge ? (
-                        <div className="relative flex items-center bg-white px-3 py-1 text-xs font-semibold text-slate-800 rounded-md shadow-xs border border-slate-200/90 whitespace-nowrap animate-in fade-in duration-150">
+                        <div className="relative flex items-center bg-white px-3 py-1 text-xs font-semibold text-slate-800 rounded-md shadow-xs border border-white/90 whitespace-nowrap animate-in fade-in duration-150">
                           <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white border-l border-b border-slate-200/90 rotate-45" />
                           <span className="relative z-10 pl-0.5">{group.label}</span>
                         </div>
                       ) : (
-                        <span className="text-sm font-semibold text-[#0F6CBD] pl-1 tracking-tight select-none">
+                        <span className="text-sm font-semibold text-[#0532e6] pl-1 tracking-tight select-none">
                           {group.label}
                         </span>
                       )}
                     </div>
 
-                    <div className="bg-white border-b border-l border-r border-slate-200/90 rounded-b-lg shadow-2xl py-1.5 flex flex-col">
+                    <div className="bg-white/90 backdrop-blur-3xl border-b border-l border-r border-white/90 rounded-b-2xl shadow-2xl py-1.5 flex flex-col">
                       {group.items.map((sub) => {
                         const isSubActive = isItemActive(location.pathname, sub);
                         return (
@@ -605,13 +630,13 @@ export default function AppLayout() {
                             className={clsx(
                               "group/sub relative flex h-9 items-center px-4 text-sm transition-all duration-150 ease-out active:duration-75 active:scale-[0.98] select-none cursor-pointer",
                               isSubActive
-                                ? "font-semibold text-slate-900 bg-slate-50"
-                                : "text-slate-700 hover:text-slate-900 hover:bg-slate-100 active:bg-slate-200/80",
+                                ? "font-semibold text-slate-900 bg-white/70"
+                                : "text-slate-700 hover:text-slate-900 hover:bg-white/50 active:bg-white/80",
                             )}
                           >
                             <div className="w-3.5 flex items-center justify-start shrink-0 mr-1.5">
                               {isSubActive && (
-                                <span className="h-4.5 w-[3.5px] rounded-full bg-[#0078D4]" />
+                                <span className="h-4.5 w-[3.5px] rounded-full bg-[#0532e6]" />
                               )}
                             </div>
                             <span className="truncate">{sub.label}</span>
@@ -638,12 +663,12 @@ export default function AppLayout() {
                           className={clsx(
                             "relative flex items-center h-9 text-sm transition-all duration-150 ease-out active:duration-75 active:scale-[0.98] rounded-lg select-none pl-14 pr-3 cursor-pointer",
                             isSubActive
-                              ? "font-semibold text-slate-900 bg-slate-200/50"
-                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/40 active:bg-slate-200/70",
+                              ? "font-semibold text-slate-900 bg-white/75 shadow-2xs border border-white/80"
+                              : "text-slate-600 hover:text-slate-900 hover:bg-white/40 active:bg-white/60",
                           )}
                         >
                           {isSubActive && (
-                            <span className="absolute left-10 top-1/2 -translate-y-1/2 h-4.5 w-[3.5px] rounded-full bg-[#0078D4]" />
+                            <span className="absolute left-10 top-1/2 -translate-y-1/2 h-4.5 w-[3.5px] rounded-full bg-[#0532e6]" />
                           )}
                           <span className="truncate">{sub.label}</span>
                         </NavLink>
@@ -660,7 +685,9 @@ export default function AppLayout() {
         <div
           className={clsx(
             "space-y-1 overflow-visible transition-colors duration-200",
-            collapsed && !mobile ? "border-t-0 py-2" : "border-t border-gborder/70 p-3",
+            collapsed && !mobile
+              ? "border-t-0 py-2 bg-transparent"
+              : "border-t border-white/60 p-3 bg-white/30 backdrop-blur-sm",
           )}
         >
           {/* User profile row */}
@@ -668,7 +695,7 @@ export default function AppLayout() {
             <div className="flex h-11 w-full items-center overflow-hidden rounded-lg">
               {/* Left slot: exactly w-14 (56px) shrink-0, centered at 28px in ALL states */}
               <div className="flex h-11 w-14 shrink-0 items-center justify-center">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark cursor-pointer transition-all duration-150 ease-out active:duration-75 active:scale-90 hover:scale-105 shadow-2xs">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-navy text-xs font-bold text-white cursor-pointer transition-all duration-150 ease-out active:duration-75 active:scale-90 hover:scale-105 shadow-2xs">
                   {initials}
                 </div>
               </div>
@@ -684,7 +711,7 @@ export default function AppLayout() {
               </div>
             </div>
             {collapsed && !mobile && (
-              <div className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-lg bg-white text-slate-800 font-medium text-xs px-3 py-1.5 shadow-xl border border-slate-200">
+              <div className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-lg bg-white/90 backdrop-blur-xl text-slate-800 font-medium text-xs px-3 py-1.5 shadow-xl border border-white/90">
                 <p className="font-semibold">{displayName}</p>
                 <p className="text-[10px] text-gtext">{user.email}</p>
               </div>
@@ -713,7 +740,7 @@ export default function AppLayout() {
               </span>
             </button>
             {collapsed && !mobile && (
-              <div className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-lg bg-white text-slate-800 font-medium text-xs px-3 py-1.5 shadow-xl border border-slate-200">
+              <div className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50 whitespace-nowrap rounded-lg bg-white/90 backdrop-blur-xl text-slate-800 font-medium text-xs px-3 py-1.5 shadow-xl border border-white/90">
                 Đăng xuất
               </div>
             )}
@@ -724,7 +751,13 @@ export default function AppLayout() {
   };
 
   return (
-    <div className="flex h-dvh w-full max-w-full overflow-hidden bg-gbg select-none">
+    <div className="relative flex h-dvh w-full max-w-full overflow-hidden bg-[#f8fafc] select-none">
+      {/* Soft ambient lighting halos matching new theme */}
+      <div className="pointer-events-none fixed -top-32 -left-32 h-[560px] w-[560px] rounded-full bg-[#0532e6]/8 blur-[140px]" />
+      <div className="pointer-events-none fixed top-1/3 -right-32 h-[520px] w-[520px] rounded-full bg-[#C4A35A]/10 blur-[150px]" />
+      <div className="pointer-events-none fixed -bottom-32 left-1/4 h-[480px] w-[480px] rounded-full bg-[#001258]/6 blur-[130px]" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(#0012580a_1px,transparent_1px)] [background-size:24px_24px] opacity-70" />
+
       <a
         href="#main-content"
         className="sr-only z-[100] rounded-lg bg-navy px-4 py-2 text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
@@ -738,7 +771,7 @@ export default function AppLayout() {
         <div className="fixed inset-0 z-40 lg:hidden overflow-hidden touch-none">
           <button
             className={clsx(
-              "absolute inset-0 bg-navy/60 backdrop-blur-sm touch-none overscroll-none",
+              "absolute inset-0 bg-navy/40 backdrop-blur-md touch-none overscroll-none",
               isClosingMenu ? "animate-backdrop-out" : "animate-backdrop-in",
             )}
             onClick={closeMobileMenu}
@@ -755,12 +788,12 @@ export default function AppLayout() {
           </div>
         </div>
       )}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col relative z-10">
         <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:p-8">
             <div className="flex items-center justify-between lg:justify-end pb-3">
               <button
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gborder bg-white text-navy hover:bg-gbg2 active:scale-90 active:bg-slate-100 lg:hidden shadow-2xs transition-all"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/80 bg-white/60 backdrop-blur-md text-navy hover:bg-white/85 active:scale-90 active:bg-white/95 lg:hidden shadow-2xs transition-all"
                 aria-label="Mở menu"
                 onClick={openMobileMenu}
               >
@@ -768,7 +801,7 @@ export default function AppLayout() {
               </button>
               <div className="relative" ref={notificationRef}>
                 <button
-                  className="relative flex h-10 w-10 items-center justify-center rounded-full text-navy/80 transition-all hover:bg-black/5 active:scale-90 active:bg-black/10 hover:text-navy"
+                  className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-white/60 backdrop-blur-md text-navy/80 transition-all hover:bg-white/85 active:scale-90 active:bg-white/95 hover:text-navy shadow-2xs"
                   aria-label="Thông báo"
                   aria-expanded={notificationsOpen}
                   onClick={handleToggleNotifications}
@@ -781,8 +814,8 @@ export default function AppLayout() {
                   )}
                 </button>
                 {notificationsOpen && (
-                  <div className="absolute right-0 top-12 z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-gborder bg-white shadow-elevated">
-                    <div className="border-b border-gborder px-4 py-3">
+                  <div className="absolute right-0 top-12 z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/90 bg-white/85 backdrop-blur-3xl shadow-elevated animate-in fade-in zoom-in-95 duration-150">
+                    <div className="border-b border-white/70 bg-white/40 px-4 py-3">
                       <b className="text-sm text-navy">Thông báo</b>
                       <p className="text-xs text-gtext">
                         {notifications.data?.unread ?? 0} chưa đọc
@@ -793,8 +826,8 @@ export default function AppLayout() {
                         <button
                           key={item.id}
                           className={clsx(
-                            "block w-full border-b border-gborder/70 px-4 py-3 text-left hover:bg-gbg2",
-                            item.status === "unread" && "bg-gold/5",
+                            "block w-full border-b border-white/60 px-4 py-3 text-left hover:bg-white/60 transition-colors",
+                            item.status === "unread" && "bg-[#0532e6]/10",
                           )}
                           onClick={() => {
                             if (item.status === "unread") markRead.mutate(item.id);

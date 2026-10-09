@@ -120,11 +120,13 @@ export function SaleReportsPage() {
                         return (
                           <tr key={staff.user_id} className="hover:bg-gbg/40">
                             <td className="px-4 py-3 font-medium text-navy">{staff.email}</td>
-                            <td className="px-3 py-3 text-right font-mono">{staff.total_leads}</td>
-                            <td className="px-3 py-3 text-right font-mono font-semibold text-emerald-700">
+                            <td className="px-3 py-3 text-right font-medium text-gtext tabular-nums">
+                              {staff.total_leads}
+                            </td>
+                            <td className="px-3 py-3 text-right font-semibold text-emerald-700 tabular-nums">
                               {staff.converted_leads}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono font-bold text-navy">
+                            <td className="px-4 py-3 text-right font-bold text-navy tabular-nums">
                               {rate}%
                             </td>
                           </tr>
@@ -165,7 +167,7 @@ export function SaleReportsPage() {
                       className="flex items-center justify-between rounded-xl bg-gbg/40 px-3.5 py-2.5 transition hover:bg-gbg"
                     >
                       <LeadPipelineBadge status={opt.value} />
-                      <span className="font-mono text-sm font-bold text-navy">{count} Lead</span>
+                      <span className="text-sm font-bold text-navy tabular-nums">{count} Lead</span>
                     </div>
                   );
                 })}
@@ -213,11 +215,13 @@ export function SaleReportsPage() {
                       }) => (
                         <tr key={m.month} className="hover:bg-gbg/40">
                           <td className="px-4 py-3 font-semibold text-navy">{m.month}</td>
-                          <td className="px-3 py-3 text-right font-mono">{m.total_orders}</td>
-                          <td className="px-3 py-3 text-right font-mono text-emerald-700">
+                          <td className="px-3 py-3 text-right font-medium text-gtext tabular-nums">
+                            {m.total_orders}
+                          </td>
+                          <td className="px-3 py-3 text-right font-semibold text-emerald-700 tabular-nums">
                             {m.paid_orders}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-navy">
+                          <td className="px-4 py-3 text-right font-bold text-navy tabular-nums">
                             {formatVND(m.total_revenue)}
                           </td>
                         </tr>
@@ -262,8 +266,10 @@ export function SaleReportsPage() {
                           <td className="px-4 py-3 font-medium text-navy">
                             {getSourceLabel(src.source)}
                           </td>
-                          <td className="px-3 py-3 text-right font-mono">{src.total_orders}</td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-emerald-700">
+                          <td className="px-3 py-3 text-right font-medium text-gtext tabular-nums">
+                            {src.total_orders}
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold text-emerald-700 tabular-nums">
                             {formatVND(src.revenue)}
                           </td>
                         </tr>

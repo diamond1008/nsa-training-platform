@@ -239,7 +239,7 @@ export function WeekCalendar({
           </Button>
           <button
             type="button"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-transparent bg-gbg2 text-navy transition-all duration-200 hover:border-gborder hover:bg-gborder active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-transparent bg-gbg2 text-navy transition-all duration-200 hover:border-gborder hover:bg-gborder active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
             aria-label={view === "week" ? "Tuần trước" : "Tháng trước"}
             onClick={() => navigate(-1)}
           >
@@ -247,7 +247,7 @@ export function WeekCalendar({
           </button>
           <button
             type="button"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-transparent bg-gbg2 text-navy transition-all duration-200 hover:border-gborder hover:bg-gborder active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-transparent bg-gbg2 text-navy transition-all duration-200 hover:border-gborder hover:bg-gborder active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
             aria-label={view === "week" ? "Tuần sau" : "Tháng sau"}
             onClick={() => navigate(1)}
           >
@@ -264,7 +264,7 @@ export function WeekCalendar({
               type="button"
               onClick={() => switchView(value)}
               className={clsx(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold",
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]",
                 view === value ? "bg-white text-navy shadow-sm" : "text-gtext hover:text-navy",
               )}
             >
@@ -375,7 +375,7 @@ function AgendaView({
                   type="button"
                   aria-label={`Mở ${event.title}`}
                   onClick={() => onEventClick(event)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-gborder bg-white p-3 text-left transition hover:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+                  className="flex w-full items-center gap-3 rounded-xl border border-gborder bg-white p-3 text-left transition hover:border-[#0532e6]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
                 >
                   <i
                     className={clsx(
@@ -509,7 +509,7 @@ function WeekGrid({
                         aria-label={`Mở ${event.title}`}
                         onClick={() => onEventClick(event)}
                         className={clsx(
-                          "w-full overflow-hidden rounded-lg border px-2 py-1.5 text-left text-xs shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-1",
+                          "w-full overflow-hidden rounded-lg border px-2 py-1.5 text-left text-xs shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6] focus-visible:ring-offset-1",
                           toneClasses[event.tone ?? "navy"],
                         )}
                       >
@@ -530,7 +530,7 @@ function WeekGrid({
                         type="button"
                         aria-label={`+${slotEvents.length - 2} lớp khác`}
                         onClick={() => setOverflowCell({ slot, day, events: slotEvents })}
-                        className="flex h-8 w-full touch-manipulation items-center justify-center rounded-lg border border-dashed border-gborder bg-gbg2/70 px-2 text-[11px] font-bold text-navy transition-[background-color,border-color] hover:border-gold hover:bg-gold/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold motion-reduce:transition-none"
+                        className="flex h-8 w-full touch-manipulation items-center justify-center rounded-lg border border-dashed border-gborder bg-gbg2/70 px-2 text-[11px] font-bold text-navy transition-[background-color,border-color] hover:border-[#0532e6] hover:bg-[#0532e6]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6] motion-reduce:transition-none"
                       >
                         +{slotEvents.length - 2} lớp khác
                       </button>
@@ -557,7 +557,7 @@ function WeekGrid({
                 setOverflowCell(null);
                 onEventClick(event);
               }}
-              className="flex w-full touch-manipulation items-center gap-3 rounded-xl border border-gborder bg-white p-3 text-left transition-[background-color,border-color,box-shadow] hover:border-gold hover:bg-gold/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold motion-reduce:transition-none"
+              className="flex w-full touch-manipulation items-center gap-3 rounded-xl border border-gborder bg-white p-3 text-left transition-[background-color,border-color,box-shadow] hover:border-[#0532e6]/50 hover:bg-[#0532e6]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6] motion-reduce:transition-none"
             >
               <i
                 className={clsx("h-10 w-1 shrink-0 rounded-full", toneDot[event.tone ?? "navy"])}
@@ -635,7 +635,7 @@ function MonthGrid({
                       aria-label={`Mở ${event.title}`}
                       onClick={() => onEventClick(event)}
                       className={clsx(
-                        "flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[10px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold",
+                        "flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-[10px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]",
                         toneClasses[event.tone ?? "navy"],
                       )}
                     >

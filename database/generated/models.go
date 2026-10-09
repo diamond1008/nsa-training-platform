@@ -1277,6 +1277,8 @@ type User struct {
 	LastLoginAt        pgtype.Timestamptz `json:"last_login_at"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	FullName           pgtype.Text        `json:"full_name"`
+	Phone              pgtype.Text        `json:"phone"`
 }
 
 type UserRole struct {

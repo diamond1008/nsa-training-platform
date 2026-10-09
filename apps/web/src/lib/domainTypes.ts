@@ -712,6 +712,8 @@ export interface SaleDashboardStats {
   converted_this_month: number;
   total_this_month: number;
   conversion_rate: number;
+  month_revenue?: number;
+  team_month_revenue?: number;
 }
 
 export interface DashboardOverview {

@@ -93,4 +93,16 @@ SELECT
   (SELECT COUNT(*)::bigint FROM lead_tasks WHERE assigned_to = sqlc.arg(user_id)::uuid AND completed_at IS NULL AND due_at < NOW()) AS overdue_tasks,
   (SELECT COUNT(*)::bigint FROM lead_tasks WHERE assigned_to = sqlc.arg(user_id)::uuid AND completed_at IS NULL AND DATE(due_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE(NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS today_tasks,
   (SELECT COUNT(*)::bigint FROM leads WHERE assigned_to = sqlc.arg(user_id)::uuid AND pipeline_status = 'da_dang_ky' AND DATE_TRUNC('month', converted_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS converted_this_month,
-  (SELECT COUNT(*)::bigint FROM leads WHERE assigned_to = sqlc.arg(user_id)::uuid AND DATE_TRUNC('month', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS total_this_month;
+  (SELECT COUNT(*)::bigint FROM leads WHERE assigned_to = sqlc.arg(user_id)::uuid AND DATE_TRUNC('month', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS total_this_month,
+  COALESCE((
+    SELECT SUM(final_amount) FROM orders o
+    LEFT JOIN leads l ON l.id = o.lead_id
+    WHERE (o.created_by = sqlc.arg(user_id)::uuid OR l.assigned_to = sqlc.arg(user_id)::uuid)
+      AND o.status = 'paid'
+      AND DATE_TRUNC('month', COALESCE(o.paid_at, o.created_at) AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+  ), 0)::numeric AS month_revenue,
+  COALESCE((
+    SELECT SUM(final_amount) FROM orders
+    WHERE status = 'paid'
+      AND DATE_TRUNC('month', COALESCE(paid_at, created_at) AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+  ), 0)::numeric AS team_month_revenue;

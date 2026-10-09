@@ -1,4 +1,14 @@
-import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState } from "react";
+import {
+  Children,
+  forwardRef,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import type {
   ButtonHTMLAttributes,
   ChangeEvent,
@@ -20,14 +30,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const buttonStyles: Record<ButtonVariant, string> = {
   primary:
-    "border border-navy bg-navy text-white shadow-sm hover:-translate-y-0.5 hover:bg-navy-soft hover:shadow-md active:translate-y-0 active:scale-[0.96] active:bg-[#15233e] active:shadow-inner disabled:bg-navy/50",
+    "bg-[#0532e6] text-white hover:bg-[#1e45ee] active:bg-[#0426b3] shadow-xs border border-transparent disabled:bg-[#0532e6]/50",
   accent:
-    "border border-gold bg-gold text-navy shadow-sm hover:-translate-y-0.5 hover:bg-[#F5CB62] hover:shadow-md active:translate-y-0 active:scale-[0.96] active:bg-[#e2b740] active:shadow-inner disabled:bg-gold/50",
+    "bg-[#001258] text-white hover:bg-[#0a2078] active:bg-[#000d40] shadow-xs border border-transparent disabled:bg-[#001258]/50",
   ghost:
-    "border border-gborder bg-white text-navy shadow-2xs hover:-translate-y-0.5 hover:border-slate-300 hover:bg-gbg2 hover:shadow-xs active:translate-y-0 active:scale-[0.96] active:bg-slate-100 disabled:bg-white/50",
+    "border border-gborder/80 bg-white/70 text-slate-700 hover:bg-white hover:border-[#0532e6]/30 hover:text-[#0532e6] active:bg-slate-100 shadow-2xs disabled:bg-white/40",
   danger:
-    "border border-error bg-error text-white shadow-sm hover:-translate-y-0.5 hover:bg-error/90 hover:shadow-md active:translate-y-0 active:scale-[0.96] active:bg-red-700 active:shadow-inner disabled:bg-error/50",
-  soft: "border border-transparent bg-gbg2 text-navy hover:-translate-y-0.5 hover:bg-gborder active:translate-y-0 active:scale-[0.96] active:bg-slate-200 disabled:bg-gbg2/50",
+    "bg-error text-white hover:bg-red-700 active:bg-red-800 shadow-xs border border-transparent disabled:bg-error/50",
+  soft: "bg-[#0532e6]/10 text-[#0532e6] hover:bg-[#0532e6]/15 active:bg-[#0532e6]/20 border border-transparent disabled:bg-gbg2/50",
 };
 
 export function Button({
@@ -42,15 +52,21 @@ export function Button({
     <button
       className={clsx(
         "inline-flex h-10 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold select-none cursor-pointer",
-        "transition-all duration-150 ease-out active:duration-75 active:ease-in motion-reduce:transition-none",
-        "disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none disabled:active:scale-100",
+        "transition-all duration-200 ease-out",
+        "hover:scale-105 active:scale-95",
+        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 disabled:active:scale-100",
         buttonStyles[variant],
         className,
       )}
       disabled={disabled || loading}
       {...rest}
     >
-      {loading && <Spinner size="sm" invert={variant === "primary" || variant === "danger"} />}
+      {loading && (
+        <Spinner
+          size="sm"
+          invert={variant === "primary" || variant === "danger" || variant === "accent"}
+        />
+      )}
       {children}
     </button>
   );
@@ -61,7 +77,7 @@ interface FieldProps {
   error?: string;
 }
 const fieldClass =
-  "h-11 w-full rounded-xl border bg-white px-3.5 text-sm text-navy shadow-sm outline-none transition placeholder:text-gtext/60 focus:border-gold focus:shadow-[0_0_0_3px_rgba(239,192,75,0.16)] disabled:cursor-not-allowed disabled:bg-gbg2 disabled:text-gtext";
+  "h-11 w-full rounded-xl border border-white/80 bg-white/70 backdrop-blur-md px-3.5 text-sm text-[#111c2c] shadow-2xs outline-none transition placeholder:text-gtext/60 focus:bg-white/95 focus:border-[#0532e6] focus:ring-2 focus:ring-[#0532e6]/15 disabled:cursor-not-allowed disabled:bg-gbg2/60 disabled:text-gtext";
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement>, FieldProps {}
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
@@ -109,10 +125,18 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const inputId = id ?? rest.name ?? label;
   const listboxId = `${useId()}-listbox`;
   const [isOpen, setIsOpen] = useState(false);
-  const [openUpward, setOpenUpward] = useState(false);
-  const [alignRight, setAlignRight] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [dropdownCoords, setDropdownCoords] = useState<{
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+    width?: number;
+    maxHeight?: number;
+  }>({});
 
   const options: Array<{ value: string; label: string }> = [];
   Children.forEach(children, (child) => {
@@ -127,41 +151,97 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const selectedOption = options.find((o) => o.value === stringVal) ?? options[0];
   const selectedIndex = options.findIndex((option) => option.value === selectedOption?.value);
 
-  const checkPosition = () => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const spaceBelow = viewportHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      setOpenUpward(spaceBelow < 240 && spaceAbove > spaceBelow);
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current || typeof window === "undefined") return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
 
-      const modal =
-        containerRef.current.closest<HTMLElement>('[role="dialog"]') ??
-        containerRef.current.closest<HTMLElement>(".max-w-2xl");
-      const containerRect = modal
-        ? modal.getBoundingClientRect()
-        : { left: 0, right: window.innerWidth };
+    const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
 
-      const isRightHalf = rect.left > (containerRect.left + containerRect.right) / 2;
-      const wouldOverflow = rect.left + 260 > containerRect.right - 20;
-      setAlignRight(isRightHalf || wouldOverflow);
+    const isRightHalf = rect.left > viewportWidth / 2;
+    const wouldOverflow = rect.left + Math.max(rect.width, 240) > viewportWidth - 16;
+    const alignR = isRightHalf || wouldOverflow;
+
+    const calculatedMaxHeight = openUp
+      ? Math.min(280, Math.max(120, spaceAbove - 20))
+      : Math.min(280, Math.max(120, spaceBelow - 20));
+
+    if (openUp) {
+      setDropdownCoords({
+        bottom: viewportHeight - rect.top + 6,
+        left: alignR ? undefined : Math.max(12, rect.left),
+        right: alignR ? Math.max(12, viewportWidth - rect.right) : undefined,
+        width: rect.width || undefined,
+        maxHeight: calculatedMaxHeight,
+      });
+    } else {
+      setDropdownCoords({
+        top: rect.bottom + 6,
+        left: alignR ? undefined : Math.max(12, rect.left),
+        right: alignR ? Math.max(12, viewportWidth - rect.right) : undefined,
+        width: rect.width || undefined,
+        maxHeight: calculatedMaxHeight,
+      });
     }
-  };
+  }, []);
 
   useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+
+    const handleScroll = (event: Event) => {
+      if (dropdownRef.current && dropdownRef.current.contains(event.target as Node)) {
+        return;
+      }
+      updatePosition();
+    };
+
+    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", updatePosition);
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [isOpen, updatePosition]);
+
+  useEffect(() => {
+    if (!isOpen) return;
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && activeIndex >= 0 && dropdownRef.current) {
+      const activeEl = dropdownRef.current.querySelector<HTMLElement>(
+        `[id="${listboxId}-${activeIndex}"]`,
+      );
+      if (typeof activeEl?.scrollIntoView === "function") {
+        activeEl.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [isOpen, activeIndex, listboxId]);
 
   const toggleOpen = () => {
-    checkPosition();
     setIsOpen((current) => {
-      if (!current) setActiveIndex(Math.max(selectedIndex, 0));
+      if (!current) {
+        updatePosition();
+        setActiveIndex(Math.max(selectedIndex, 0));
+      }
       return !current;
     });
   };
@@ -185,6 +265,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         </label>
       )}
       <button
+        ref={buttonRef}
         type="button"
         id={inputId}
         disabled={disabled}
@@ -200,7 +281,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
-            checkPosition();
+            updatePosition();
             setIsOpen(true);
             setActiveIndex((index) =>
               index < 0 ? Math.max(selectedIndex, 0) : Math.min(index + 1, options.length - 1),
@@ -208,7 +289,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           }
           if (event.key === "ArrowUp") {
             event.preventDefault();
-            checkPosition();
+            updatePosition();
             setIsOpen(true);
             setActiveIndex((index) =>
               index < 0 ? Math.max(selectedIndex, 0) : Math.max(index - 1, 0),
@@ -223,7 +304,11 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         className={clsx(
           fieldClass,
           "flex cursor-pointer select-none items-center justify-between pr-3.5 text-left font-medium transition-[border-color,box-shadow] motion-reduce:transition-none",
-          isOpen ? "border-gold ring-2 ring-gold/20" : error ? "border-error" : "border-gborder",
+          isOpen
+            ? "border-[#0532e6] ring-2 ring-[#0532e6]/20"
+            : error
+              ? "border-error"
+              : "border-gborder",
           className,
         )}
       >
@@ -242,46 +327,57 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         />
       </button>
 
-      {isOpen && (
-        <div
-          id={listboxId}
-          role="listbox"
-          className={clsx(
-            "absolute z-[100] min-w-full w-max max-w-[min(28rem,calc(100vw-2rem))] max-h-60 overflow-y-auto overscroll-contain rounded-2xl border border-gborder bg-white p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none",
-            alignRight ? "right-0" : "left-0",
-            openUpward ? "bottom-full mb-1.5" : "top-full mt-1.5",
-          )}
-        >
-          {options.map((opt, idx) => {
-            const isSelected = opt.value === stringVal;
-            return (
-              <div
-                id={`${listboxId}-${idx}`}
-                key={`${opt.value}-${idx}`}
-                role="option"
-                title={opt.label}
-                aria-selected={isSelected}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setActiveIndex(idx)}
-                onClick={() => handleSelect(opt.value)}
-                className={clsx(
-                  "flex w-full cursor-pointer items-start justify-between gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-colors motion-reduce:transition-none",
-                  idx === activeIndex || isSelected
-                    ? "bg-gold/15 text-navy font-bold"
-                    : "hover:bg-gbg2 hover:text-navy text-navy/80",
-                )}
-              >
-                <span className="whitespace-normal leading-snug" title={opt.label}>
-                  {opt.label}
-                </span>
-                {isSelected && (
-                  <Icon name="check" className="h-4 w-4 text-gold-dark shrink-0 ml-2 mt-0.5" />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {isOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            id={listboxId}
+            role="listbox"
+            style={{
+              position: "fixed",
+              top: dropdownCoords.top !== undefined ? `${dropdownCoords.top}px` : undefined,
+              bottom:
+                dropdownCoords.bottom !== undefined ? `${dropdownCoords.bottom}px` : undefined,
+              left: dropdownCoords.left !== undefined ? `${dropdownCoords.left}px` : undefined,
+              right: dropdownCoords.right !== undefined ? `${dropdownCoords.right}px` : undefined,
+              minWidth: dropdownCoords.width ? `${dropdownCoords.width}px` : undefined,
+              maxHeight: `${dropdownCoords.maxHeight ?? 260}px`,
+              zIndex: 10005,
+            }}
+            className="max-w-[min(32rem,calc(100vw-24px))] overflow-y-auto overscroll-contain rounded-2xl border border-white/95 bg-white/95 backdrop-blur-3xl p-1.5 shadow-[0_20px_50px_rgba(7,20,38,0.2),0_0_0_1px_rgba(255,255,255,0.9)] animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none"
+          >
+            {options.map((opt, idx) => {
+              const isSelected = opt.value === stringVal;
+              return (
+                <div
+                  id={`${listboxId}-${idx}`}
+                  key={`${opt.value}-${idx}`}
+                  role="option"
+                  title={opt.label}
+                  aria-selected={isSelected}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActiveIndex(idx)}
+                  onClick={() => handleSelect(opt.value)}
+                  className={clsx(
+                    "flex w-full cursor-pointer items-start justify-between gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-colors motion-reduce:transition-none",
+                    idx === activeIndex || isSelected
+                      ? "bg-[#0532e6]/10 text-[#001258] font-bold"
+                      : "hover:bg-slate-100/80 hover:text-[#001258] text-[#111c2c]/80",
+                  )}
+                >
+                  <span className="whitespace-normal leading-snug" title={opt.label}>
+                    {opt.label}
+                  </span>
+                  {isSelected && (
+                    <Icon name="check" className="h-4 w-4 text-[#0532e6] shrink-0 ml-2 mt-0.5" />
+                  )}
+                </div>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
 
       {/* Hidden native select for form refs or Accessibility compatibility */}
       <select
@@ -326,7 +422,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         className={clsx(
           fieldClass,
           "min-h-24 resize-y py-3",
-          error ? "border-error" : "border-gborder",
+          error ? "border-error" : "border-white/80",
           className,
         )}
         {...rest}
@@ -344,7 +440,7 @@ export function Card({ className, children }: { className?: string; children: Re
   return (
     <div
       className={clsx(
-        "rounded-2xl border border-gborder/90 bg-white p-5 shadow-card md:p-6",
+        "rounded-2xl border border-white/85 bg-white/70 backdrop-blur-xl p-5 shadow-card md:p-6 transition-all duration-200",
         className,
       )}
     >
@@ -415,7 +511,7 @@ export function SuccessBanner({ message }: { message: string }) {
 
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/80 bg-white/50 backdrop-blur-lg px-6 py-12 text-center shadow-2xs">
       <div className="mb-2 flex items-center justify-center text-gtext/60">
         <Icon name="info" className="h-8 w-8" />
       </div>
@@ -427,18 +523,18 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
 
 type BadgeTone = "navy" | "gold" | "green" | "red" | "gray" | "blue";
 const badgeStyles: Record<BadgeTone, string> = {
-  navy: "bg-navy/10 text-navy",
-  gold: "bg-gold/20 text-gold-dark",
-  green: "bg-success-bg text-success",
-  red: "bg-error-bg text-error",
-  gray: "bg-gbg2 text-gtext",
-  blue: "bg-info-bg text-info",
+  navy: "bg-navy/10 text-navy border-navy/20",
+  gold: "bg-gold/15 text-gold-dark border-gold/30",
+  green: "bg-success-bg/85 text-success border-success/30",
+  red: "bg-error-bg/85 text-error border-error/30",
+  gray: "bg-white/70 text-gtext border-white/90",
+  blue: "bg-royal/10 text-royal border-royal/20",
 };
 export function Badge({ tone = "gray", children }: { tone?: BadgeTone; children: ReactNode }) {
   return (
     <span
       className={clsx(
-        "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none",
+        "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none shadow-2xs backdrop-blur-xs",
         badgeStyles[tone],
       )}
     >
@@ -462,7 +558,7 @@ export function PageHeader({
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4 md:mb-7">
       <div className="min-w-0">
         {eyebrow && (
-          <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-gold-dark">
+          <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-[#0532e6]">
             {eyebrow}
           </p>
         )}
@@ -494,7 +590,7 @@ export function ProgressBar({ value, label }: { value: number; label?: string })
         aria-valuenow={safe}
       >
         <div
-          className="h-full rounded-full bg-gradient-to-r from-gold to-[#F7D477] transition-[width] duration-500"
+          className="h-full rounded-full bg-gradient-to-r from-[#001258] to-[#0532e6] transition-[width] duration-500"
           style={{ width: `${safe}%` }}
         />
       </div>
@@ -507,11 +603,13 @@ export function Modal({
   title,
   onClose,
   children,
+  className,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -539,7 +637,9 @@ export function Modal({
       previousFocusRef.current?.focus();
     };
   }, [open]);
+
   if (!open) return null;
+
   const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Tab" || !dialogRef.current) return;
     const focusable = [
@@ -558,9 +658,10 @@ export function Modal({
       first.focus();
     }
   };
-  return (
+
+  const modalElement = (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-navy/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-[9990] flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-xl backdrop-saturate-150 sm:items-center sm:p-4 animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget) onCloseRef.current();
       }}
@@ -571,11 +672,14 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         onKeyDown={trapFocus}
-        className="max-h-[92dvh] w-full max-w-2xl overscroll-contain rounded-t-3xl bg-white shadow-elevated sm:max-h-[90vh] sm:rounded-3xl flex flex-col"
+        className={clsx(
+          "max-h-[90dvh] w-full max-w-xl overscroll-contain rounded-t-3xl sm:rounded-3xl border border-white/95 bg-white/90 backdrop-blur-3xl shadow-[0_32px_80px_rgba(7,20,38,0.22),0_0_0_1px_rgba(255,255,255,0.8),inset_0_1px_2px_rgba(255,255,255,1)] flex flex-col animate-in fade-in zoom-in-95 duration-200 motion-reduce:animate-none",
+          className,
+        )}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-gborder px-5 py-4 sm:px-6">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/70 bg-white/50 px-5 py-4 sm:px-6 rounded-t-3xl">
           <div className="min-w-0">
-            <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-gold-dark">
+            <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#0532e6]">
               NSA Training
             </p>
             <h2 id={titleId} className="truncate text-lg font-bold text-navy">
@@ -585,16 +689,138 @@ export function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-colors hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-all duration-200 ease-out hover:scale-110 active:scale-95 hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
             aria-label="Đóng"
           >
             <Icon name="close" className="h-5 w-5" />
           </button>
         </div>
-        <div className="max-h-[calc(92dvh-74px)] overflow-y-auto p-4 sm:max-h-[calc(90vh-74px)] sm:p-6 pb-24 sm:pb-28">
-          {children}
-        </div>
+        <div className="overflow-y-auto p-5 sm:p-6">{children}</div>
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modalElement, document.body) : modalElement;
+}
+
+export function Drawer({
+  open,
+  title,
+  onClose,
+  children,
+  className,
+  width = "max-w-2xl",
+}: {
+  open: boolean;
+  title?: string;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+  width?: string;
+}) {
+  const titleId = useId();
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onCloseRef.current();
+    window.addEventListener("keydown", onKeyDown);
+    const focusable = drawerRef.current?.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    focusable?.focus();
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKeyDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  const trapFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab" || !drawerRef.current) return;
+    const focusable = [
+      ...drawerRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const drawerElement = (
+    <div
+      className="fixed inset-0 z-[9990] flex justify-end bg-[#000e47]/40 backdrop-blur-md animate-backdrop-navy"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCloseRef.current();
+      }}
+    >
+      <div
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        onKeyDown={trapFocus}
+        className={clsx(
+          "relative h-full w-full flex flex-col border-l border-white/90 bg-white/95 backdrop-blur-3xl shadow-[-28px_0_90px_rgba(0,18,88,0.22),_-1px_0_1px_rgba(255,255,255,0.95)] animate-drawer-right motion-reduce:animate-none overflow-hidden",
+          width,
+          className,
+        )}
+      >
+        {/* Subtle Liquid Glass ambient glow */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-28 -left-28 h-96 w-96 rounded-full bg-gradient-to-br from-[#0532e6]/10 via-[#0532e6]/5 to-transparent blur-3xl"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-28 -right-28 h-96 w-96 rounded-full bg-gradient-to-tl from-[#C4A35A]/12 via-[#C4A35A]/5 to-transparent blur-3xl"
+        />
+
+        {title && (
+          <div className="relative z-10 flex shrink-0 items-center justify-between border-b border-white/70 bg-white/70 backdrop-blur-md px-6 py-4 shadow-2xs">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0532e6]">
+                NSA Training
+              </p>
+              <h2 id={titleId} className="truncate text-lg font-bold text-navy">
+                {title}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-all duration-200 hover:scale-110 active:scale-95 hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
+              aria-label="Đóng"
+            >
+              <Icon name="close" className="h-5 w-5" />
+            </button>
+          </div>
+        )}
+        <div className="relative z-10 flex-1 overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+
+  return typeof document !== "undefined"
+    ? createPortal(drawerElement, document.body)
+    : drawerElement;
 }

@@ -153,6 +153,8 @@ type SaleDashboardStats struct {
 	ConvertedThisMonth int64   `json:"converted_this_month"`
 	TotalThisMonth     int64   `json:"total_this_month"`
 	ConversionRate     float64 `json:"conversion_rate"`
+	MonthRevenue       float64 `json:"month_revenue"`
+	TeamMonthRevenue   float64 `json:"team_month_revenue"`
 }
 
 // ImportRowError records an error for a specific row during CSV import.

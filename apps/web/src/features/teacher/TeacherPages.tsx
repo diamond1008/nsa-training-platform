@@ -85,7 +85,10 @@ export function TeacherDashboardPage() {
               title="Lịch dạy sắp tới"
               subtitle="Các buổi gần nhất theo giờ Việt Nam"
               action={
-                <Link className="text-xs font-semibold text-gold-dark" to="/teacher/lich-day">
+                <Link
+                  className="text-xs font-semibold text-[#0532e6] hover:text-[#1e45ee]"
+                  to="/teacher/lich-day"
+                >
                   Xem toàn bộ →
                 </Link>
               }
@@ -95,7 +98,7 @@ export function TeacherDashboardPage() {
                 <Link
                   key={s.id}
                   to={`/teacher/diem-danh?session=${s.id}`}
-                  className="group flex items-center gap-4 rounded-xl border border-gborder p-3.5 transition hover:border-gold hover:bg-gold/[0.04]"
+                  className="group flex items-center gap-4 rounded-xl border border-gborder p-3.5 transition hover:border-[#0532e6]/50 hover:bg-[#0532e6]/5"
                 >
                   <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-navy text-white">
                     <span className="text-[10px] uppercase opacity-60">Ngày</span>
@@ -136,7 +139,7 @@ export function TeacherDashboardPage() {
                 <Link
                   key={c.id}
                   to={`/teacher/lop-phu-trach/${c.id}`}
-                  className="block rounded-xl border border-gborder p-3.5 transition hover:border-gold"
+                  className="block rounded-xl border border-gborder p-3.5 transition hover:border-[#0532e6]/50 hover:bg-[#0532e6]/5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -158,7 +161,7 @@ export function TeacherDashboardPage() {
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gbg2">
                     <div
-                      className="h-full rounded-full bg-gold"
+                      className="h-full rounded-full bg-[#0532e6]"
                       style={{
                         width: `${Math.min(100, (c.enrolled_students / Math.max(c.maximum_students, 1)) * 100)}%`,
                       }}
@@ -216,7 +219,7 @@ export function TeacherClassesPage() {
             <Card key={c.id} className="flex flex-col">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-gold-dark">{c.course_code}</p>
+                  <p className="text-xs font-semibold text-[#0532e6]">{c.course_code}</p>
                   <h2 className="mt-1 text-lg font-bold text-navy">{c.name}</h2>
                   <p className="text-sm text-gtext">{c.class_code}</p>
                 </div>
@@ -643,7 +646,7 @@ export function AssessmentPage() {
                             key={attempt.id}
                             className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
                               isOfficial
-                                ? "border border-gold/30 bg-amber-500/10 font-medium text-navy"
+                                ? "border border-[#0532e6]/25 bg-[#0532e6]/5 font-medium text-navy"
                                 : "bg-gbg2 text-gtext"
                             }`}
                           >
@@ -656,7 +659,7 @@ export function AssessmentPage() {
                                 · {formatDateTime(attempt.taken_at)}
                               </span>
                               {isOfficial && (
-                                <span className="rounded bg-gold/20 px-2 py-0.5 text-[11px] font-bold text-navy">
+                                <span className="rounded bg-[#0532e6]/15 px-2 py-0.5 text-[11px] font-bold text-[#0532e6]">
                                   Điểm chính thức
                                 </span>
                               )}
@@ -762,7 +765,7 @@ export function AssessmentPage() {
                     </div>
                     <div className="text-xs text-gtext">
                       Lần thi: <b>Lần {correctingAttempt.attemptNo}</b> · Điểm hiện tại:{" "}
-                      <b className="font-bold text-gold">{correctingAttempt.oldScore.toFixed(2)}</b>
+                      <b className="font-bold text-navy">{correctingAttempt.oldScore.toFixed(2)}</b>
                     </div>
                   </div>
 
@@ -793,7 +796,7 @@ export function AssessmentPage() {
                     <textarea
                       required
                       rows={3}
-                      className="w-full rounded-xl border border-gborder bg-white p-3 text-sm text-navy placeholder:text-gtext focus:border-gold focus:outline-none focus:ring-1 focus:ring-gold"
+                      className="w-full rounded-xl border border-gborder bg-white p-3 text-sm text-navy placeholder:text-gtext focus:border-[#0532e6] focus:outline-none focus:ring-1 focus:ring-[#0532e6]"
                       placeholder="Ví dụ: Chấm lại bài phúc khảo, cộng điểm câu tự luận..."
                       value={correctForm.reason}
                       onChange={(e) => setCorrectForm((f) => ({ ...f, reason: e.target.value }))}
@@ -840,7 +843,7 @@ export function TeacherAssessmentLandingPage() {
         <div className="grid gap-4 md:grid-cols-2">
           {classes.data?.map((c) => (
             <Link key={c.id} to={`/teacher/lop-phu-trach/${c.id}`}>
-              <Card className="hover:border-gold">
+              <Card className="hover:border-[#0532e6]/50 transition">
                 <b>
                   {c.class_code} — {c.name}
                 </b>

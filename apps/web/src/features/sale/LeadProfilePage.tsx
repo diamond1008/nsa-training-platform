@@ -37,7 +37,7 @@ import {
   SOURCE_OPTIONS,
 } from "./saleShared";
 
-type TabKey = "info" | "interactions" | "tasks" | "history" | "academic";
+type TabKey = "info" | "activities" | "academic";
 
 export function LeadProfilePage() {
   const { id } = useParams<{ id: string }>();
@@ -58,22 +58,30 @@ export function LeadProfilePage() {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assignedSaleId, setAssignedSaleId] = useState("");
 
+  // Standalone Task Modal
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [standaloneTaskForm, setStandaloneTaskForm] = useState({
+    title: "",
+    description: "",
+    due_at: "",
+  });
+
   // Tab 1 Edit Info State
   const [infoForm, setInfoForm] = useState<CreateLeadInput | null>(null);
 
-  // Tab 2 Interaction Form State
+  // Tab 2 Interaction & Task Form State (Combined)
   const [interactionForm, setInteractionForm] = useState({
     channel: "phone_call",
     summary: "",
     outcome: "",
   });
-
-  // Tab 3 Task Form State
+  const [createReminder, setCreateReminder] = useState(false);
   const [taskForm, setTaskForm] = useState({
     title: "",
     description: "",
     due_at: "",
   });
+  const [isSubmittingActivity, setIsSubmittingActivity] = useState(false);
 
   // Queries
   const leadQuery = useQuery({
@@ -175,33 +183,74 @@ export function LeadProfilePage() {
     },
   });
 
-  const createInteractionMutation = useMutation({
-    mutationFn: () =>
-      saleApi.createInteraction(id!, {
+  const handleSaveActivity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!interactionForm.summary.trim()) {
+      setErrorMsg("Vui lòng nhập nội dung trao đổi chi tiết");
+      return;
+    }
+
+    if (createReminder) {
+      if (!taskForm.title.trim()) {
+        setErrorMsg("Vui lòng nhập tiêu đề việc cần làm");
+        return;
+      }
+      if (!taskForm.due_at) {
+        setErrorMsg("Vui lòng chọn thời hạn hoàn thành cho nhắc việc");
+        return;
+      }
+    }
+
+    setIsSubmittingActivity(true);
+    setErrorMsg("");
+
+    try {
+      await saleApi.createInteraction(id!, {
         channel: interactionForm.channel,
-        summary: interactionForm.summary,
-        outcome: interactionForm.outcome || undefined,
-      }),
-    onSuccess: () => {
+        summary: interactionForm.summary.trim(),
+        outcome: interactionForm.outcome.trim() || undefined,
+      });
+
+      if (createReminder) {
+        await saleApi.createTask(id!, {
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim() || undefined,
+          due_at: new Date(taskForm.due_at).toISOString(),
+        });
+      }
+
       queryClient.invalidateQueries({
         queryKey: ["sale", "lead", id, "interactions"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["sale", "lead", id, "tasks"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["sale", "tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["sale", "dashboard"] });
+
       setInteractionForm({ channel: "phone_call", summary: "", outcome: "" });
-      setSuccessMsg("Đã ghi nhận tương tác mới!");
+      setTaskForm({ title: "", description: "", due_at: "" });
+      setCreateReminder(false);
+      setSuccessMsg(
+        createReminder
+          ? "Đã lưu tương tác và tạo nhắc việc thành công!"
+          : "Đã ghi nhận tương tác mới thành công!",
+      );
       setTimeout(() => setSuccessMsg(""), 4000);
-    },
-    onError: (err: unknown) => {
+    } catch (err: unknown) {
       setErrorMsg(mutationMessage(err));
-    },
-  });
+    } finally {
+      setIsSubmittingActivity(false);
+    }
+  };
 
   const createTaskMutation = useMutation({
     mutationFn: () =>
       saleApi.createTask(id!, {
-        title: taskForm.title,
-        description: taskForm.description || undefined,
-        due_at: taskForm.due_at
-          ? new Date(taskForm.due_at).toISOString()
+        title: standaloneTaskForm.title,
+        description: standaloneTaskForm.description || undefined,
+        due_at: standaloneTaskForm.due_at
+          ? new Date(standaloneTaskForm.due_at).toISOString()
           : new Date().toISOString(),
       }),
     onSuccess: () => {
@@ -210,7 +259,8 @@ export function LeadProfilePage() {
       });
       queryClient.invalidateQueries({ queryKey: ["sale", "tasks"] });
       queryClient.invalidateQueries({ queryKey: ["sale", "dashboard"] });
-      setTaskForm({ title: "", description: "", due_at: "" });
+      setStandaloneTaskForm({ title: "", description: "", due_at: "" });
+      setIsTaskModalOpen(false);
       setSuccessMsg("Đã tạo lịch nhắc việc mới!");
       setTimeout(() => setSuccessMsg(""), 4000);
     },
@@ -352,7 +402,7 @@ export function LeadProfilePage() {
           </div>
         </div>
 
-        {/* 5 Tabs Navigation */}
+        {/* Tabs Navigation */}
         <div className="mt-6 flex flex-wrap gap-2 border-b border-gborder pt-2">
           <button
             type="button"
@@ -360,53 +410,31 @@ export function LeadProfilePage() {
             className={clsx(
               "px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px",
               activeTab === "info"
-                ? "border-navy text-navy font-bold"
-                : "border-transparent text-gtext hover:text-navy",
+                ? "border-[#0532e6] text-[#0532e6] font-bold"
+                : "border-transparent text-gtext hover:text-[#0532e6]",
             )}
           >
             Thông tin cá nhân
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("interactions")}
+            onClick={() => setActiveTab("activities")}
             className={clsx(
-              "px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px flex items-center gap-1.5",
-              activeTab === "interactions"
-                ? "border-navy text-navy font-bold"
-                : "border-transparent text-gtext hover:text-navy",
+              "px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px flex items-center gap-2",
+              activeTab === "activities"
+                ? "border-[#0532e6] text-[#0532e6] font-bold"
+                : "border-transparent text-gtext hover:text-[#0532e6]",
             )}
           >
-            Tương tác
+            <span>Tương tác & Nhắc việc</span>
             <span className="rounded-full bg-gbg2 px-2 py-0.5 text-xs text-gtext font-normal">
               {interactionsQuery.data?.length ?? 0}
             </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("tasks")}
-            className={clsx(
-              "px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px flex items-center gap-1.5",
-              activeTab === "tasks"
-                ? "border-navy text-navy font-bold"
-                : "border-transparent text-gtext hover:text-navy",
+            {(tasksQuery.data?.filter((t: LeadTask) => !t.completed_at).length ?? 0) > 0 && (
+              <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-semibold">
+                {tasksQuery.data?.filter((t: LeadTask) => !t.completed_at).length} việc
+              </span>
             )}
-          >
-            Nhắc việc
-            <span className="rounded-full bg-gbg2 px-2 py-0.5 text-xs text-gtext font-normal">
-              {tasksQuery.data?.filter((t: LeadTask) => !t.completed_at).length ?? 0}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("history")}
-            className={clsx(
-              "px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px",
-              activeTab === "history"
-                ? "border-navy text-navy font-bold"
-                : "border-transparent text-gtext hover:text-navy",
-            )}
-          >
-            Lịch sử trạng thái
           </button>
           {isConverted && (
             <button
@@ -425,140 +453,188 @@ export function LeadProfilePage() {
         </div>
       </Card>
 
-      {/* Tab 1: Thông tin cá nhân */}
+      {/* Tab 1: Thông tin cá nhân & Lịch sử trạng thái */}
       {activeTab === "info" && infoForm && (
-        <Card className="p-6">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              updateInfoMutation.mutate({
-                ...infoForm,
-                phone: infoForm.phone?.trim() || undefined,
-                email: infoForm.email?.trim() || undefined,
-                date_of_birth: infoForm.date_of_birth || undefined,
-                gender: infoForm.gender || undefined,
-                address: infoForm.address?.trim() || undefined,
-                source_detail: infoForm.source_detail?.trim() || undefined,
-                interested_course_id: infoForm.interested_course_id || undefined,
-                notes: infoForm.notes?.trim() || undefined,
-              });
-            }}
-            className="space-y-4"
-          >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Input
-                label="Họ và tên *"
-                required
-                value={infoForm.full_name}
-                onChange={(e) => setInfoForm((prev) => ({ ...prev!, full_name: e.target.value }))}
-              />
-              <Input
-                label="Số điện thoại"
-                value={infoForm.phone ?? ""}
-                onChange={(e) => setInfoForm((prev) => ({ ...prev!, phone: e.target.value }))}
-              />
-              <Input
-                label="Email"
-                type="email"
-                value={infoForm.email ?? ""}
-                onChange={(e) => setInfoForm((prev) => ({ ...prev!, email: e.target.value }))}
-              />
-              <Input
-                label="Ngày sinh"
-                type="date"
-                value={infoForm.date_of_birth ?? ""}
-                onChange={(e) =>
-                  setInfoForm((prev) => ({ ...prev!, date_of_birth: e.target.value }))
-                }
-              />
-              <Select
-                label="Giới tính"
-                value={infoForm.gender ?? ""}
-                onChange={(e) => setInfoForm((prev) => ({ ...prev!, gender: e.target.value }))}
-              >
-                <option value="">-- Chọn giới tính --</option>
-                <option value="male">Nam</option>
-                <option value="female">Nữ</option>
-                <option value="other">Khác</option>
-              </Select>
-              <Select
-                label="Khóa học quan tâm"
-                value={infoForm.interested_course_id ?? ""}
-                onChange={(e) =>
-                  setInfoForm((prev) => ({
-                    ...prev!,
-                    interested_course_id: e.target.value,
-                  }))
-                }
-              >
-                <option value="">-- Chưa xác định --</option>
-                {coursesQuery.data?.items.map((c: Course) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} - {c.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Select
-                label="Nguồn Lead"
-                value={infoForm.source ?? "facebook"}
-                onChange={(e) => setInfoForm((prev) => ({ ...prev!, source: e.target.value }))}
-              >
-                {SOURCE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </Select>
-              <Input
-                label="Chi tiết nguồn"
-                placeholder="VD: FB Ads T7, mã chiến dịch..."
-                value={infoForm.source_detail ?? ""}
-                onChange={(e) =>
-                  setInfoForm((prev) => ({ ...prev!, source_detail: e.target.value }))
-                }
-              />
-            </div>
-
-            <Input
-              label="Địa chỉ"
-              placeholder="Địa chỉ liên hệ..."
-              value={infoForm.address ?? ""}
-              onChange={(e) => setInfoForm((prev) => ({ ...prev!, address: e.target.value }))}
-            />
-
-            <Textarea
-              label="Ghi chú tổng quan"
-              placeholder="Nhu cầu, nguyện vọng, lưu ý đặc biệt..."
-              value={infoForm.notes ?? ""}
-              onChange={(e) => setInfoForm((prev) => ({ ...prev!, notes: e.target.value }))}
-            />
-
-            <div className="flex justify-end pt-4 border-t border-gborder">
-              <Button type="submit" variant="primary" loading={updateInfoMutation.isPending}>
-                Lưu thay đổi
-              </Button>
-            </div>
-          </form>
-        </Card>
-      )}
-
-      {/* Tab 2: Tương tác */}
-      {activeTab === "interactions" && (
         <div className="space-y-6">
-          {/* New Interaction Form */}
-          <Card className="p-5">
-            <h3 className="mb-3 text-sm font-bold text-navy-heading">Ghi nhận tương tác mới</h3>
+          <Card className="p-6">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (!interactionForm.summary.trim()) return;
-                createInteractionMutation.mutate();
+                updateInfoMutation.mutate({
+                  ...infoForm,
+                  phone: infoForm.phone?.trim() || undefined,
+                  email: infoForm.email?.trim() || undefined,
+                  date_of_birth: infoForm.date_of_birth || undefined,
+                  gender: infoForm.gender || undefined,
+                  address: infoForm.address?.trim() || undefined,
+                  source_detail: infoForm.source_detail?.trim() || undefined,
+                  interested_course_id: infoForm.interested_course_id || undefined,
+                  notes: infoForm.notes?.trim() || undefined,
+                });
               }}
-              className="space-y-3"
+              className="space-y-4"
             >
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Input
+                  label="Họ và tên *"
+                  required
+                  value={infoForm.full_name}
+                  onChange={(e) => setInfoForm((prev) => ({ ...prev!, full_name: e.target.value }))}
+                />
+                <Input
+                  label="Số điện thoại"
+                  value={infoForm.phone ?? ""}
+                  onChange={(e) => setInfoForm((prev) => ({ ...prev!, phone: e.target.value }))}
+                />
+                <Input
+                  label="Email"
+                  type="email"
+                  value={infoForm.email ?? ""}
+                  onChange={(e) => setInfoForm((prev) => ({ ...prev!, email: e.target.value }))}
+                />
+                <Input
+                  label="Ngày sinh"
+                  type="date"
+                  value={infoForm.date_of_birth ?? ""}
+                  onChange={(e) =>
+                    setInfoForm((prev) => ({ ...prev!, date_of_birth: e.target.value }))
+                  }
+                />
+                <Select
+                  label="Giới tính"
+                  value={infoForm.gender ?? ""}
+                  onChange={(e) => setInfoForm((prev) => ({ ...prev!, gender: e.target.value }))}
+                >
+                  <option value="">-- Chọn giới tính --</option>
+                  <option value="male">Nam</option>
+                  <option value="female">Nữ</option>
+                  <option value="other">Khác</option>
+                </Select>
+                <Select
+                  label="Khóa học quan tâm"
+                  value={infoForm.interested_course_id ?? ""}
+                  onChange={(e) =>
+                    setInfoForm((prev) => ({
+                      ...prev!,
+                      interested_course_id: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">-- Chưa xác định --</option>
+                  {coursesQuery.data?.items.map((c: Course) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} - {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Select
+                  label="Nguồn Lead"
+                  value={infoForm.source ?? "facebook"}
+                  onChange={(e) => setInfoForm((prev) => ({ ...prev!, source: e.target.value }))}
+                >
+                  {SOURCE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  label="Chi tiết nguồn"
+                  placeholder="VD: FB Ads T7, mã chiến dịch..."
+                  value={infoForm.source_detail ?? ""}
+                  onChange={(e) =>
+                    setInfoForm((prev) => ({ ...prev!, source_detail: e.target.value }))
+                  }
+                />
+              </div>
+
+              <Input
+                label="Địa chỉ"
+                placeholder="Địa chỉ liên hệ..."
+                value={infoForm.address ?? ""}
+                onChange={(e) => setInfoForm((prev) => ({ ...prev!, address: e.target.value }))}
+              />
+
+              <Textarea
+                label="Ghi chú tổng quan"
+                placeholder="Nhu cầu, nguyện vọng, lưu ý đặc biệt..."
+                value={infoForm.notes ?? ""}
+                onChange={(e) => setInfoForm((prev) => ({ ...prev!, notes: e.target.value }))}
+              />
+
+              <div className="flex justify-end pt-4 border-t border-gborder">
+                <Button type="submit" variant="primary" loading={updateInfoMutation.isPending}>
+                  Lưu thay đổi
+                </Button>
+              </div>
+            </form>
+          </Card>
+
+          {/* Lịch sử trạng thái nằm dưới thông tin cá nhân */}
+          <Card className="p-5">
+            <h3 className="mb-4 text-sm font-bold text-navy-heading">
+              Lịch sử thay đổi trạng thái Pipeline
+            </h3>
+            <QueryState
+              loading={historyQuery.isLoading}
+              error={historyQuery.error}
+              empty={historyQuery.data?.length === 0}
+              emptyTitle="Chưa có lịch sử chuyển trạng thái"
+            >
+              <div className="relative border-l-2 border-gborder ml-4 space-y-6 py-2">
+                {historyQuery.data?.map((history: LeadPipelineHistory) => (
+                  <div key={history.id} className="relative pl-6">
+                    <div className="absolute -left-2 top-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-[#0532e6]" />
+                    <div className="rounded-xl border border-gborder/80 bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gborder/60 pb-2">
+                        <div className="flex items-center gap-2">
+                          {history.old_status ? (
+                            <>
+                              <LeadPipelineBadge status={history.old_status} />
+                              <span className="text-gtext text-xs">→</span>
+                            </>
+                          ) : null}
+                          <LeadPipelineBadge status={history.new_status} />
+                        </div>
+                        <span className="text-xs text-gtext">
+                          {formatDateTime(history.changed_at)}
+                        </span>
+                      </div>
+
+                      {history.reason && (
+                        <p className="mt-2 text-xs italic text-navy/80">Lý do: {history.reason}</p>
+                      )}
+
+                      <div className="mt-2 text-right text-[11px] text-gtext">
+                        Thực hiện: {history.changed_by_email || "Hệ thống"}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </QueryState>
+          </Card>
+        </div>
+      )}
+
+      {/* Tab 2: Tương tác & Nhắc việc (Gộp chung) */}
+      {activeTab === "activities" && (
+        <div className="space-y-6">
+          {/* Form Ghi nhận tương tác & Nhắc việc kết hợp */}
+          <Card className="p-5">
+            <div className="mb-3">
+              <h3 className="text-sm font-bold text-navy-heading">
+                Ghi nhận tương tác & Lên lịch nhắc việc
+              </h3>
+              <p className="text-xs text-gtext">
+                Ghi nhận nội dung trao đổi và tùy chọn tạo nhắc việc tiếp theo chỉ với một lần lưu.
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveActivity} className="space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Select
                   label="Kênh tương tác"
@@ -576,7 +652,7 @@ export function LeadProfilePage() {
                 <div className="sm:col-span-2">
                   <Input
                     label="Kết quả ngắn gọn (Outcome)"
-                    placeholder="VD: Hẹn gọi lại tối nay, Quan tâm lớp cuối tuần..."
+                    placeholder="VD: Hẹn gọi lại tối nay, Đã gửi học phí, Khách quan tâm..."
                     value={interactionForm.outcome}
                     onChange={(e) =>
                       setInteractionForm((prev) => ({ ...prev, outcome: e.target.value }))
@@ -588,129 +664,104 @@ export function LeadProfilePage() {
               <Textarea
                 label="Nội dung trao đổi chi tiết *"
                 required
-                placeholder="Tóm tắt cuộc gọi, tin nhắn hoặc buổi gặp..."
+                placeholder="Tóm tắt cuộc gọi, tin nhắn hoặc buổi gặp gỡ với khách hàng..."
                 value={interactionForm.summary}
                 onChange={(e) =>
                   setInteractionForm((prev) => ({ ...prev, summary: e.target.value }))
                 }
               />
 
-              <div className="flex justify-end pt-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={createInteractionMutation.isPending}
-                >
-                  Lưu tương tác
-                </Button>
-              </div>
-            </form>
-          </Card>
-
-          {/* Interactions Timeline */}
-          <Card className="p-5">
-            <h3 className="mb-4 text-sm font-bold text-navy-heading">
-              Lịch sử trao đổi & chăm sóc ({interactionsQuery.data?.length ?? 0})
-            </h3>
-            <QueryState
-              loading={interactionsQuery.isLoading}
-              error={interactionsQuery.error}
-              empty={interactionsQuery.data?.length === 0}
-              emptyTitle="Chưa có tương tác nào được ghi nhận"
-            >
-              <div className="relative border-l-2 border-gborder ml-4 space-y-6 py-2">
-                {interactionsQuery.data?.map((interaction: LeadInteraction) => (
-                  <div key={interaction.id} className="relative pl-6">
-                    {/* Timeline Node Dot */}
-                    <div className="absolute -left-2 top-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-navy" />
-
-                    <div className="rounded-xl border border-gborder/80 bg-gbg/40 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gborder/60 pb-2">
-                        <div className="flex items-center gap-2">
-                          <Badge tone="navy">{getChannelLabel(interaction.channel)}</Badge>
-                          {interaction.outcome && (
-                            <span className="text-xs font-semibold text-gold-dark">
-                              ★ {interaction.outcome}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-gtext">
-                          {formatDateTime(interaction.created_at)}
-                        </span>
-                      </div>
-
-                      <p className="mt-2 text-sm text-navy whitespace-pre-line">
-                        {interaction.summary}
-                      </p>
-
-                      <div className="mt-2 text-right text-[11px] text-gtext">
-                        Ghi bởi: {interaction.created_by_email || "Nhân viên"}
-                      </div>
-                    </div>
+              {/* Option Checkbox: Tạo nhắc việc */}
+              <div className="rounded-xl border border-gborder/80 bg-gbg/40 p-4 transition">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={createReminder}
+                    onChange={(e) => setCreateReminder(e.target.checked)}
+                    className="h-4 w-4 rounded border-gborder text-navy focus:ring-navy cursor-pointer accent-navy"
+                  />
+                  <div>
+                    <span className="text-sm font-bold text-navy">
+                      Tạo nhắc việc / hẹn lịch tiếp theo cho Lead này
+                    </span>
+                    <p className="text-xs text-gtext">
+                      Tự động thêm vào danh sách nhắc việc và thông báo khi đến hạn
+                    </p>
                   </div>
-                ))}
-              </div>
-            </QueryState>
-          </Card>
-        </div>
-      )}
+                </label>
 
-      {/* Tab 3: Nhắc việc */}
-      {activeTab === "tasks" && (
-        <div className="space-y-6">
-          {/* New Task Form */}
-          <Card className="p-5">
-            <h3 className="mb-3 text-sm font-bold text-navy-heading">Tạo nhắc việc / Hẹn lịch</h3>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!taskForm.title.trim() || !taskForm.due_at) return;
-                createTaskMutation.mutate();
-              }}
-              className="space-y-3"
-            >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Input
-                  label="Tiêu đề việc cần làm *"
-                  required
-                  placeholder="VD: Gọi lại xác nhận học phí"
-                  value={taskForm.title}
-                  onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))}
-                />
-                <Input
-                  label="Thời hạn hoàn thành *"
-                  type="datetime-local"
-                  required
-                  value={taskForm.due_at}
-                  onChange={(e) => setTaskForm((prev) => ({ ...prev, due_at: e.target.value }))}
-                />
+                {createReminder && (
+                  <div className="mt-4 space-y-3 border-t border-gborder/70 pt-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Input
+                        label="Tiêu đề việc cần làm *"
+                        required
+                        placeholder="VD: Gọi lại xác nhận học phí, Gửi đề cương qua Zalo..."
+                        value={taskForm.title}
+                        onChange={(e) =>
+                          setTaskForm((prev) => ({ ...prev, title: e.target.value }))
+                        }
+                      />
+                      <Input
+                        label="Thời hạn hoàn thành *"
+                        type="datetime-local"
+                        required
+                        value={taskForm.due_at}
+                        onChange={(e) =>
+                          setTaskForm((prev) => ({ ...prev, due_at: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <Textarea
+                      label="Ghi chú chi tiết cho nhắc việc"
+                      placeholder="Ghi chú thêm về nội dung cần làm..."
+                      value={taskForm.description}
+                      onChange={(e) =>
+                        setTaskForm((prev) => ({ ...prev, description: e.target.value }))
+                      }
+                    />
+                  </div>
+                )}
               </div>
 
-              <Textarea
-                label="Ghi chú chi tiết"
-                placeholder="Ghi chú thêm về nội dung cần làm..."
-                value={taskForm.description}
-                onChange={(e) => setTaskForm((prev) => ({ ...prev, description: e.target.value }))}
-              />
-
-              <div className="flex justify-end pt-2">
-                <Button type="submit" variant="primary" loading={createTaskMutation.isPending}>
-                  Tạo nhắc việc
+              <div className="flex justify-end pt-1">
+                <Button type="submit" variant="primary" loading={isSubmittingActivity}>
+                  <Icon name="check" className="h-4 w-4" />
+                  {createReminder ? "Lưu tương tác & Tạo nhắc việc" : "Lưu tương tác"}
                 </Button>
               </div>
             </form>
           </Card>
 
-          {/* Task List */}
+          {/* Danh sách việc cần làm cho Lead này */}
           <Card className="p-5">
-            <h3 className="mb-4 text-sm font-bold text-navy-heading">
-              Danh sách nhắc việc cho Lead này
-            </h3>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-navy-heading">
+                  Danh sách việc cần làm ({tasksQuery.data?.length ?? 0})
+                </h3>
+                <p className="text-xs text-gtext">
+                  Các lịch hẹn, cuộc gọi và công việc phụ trách với Lead này
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                className="h-8 px-3 text-xs"
+                onClick={() => {
+                  setStandaloneTaskForm({ title: "", description: "", due_at: "" });
+                  setIsTaskModalOpen(true);
+                }}
+              >
+                <Icon name="plus" className="h-3.5 w-3.5" />
+                Thêm việc mới
+              </Button>
+            </div>
+
             <QueryState
               loading={tasksQuery.isLoading}
               error={tasksQuery.error}
               empty={tasksQuery.data?.length === 0}
-              emptyTitle="Chưa có nhắc việc nào"
+              emptyTitle="Chưa có việc cần làm nào cho Lead này"
             >
               <div className="divide-y divide-gborder/70 rounded-xl border border-gborder/70 bg-white">
                 {tasksQuery.data?.map((task: LeadTask) => {
@@ -777,54 +828,52 @@ export function LeadProfilePage() {
               </div>
             </QueryState>
           </Card>
-        </div>
-      )}
 
-      {/* Tab 4: Lịch sử trạng thái */}
-      {activeTab === "history" && (
-        <Card className="p-5">
-          <h3 className="mb-4 text-sm font-bold text-navy-heading">
-            Lịch sử thay đổi trạng thái Pipeline
-          </h3>
-          <QueryState
-            loading={historyQuery.isLoading}
-            error={historyQuery.error}
-            empty={historyQuery.data?.length === 0}
-            emptyTitle="Chưa có lịch sử chuyển trạng thái"
-          >
-            <div className="relative border-l-2 border-gborder ml-4 space-y-6 py-2">
-              {historyQuery.data?.map((history: LeadPipelineHistory) => (
-                <div key={history.id} className="relative pl-6">
-                  <div className="absolute -left-2 top-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-gold" />
-                  <div className="rounded-xl border border-gborder/80 bg-white p-4 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gborder/60 pb-2">
-                      <div className="flex items-center gap-2">
-                        {history.old_status ? (
-                          <>
-                            <LeadPipelineBadge status={history.old_status} />
-                            <span className="text-gtext text-xs">→</span>
-                          </>
-                        ) : null}
-                        <LeadPipelineBadge status={history.new_status} />
+          {/* Lịch sử trao đổi & chăm sóc */}
+          <Card className="p-5">
+            <h3 className="mb-4 text-sm font-bold text-navy-heading">
+              Lịch sử trao đổi & chăm sóc ({interactionsQuery.data?.length ?? 0})
+            </h3>
+            <QueryState
+              loading={interactionsQuery.isLoading}
+              error={interactionsQuery.error}
+              empty={interactionsQuery.data?.length === 0}
+              emptyTitle="Chưa có tương tác nào được ghi nhận"
+            >
+              <div className="relative border-l-2 border-gborder ml-4 space-y-6 py-2">
+                {interactionsQuery.data?.map((interaction: LeadInteraction) => (
+                  <div key={interaction.id} className="relative pl-6">
+                    <div className="absolute -left-2 top-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-navy" />
+
+                    <div className="rounded-xl border border-gborder/80 bg-gbg/40 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gborder/60 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Badge tone="navy">{getChannelLabel(interaction.channel)}</Badge>
+                          {interaction.outcome && (
+                            <span className="text-xs font-semibold text-[#0532e6]">
+                              ★ {interaction.outcome}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gtext">
+                          {formatDateTime(interaction.created_at)}
+                        </span>
                       </div>
-                      <span className="text-xs text-gtext">
-                        {formatDateTime(history.changed_at)}
-                      </span>
-                    </div>
 
-                    {history.reason && (
-                      <p className="mt-2 text-xs italic text-navy/80">Lý do: {history.reason}</p>
-                    )}
+                      <p className="mt-2 text-sm text-navy whitespace-pre-line">
+                        {interaction.summary}
+                      </p>
 
-                    <div className="mt-2 text-right text-[11px] text-gtext">
-                      Thực hiện: {history.changed_by_email || "Hệ thống"}
+                      <div className="mt-2 text-right text-[11px] text-gtext">
+                        Ghi bởi: {interaction.created_by_email || "Nhân viên"}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </QueryState>
-        </Card>
+                ))}
+              </div>
+            </QueryState>
+          </Card>
+        </div>
       )}
 
       {/* Tab 5: Quá trình học tập (nếu đã convert) */}
@@ -847,7 +896,7 @@ export function LeadProfilePage() {
           <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
             <div className="rounded-xl bg-gbg/60 p-4 border border-gborder">
               <span className="text-xs font-medium text-gtext uppercase">Mã Học Viên</span>
-              <p className="mt-1 font-mono text-lg font-bold text-navy">
+              <p className="mt-1 text-lg font-bold text-navy tabular-nums">
                 {lead.converted_student_code ?? "—"}
               </p>
             </div>
@@ -948,6 +997,56 @@ export function LeadProfilePage() {
           </form>
         </Modal>
       )}
+
+      {/* Modal: Thêm việc cần làm / Lịch hẹn mới */}
+      <Modal
+        open={isTaskModalOpen}
+        title="Tạo việc cần làm / Hẹn lịch"
+        onClose={() => setIsTaskModalOpen(false)}
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!standaloneTaskForm.title.trim() || !standaloneTaskForm.due_at) return;
+            createTaskMutation.mutate();
+          }}
+          className="space-y-4"
+        >
+          <Input
+            label="Tiêu đề việc cần làm *"
+            required
+            placeholder="VD: Gọi lại tư vấn học phí, Gửi báo giá..."
+            value={standaloneTaskForm.title}
+            onChange={(e) => setStandaloneTaskForm((prev) => ({ ...prev, title: e.target.value }))}
+          />
+
+          <Input
+            label="Thời hạn hoàn thành *"
+            type="datetime-local"
+            required
+            value={standaloneTaskForm.due_at}
+            onChange={(e) => setStandaloneTaskForm((prev) => ({ ...prev, due_at: e.target.value }))}
+          />
+
+          <Textarea
+            label="Ghi chú chi tiết"
+            placeholder="Ghi chú thêm về nội dung cần làm..."
+            value={standaloneTaskForm.description}
+            onChange={(e) =>
+              setStandaloneTaskForm((prev) => ({ ...prev, description: e.target.value }))
+            }
+          />
+
+          <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-gborder">
+            <Button type="button" variant="ghost" onClick={() => setIsTaskModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button type="submit" variant="primary" loading={createTaskMutation.isPending}>
+              Tạo việc
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

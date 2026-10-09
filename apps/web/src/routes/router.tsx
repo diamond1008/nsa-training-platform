@@ -53,6 +53,10 @@ const PersonProfilePage = lazyLoad<{ kind: "student" | "teacher" }>(
   () => import("../features/admin/PersonProfilePage"),
   "PersonProfilePage",
 );
+const UserManagementPage = lazyLoad<{ mode?: "all" | "sale" | "academic" }>(
+  () => import("../features/users/UserManagementPage"),
+  "UserManagementPage",
+);
 
 // Teacher pages lazy bundle
 const TeacherAttendancePage = lazyLoad(
@@ -247,17 +251,33 @@ export const router = createBrowserRouter([
             ),
           },
           {
+            path: "/sale/nhan-vien",
+            element: (
+              <RequireRole roles={["SALE_ADMIN", "ADMIN"]}>
+                <UserManagementPage mode="sale" />
+              </RequireRole>
+            ),
+          },
+          {
             path: "/admin",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <AdminDashboardPage />
+              </RequireRole>
+            ),
+          },
+          {
+            path: "/admin/tai-khoan",
+            element: (
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
+                <UserManagementPage mode="all" />
               </RequireRole>
             ),
           },
           {
             path: "/admin/van-hanh",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <AdminOperationsPage />
               </RequireRole>
             ),
@@ -265,7 +285,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/hoc-vien",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <StudentsPage />
               </RequireRole>
             ),
@@ -273,7 +293,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/hoc-vien/:personId",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <PersonProfilePage kind="student" />
               </RequireRole>
             ),
@@ -281,7 +301,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/giang-vien",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <TeachersPage />
               </RequireRole>
             ),
@@ -289,7 +309,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/giang-vien/:personId",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <PersonProfilePage kind="teacher" />
               </RequireRole>
             ),
@@ -297,7 +317,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/khoa-hoc",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <CoursesPage />
               </RequireRole>
             ),
@@ -305,7 +325,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/lop-hoc",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <ClassesPage />
               </RequireRole>
             ),
@@ -313,7 +333,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/lop-hoc/:classId",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <ClassDetailPage />
               </RequireRole>
             ),
@@ -321,7 +341,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/lich-hoc",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <ScheduleAdminPage />
               </RequireRole>
             ),
@@ -329,7 +349,7 @@ export const router = createBrowserRouter([
           {
             path: "/admin/diem-danh",
             element: (
-              <RequireRole role="ADMIN">
+              <RequireRole roles={["ADMIN", "ACADEMIC_ADMIN"]}>
                 <AdminAttendancePage />
               </RequireRole>
             ),

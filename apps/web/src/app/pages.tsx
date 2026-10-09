@@ -7,6 +7,7 @@ import type { Role } from "../lib/types";
 
 const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "Quản trị viên",
+  ACADEMIC_ADMIN: "Quản lý Đào tạo",
   TEACHER: "Giảng viên",
   STUDENT: "Học viên",
   SALE: "Chuyên viên Tuyển sinh",
@@ -21,6 +22,20 @@ interface ModuleCard {
 
 const MODULES: Record<Role, ModuleCard[]> = {
   ADMIN: [
+    { title: "Học viên", description: "Quản lý hồ sơ và tài khoản học viên", phase: "Phase 9" },
+    { title: "Giảng viên", description: "Quản lý đội ngũ giảng viên", phase: "Phase 9" },
+    {
+      title: "Khóa học & Lớp học",
+      description: "Chương trình đào tạo và các lớp đang mở",
+      phase: "Phase 9",
+    },
+    {
+      title: "Lịch học",
+      description: "Xếp lịch buổi học lý thuyết và thực hành",
+      phase: "Phase 9",
+    },
+  ],
+  ACADEMIC_ADMIN: [
     { title: "Học viên", description: "Quản lý hồ sơ và tài khoản học viên", phase: "Phase 9" },
     { title: "Giảng viên", description: "Quản lý đội ngũ giảng viên", phase: "Phase 9" },
     {

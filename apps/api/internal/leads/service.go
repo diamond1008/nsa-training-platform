@@ -778,6 +778,8 @@ func (s *Service) MyDashboardStats(ctx context.Context, actorID string) (SaleDas
 		ConvertedThisMonth: stats.ConvertedThisMonth,
 		TotalThisMonth:     stats.TotalThisMonth,
 		ConversionRate:     conversionRate,
+		MonthRevenue:       data.NumericFloat(stats.MonthRevenue),
+		TeamMonthRevenue:   data.NumericFloat(stats.TeamMonthRevenue),
 	}, nil
 }
 

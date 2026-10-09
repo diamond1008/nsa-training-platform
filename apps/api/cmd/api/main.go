@@ -42,6 +42,7 @@ import (
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/tasks"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/teachers"
 	"github.com/diamond1008/nsa-training-platform/apps/api/internal/testscores"
+	"github.com/diamond1008/nsa-training-platform/apps/api/internal/users"
 	db "github.com/diamond1008/nsa-training-platform/database/generated"
 )
 
@@ -108,6 +109,7 @@ func run() error {
 	interactionHandler := interactions.NewHandler(interactions.NewService(pool), log)
 	taskHandler := tasks.NewHandler(tasks.NewService(pool), log)
 	orderHandler := orders.NewHandler(orders.NewService(pool), log)
+	userHandler := users.NewHandler(users.NewService(pool, cfg.BcryptCost), log)
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -186,6 +188,17 @@ func run() error {
 			r.Put("/{notificationID}/read", notificationHandler.MarkRead)
 			r.Delete("/{notificationID}", notificationHandler.Archive)
 		})
+		r.Route("/users", func(r chi.Router) {
+			r.Use(auth.Authenticate(tokenService))
+			r.Use(auth.RequireRole(auth.RoleAdmin, auth.RoleAcademicAdmin, auth.RoleSaleAdmin))
+			r.Get("/", userHandler.List)
+			r.Post("/", userHandler.Create)
+			r.Get("/{userID}", userHandler.Get)
+			r.Patch("/{userID}/status", userHandler.UpdateStatus)
+			r.Patch("/{userID}/profile", userHandler.UpdateProfile)
+			r.Post("/{userID}/reset-password", userHandler.ResetPassword)
+			r.Get("/{userID}/audit-logs", userHandler.ListAuditLogs)
+		})
 	})
 
 	srv := &http.Server{
@@ -242,7 +255,7 @@ func mountAdminRoutes(
 ) {
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(auth.Authenticate(tokenService))
-		r.Use(auth.RequireRole(auth.RoleAdmin))
+		r.Use(auth.RequireRole(auth.RoleAdmin, auth.RoleAcademicAdmin))
 
 		r.Route("/students", func(r chi.Router) {
 			r.Get("/", studentHandler.List)

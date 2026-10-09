@@ -90,7 +90,7 @@ export function DataTable<T extends { id: string }>({
 }) {
   return (
     <Card className="overflow-hidden p-0">
-      <div className="divide-y divide-gborder md:hidden">
+      <div className="divide-y divide-white/70 md:hidden">
         {items.map((item, rowIndex) => (
           <div key={item.id} className="space-y-3 p-4">
             {columns.map((column) => (
@@ -116,7 +116,7 @@ export function DataTable<T extends { id: string }>({
       </div>
       <div className="hidden max-h-[calc(100dvh-15rem)] overflow-auto md:block">
         <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-gbg2/95 text-[11px] uppercase tracking-[0.08em] text-gtext backdrop-blur">
+          <thead className="sticky top-0 z-10 bg-white/75 text-[11px] uppercase tracking-[0.08em] text-gtext backdrop-blur-md">
             <tr>
               {columns.map((column) => (
                 <th
@@ -129,7 +129,7 @@ export function DataTable<T extends { id: string }>({
                       : undefined
                   }
                   className={clsx(
-                    "border-b border-gborder px-5 py-3.5 font-bold",
+                    "border-b border-white/70 px-5 py-3.5 font-bold",
                     column.className,
                   )}
                 >
@@ -143,7 +143,7 @@ export function DataTable<T extends { id: string }>({
                           sort?.key === column.sortKey && sort?.order === "asc" ? "desc" : "asc",
                         )
                       }
-                      className="inline-flex items-center gap-1.5 rounded-md text-left transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+                      className="inline-flex items-center gap-1.5 rounded-md text-left transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
                     >
                       {column.header}
                       {sort?.key === column.sortKey ? (
@@ -157,14 +157,14 @@ export function DataTable<T extends { id: string }>({
               ))}
             </tr>
           </thead>
-          <tbody className="bg-white">
+          <tbody className="bg-white/40">
             {items.map((item, rowIndex) => (
-              <tr key={item.id} className="group transition hover:bg-gbg/70">
+              <tr key={item.id} className="group transition-colors hover:bg-white/70">
                 {columns.map((column) => (
                   <td
                     key={column.header}
                     className={clsx(
-                      "border-b border-gborder/70 px-5 py-4 align-middle last:border-b-0",
+                      "border-b border-white/60 px-5 py-4 align-middle last:border-b-0",
                       column.className,
                     )}
                   >
@@ -191,7 +191,7 @@ export function Pagination({
 }) {
   if (totalPages <= 1) return null;
   return (
-    <div className="mt-4 flex items-center justify-between rounded-xl border border-gborder bg-white p-2 pl-4">
+    <div className="mt-4 flex items-center justify-between rounded-xl border border-white/80 bg-white/60 backdrop-blur-md p-2 pl-4 shadow-2xs">
       <span className="text-xs font-medium text-gtext">
         Trang {page} / {totalPages}
       </span>
@@ -223,11 +223,11 @@ export function Pagination({
 
 const statTone: Record<string, string> = {
   navy: "text-navy",
-  gold: "text-gold-dark",
+  gold: "text-[#0532e6]",
   green: "text-success",
-  blue: "text-info",
+  blue: "text-[#0532e6]",
   neutral: "text-navy/70",
-  brand: "text-gold-dark",
+  brand: "text-[#0532e6]",
   warning: "text-warning",
   success: "text-success",
 };
@@ -319,9 +319,9 @@ export function QuickAction({
   children?: ReactNode;
 }) {
   return (
-    <Card className="group h-full transition hover:-translate-y-0.5 hover:border-gold/70 hover:shadow-elevated">
+    <Card className="group h-full transition hover:-translate-y-0.5 hover:border-[#0532e6]/50 hover:shadow-elevated">
       <div className="flex items-start gap-4">
-        <div className="flex shrink-0 items-center justify-center text-navy transition group-hover:text-gold-dark pt-0.5">
+        <div className="flex shrink-0 items-center justify-center text-navy transition group-hover:text-[#0532e6] pt-0.5">
           <Icon name={icon} className="h-6 w-6" />
         </div>
         <div className="min-w-0 flex-1">
@@ -331,7 +331,7 @@ export function QuickAction({
         </div>
         <Icon
           name="chevron-right"
-          className="mt-2 h-4 w-4 text-gtext transition group-hover:translate-x-1 group-hover:text-gold-dark"
+          className="mt-2 h-4 w-4 text-gtext transition group-hover:translate-x-1 group-hover:text-[#0532e6]"
         />
       </div>
     </Card>

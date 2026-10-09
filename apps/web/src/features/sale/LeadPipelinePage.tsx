@@ -196,7 +196,7 @@ export function LeadPipelinePage() {
         <div>
           <Link
             to={`/sale/leads/${lead.id}`}
-            className="font-semibold text-navy hover:text-gold-dark hover:underline"
+            className="font-semibold text-navy hover:text-[#0532e6] hover:underline"
           >
             {lead.full_name}
           </Link>
@@ -626,7 +626,7 @@ export function LeadPipelinePage() {
                     <p className="text-sm font-medium text-navy">
                       Nhấn vào đây để chọn file{" "}
                       <span className="font-semibold text-emerald-700">.xlsx</span> hoặc{" "}
-                      <span className="font-semibold text-gold-dark">.csv</span>
+                      <span className="font-semibold text-[#0532e6]">.csv</span>
                     </p>
                     <p className="text-xs text-gtext">hoặc kéo thả file vào khu vực này</p>
                   </div>

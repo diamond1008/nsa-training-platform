@@ -11,7 +11,7 @@ export interface ApiErrorBody {
   details?: unknown;
 }
 
-export type Role = "ADMIN" | "TEACHER" | "STUDENT" | "SALE" | "SALE_ADMIN";
+export type Role = "ADMIN" | "ACADEMIC_ADMIN" | "TEACHER" | "STUDENT" | "SALE" | "SALE_ADMIN";
 
 export interface ProfileRef {
   id: string;

@@ -203,7 +203,7 @@ export function LeadConvertPage() {
                       <span className="text-xs font-bold uppercase tracking-wider text-gtext">
                         Mã Học Viên
                       </span>
-                      <p className="mt-1 font-mono text-xl font-bold text-navy">
+                      <p className="mt-1 text-xl font-bold text-navy">
                         {convertResult.student_code}
                       </p>
                     </div>
@@ -212,16 +212,14 @@ export function LeadConvertPage() {
                       <span className="text-xs font-bold uppercase tracking-wider text-gtext">
                         Mã Đơn Hàng (Phiếu thu)
                       </span>
-                      <p className="mt-1 font-mono text-xl font-bold text-navy">
-                        {convertResult.order_code}
-                      </p>
+                      <p className="mt-1 text-xl font-bold text-navy">{convertResult.order_code}</p>
                     </div>
 
                     <div className="rounded-xl border border-emerald-200 bg-white p-4">
                       <span className="text-xs font-bold uppercase tracking-wider text-gtext">
                         Tổng thanh toán
                       </span>
-                      <p className="mt-1 text-xl font-bold text-emerald-700">
+                      <p className="mt-1 text-xl font-bold text-emerald-700 tabular-nums">
                         {formatVND(finalAmount)}
                       </p>
                     </div>
@@ -423,9 +421,9 @@ export function LeadConvertPage() {
               </div>
 
               {/* Final Amount Summary Box */}
-              <div className="flex items-center justify-between rounded-xl bg-gold/10 p-4 border border-gold/30">
+              <div className="flex items-center justify-between rounded-xl bg-[#0532e6]/5 p-4 border border-[#0532e6]/20">
                 <span className="font-bold text-navy text-sm">Số tiền thanh toán thực tế:</span>
-                <span className="font-mono text-xl font-bold text-navy">
+                <span className="text-xl font-bold text-navy tabular-nums">
                   {formatVND(finalAmount)}
                 </span>
               </div>

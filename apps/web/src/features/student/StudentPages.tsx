@@ -90,7 +90,10 @@ export function StudentDashboardPage() {
               title="Tiến độ khóa học"
               subtitle="Tổng hợp chuyên cần, kỹ năng và đánh giá"
               action={
-                <Link className="text-xs font-semibold text-gold-dark" to="/student/tien-do">
+                <Link
+                  className="text-xs font-semibold text-[#0532e6] hover:text-[#1e45ee]"
+                  to="/student/tien-do"
+                >
                   Chi tiết →
                 </Link>
               }
@@ -121,7 +124,10 @@ export function StudentDashboardPage() {
               title="Lịch sắp tới"
               subtitle="Các buổi học gần nhất"
               action={
-                <Link className="text-xs font-semibold text-gold-dark" to="/student/lich-hoc">
+                <Link
+                  className="text-xs font-semibold text-[#0532e6] hover:text-[#1e45ee]"
+                  to="/student/lich-hoc"
+                >
                   Xem tất cả →
                 </Link>
               }
@@ -131,7 +137,7 @@ export function StudentDashboardPage() {
                 <Link
                   to="/student/lich-hoc"
                   key={s.id}
-                  className="flex items-center gap-3 rounded-xl border border-gborder p-3 transition hover:border-gold"
+                  className="flex items-center gap-3 rounded-xl border border-gborder p-3 transition hover:border-[#0532e6]/50 hover:bg-[#0532e6]/5"
                 >
                   <div className="flex shrink-0 items-center justify-center text-info">
                     <Icon name="clock" className="h-5 w-5" />
@@ -177,7 +183,7 @@ export function StudentCoursesPage() {
             <Card key={item.class_id}>
               <div className="flex justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold text-gold-dark">{item.course_code}</p>
+                  <p className="text-xs font-semibold text-[#0532e6]">{item.course_code}</p>
                   <h2 className="mt-1 text-lg font-bold text-navy">{item.course_name}</h2>
                   <p className="text-sm text-gtext">
                     {item.class_code} — {item.class_name}
@@ -579,7 +585,7 @@ export function StudentAssessmentsPage() {
             <Card key={a.id}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold text-gold-dark">
+                  <p className="text-xs font-semibold text-[#0532e6]">
                     {a.course_code} · Lần #{a.assessment_no}
                   </p>
                   <h2 className="mt-1 text-lg font-bold text-navy">
@@ -608,7 +614,7 @@ export function StudentAssessmentsPage() {
               )}
               {a.evidence_url && (
                 <a
-                  className="mt-3 inline-flex text-sm font-semibold text-gold-dark hover:underline"
+                  className="mt-3 inline-flex text-sm font-semibold text-[#0532e6] hover:text-[#1e45ee] hover:underline"
                   href={a.evidence_url}
                   target="_blank"
                   rel="noreferrer"
@@ -665,7 +671,7 @@ export function StudentProgressPage() {
             <Card key={item.class_id}>
               <div className="flex flex-wrap justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold text-gold-dark">{item.course_code}</p>
+                  <p className="text-xs font-semibold text-[#0532e6]">{item.course_code}</p>
                   <h2 className="text-lg font-bold text-navy">{item.course_name}</h2>
                   <p className="text-sm text-gtext">
                     {item.class_code} — {item.class_name}
@@ -731,7 +737,7 @@ export function StudentProgressPage() {
               <Card key={certificate.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold text-gold-dark">
+                    <p className="text-xs font-semibold text-[#0532e6]">
                       {certificate.certificate_number}
                     </p>
                     <h3 className="mt-1 font-bold text-navy">{certificate.course_name}</h3>
@@ -757,7 +763,7 @@ export function StudentProgressPage() {
                           href={certificate.diploma_file_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center justify-center rounded-lg bg-gold-dark px-4 py-2 text-sm font-semibold text-white hover:bg-gold"
+                          className="inline-flex items-center justify-center rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a2078] transition-all duration-200 ease-out hover:scale-105 active:scale-95 shadow-xs"
                         >
                           📄 Tải bản scan bằng tốt nghiệp ↗
                         </a>

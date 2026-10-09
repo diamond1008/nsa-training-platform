@@ -146,16 +146,30 @@ SELECT
   (SELECT COUNT(*)::bigint FROM lead_tasks WHERE assigned_to = $1::uuid AND completed_at IS NULL AND due_at < NOW()) AS overdue_tasks,
   (SELECT COUNT(*)::bigint FROM lead_tasks WHERE assigned_to = $1::uuid AND completed_at IS NULL AND DATE(due_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE(NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS today_tasks,
   (SELECT COUNT(*)::bigint FROM leads WHERE assigned_to = $1::uuid AND pipeline_status = 'da_dang_ky' AND DATE_TRUNC('month', converted_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS converted_this_month,
-  (SELECT COUNT(*)::bigint FROM leads WHERE assigned_to = $1::uuid AND DATE_TRUNC('month', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS total_this_month
+  (SELECT COUNT(*)::bigint FROM leads WHERE assigned_to = $1::uuid AND DATE_TRUNC('month', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')) AS total_this_month,
+  COALESCE((
+    SELECT SUM(final_amount) FROM orders o
+    LEFT JOIN leads l ON l.id = o.lead_id
+    WHERE (o.created_by = $1::uuid OR l.assigned_to = $1::uuid)
+      AND o.status = 'paid'
+      AND DATE_TRUNC('month', COALESCE(o.paid_at, o.created_at) AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+  ), 0)::numeric AS month_revenue,
+  COALESCE((
+    SELECT SUM(final_amount) FROM orders
+    WHERE status = 'paid'
+      AND DATE_TRUNC('month', COALESCE(paid_at, created_at) AT TIME ZONE 'Asia/Ho_Chi_Minh') = DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+  ), 0)::numeric AS team_month_revenue
 `
 
 type GetSaleDashboardStatsRow struct {
-	AssignedLeads      int64 `json:"assigned_leads"`
-	NewLeadsToday      int64 `json:"new_leads_today"`
-	OverdueTasks       int64 `json:"overdue_tasks"`
-	TodayTasks         int64 `json:"today_tasks"`
-	ConvertedThisMonth int64 `json:"converted_this_month"`
-	TotalThisMonth     int64 `json:"total_this_month"`
+	AssignedLeads      int64          `json:"assigned_leads"`
+	NewLeadsToday      int64          `json:"new_leads_today"`
+	OverdueTasks       int64          `json:"overdue_tasks"`
+	TodayTasks         int64          `json:"today_tasks"`
+	ConvertedThisMonth int64          `json:"converted_this_month"`
+	TotalThisMonth     int64          `json:"total_this_month"`
+	MonthRevenue       pgtype.Numeric `json:"month_revenue"`
+	TeamMonthRevenue   pgtype.Numeric `json:"team_month_revenue"`
 }
 
 func (q *Queries) GetSaleDashboardStats(ctx context.Context, userID pgtype.UUID) (GetSaleDashboardStatsRow, error) {
@@ -168,6 +182,8 @@ func (q *Queries) GetSaleDashboardStats(ctx context.Context, userID pgtype.UUID)
 		&i.TodayTasks,
 		&i.ConvertedThisMonth,
 		&i.TotalThisMonth,
+		&i.MonthRevenue,
+		&i.TeamMonthRevenue,
 	)
 	return i, err
 }

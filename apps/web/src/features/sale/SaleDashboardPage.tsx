@@ -5,13 +5,16 @@ import clsx from "clsx";
 import { QueryState, StatCard } from "../../components/data";
 import { Icon } from "../../components/icons";
 import { Badge, Button, Card, PageHeader } from "../../components/ui";
+import { useAuth } from "../auth/AuthContext";
 import type { Lead } from "../../lib/domainTypes";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { saleApi } from "./saleApi";
-import { LeadPipelineBadge } from "./saleShared";
+import { formatVND, LeadPipelineBadge } from "./saleShared";
 
 export function SaleDashboardPage() {
   const queryClient = useQueryClient();
+  const { hasRole } = useAuth();
+  const isSaleAdmin = hasRole("ADMIN", "SALE_ADMIN");
 
   const statsQuery = useQuery({
     queryKey: ["sale", "dashboard", "my-stats"],
@@ -46,6 +49,12 @@ export function SaleDashboardPage() {
   const tasks = tasksQuery.data ?? [];
   const recentLeads = leadsQuery.data?.items ?? [];
 
+  const monthRevenue = isSaleAdmin ? (stats?.team_month_revenue ?? 0) : (stats?.month_revenue ?? 0);
+  const revenueLabel = isSaleAdmin ? "Doanh số phòng Sale tháng" : "Doanh số cá nhân tháng";
+  const revenueHint = isSaleAdmin
+    ? "Tổng tiền toàn phòng chốt trong tháng"
+    : "Tổng tiền bạn đã chốt trong tháng";
+
   const now = new Date();
   const sortedTasks = [...tasks].sort(
     (a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime(),
@@ -71,13 +80,27 @@ export function SaleDashboardPage() {
 
       {/* Stats Cards */}
       <QueryState loading={statsQuery.isLoading} error={statsQuery.error} empty={false}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label={revenueLabel}
+            value={formatVND(monthRevenue)}
+            hint={revenueHint}
+            icon="shopping-bag"
+            tone="green"
+          />
+          <StatCard
+            label="Số lượng chốt trong tháng"
+            value={stats?.converted_this_month ?? 0}
+            hint={`${stats?.converted_this_month ?? 0} Lead đã đăng ký thành công`}
+            icon="award"
+            tone="navy"
+          />
           <StatCard
             label="Lead được gán"
             value={stats?.assigned_leads ?? 0}
             hint="Tổng số Lead đang phụ trách"
             icon="users"
-            tone="navy"
+            tone="blue"
           />
           <StatCard
             label="Lead mới hôm nay"
@@ -85,27 +108,6 @@ export function SaleDashboardPage() {
             hint="Cần liên hệ sớm"
             icon="clock"
             tone="blue"
-          />
-          <StatCard
-            label="Nhắc việc quá hạn"
-            value={stats?.overdue_tasks ?? 0}
-            hint="Cần xử lý ngay"
-            icon="alert"
-            tone="red"
-          />
-          <StatCard
-            label="Nhắc việc hôm nay"
-            value={stats?.today_tasks ?? 0}
-            hint="Hẹn gọi & chăm sóc trong ngày"
-            icon="calendar"
-            tone="gold"
-          />
-          <StatCard
-            label="Tỷ lệ chốt tháng"
-            value={`${stats?.conversion_rate ?? 0}%`}
-            hint={`${stats?.converted_this_month ?? 0} / ${stats?.total_this_month ?? 0} Lead tháng này`}
-            icon="award"
-            tone="green"
           />
         </div>
       </QueryState>
@@ -166,7 +168,7 @@ export function SaleDashboardPage() {
                           {task.lead_name && (
                             <Link
                               to={`/sale/leads/${task.lead_id}`}
-                              className="font-medium text-navy hover:text-gold-dark hover:underline"
+                              className="font-medium text-navy hover:text-[#0532e6] hover:underline"
                             >
                               Lead: {task.lead_name}
                             </Link>
@@ -211,7 +213,7 @@ export function SaleDashboardPage() {
               </div>
               <Link
                 to="/sale/leads"
-                className="text-xs font-semibold text-navy hover:text-gold-dark hover:underline"
+                className="text-xs font-semibold text-navy hover:text-[#0532e6] hover:underline"
               >
                 Xem tất cả →
               </Link>
@@ -232,7 +234,7 @@ export function SaleDashboardPage() {
                     <div className="min-w-0 flex-1 pr-3">
                       <Link
                         to={`/sale/leads/${lead.id}`}
-                        className="block font-semibold text-navy text-sm hover:text-gold-dark hover:underline truncate"
+                        className="block font-semibold text-navy text-sm hover:text-[#0532e6] hover:underline truncate"
                       >
                         {lead.full_name}
                       </Link>

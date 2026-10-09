@@ -50,7 +50,7 @@ export function FilterBar({
   }, [advancedFilterCount]);
   const hasFilters = Boolean(search.trim()) || activeFilters.length > 0;
   return (
-    <section className="mb-5 rounded-2xl border border-gborder bg-white p-4 shadow-card">
+    <section className="mb-5 rounded-2xl border border-white/85 bg-white/70 backdrop-blur-xl p-4 shadow-card">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-64 flex-1 lg:max-w-md">
           <Input
@@ -85,12 +85,12 @@ export function FilterBar({
       {advancedFilters && advancedOpen ? (
         <div
           id={advancedId}
-          className="mt-3 flex flex-wrap items-end gap-3 border-t border-gborder/70 pt-3"
+          className="mt-3 flex flex-wrap items-end gap-3 border-t border-white/70 pt-3"
         >
           {advancedFilters}
         </div>
       ) : null}
-      <div className="mt-3 flex min-h-8 flex-wrap items-center gap-2 border-t border-gborder/70 pt-3">
+      <div className="mt-3 flex min-h-8 flex-wrap items-center gap-2 border-t border-white/70 pt-3">
         {typeof resultCount === "number" ? (
           <span className="mr-1 text-xs font-semibold text-gtext">
             {new Intl.NumberFormat("vi-VN").format(resultCount)} kết quả
@@ -102,7 +102,7 @@ export function FilterBar({
             type="button"
             aria-label={`Bỏ lọc ${filter.label}`}
             onClick={() => onRemoveFilter?.(filter.key)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-gold/35 bg-gold/10 px-3 text-xs font-semibold text-navy transition-colors hover:bg-gold/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#0532e6]/25 bg-[#0532e6]/10 px-3 text-xs font-semibold text-[#001258] transition-colors hover:bg-[#0532e6]/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
           >
             {filter.label}
             <Icon name="close" className="h-3.5 w-3.5" />

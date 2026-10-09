@@ -410,7 +410,7 @@ function ClassSummaryCard({ item }: { item: ClassHistory }) {
   return (
     <Link
       to={`/admin/lop-hoc/${item.class_id}`}
-      className="block rounded-xl border border-gborder p-4 transition hover:border-gold hover:bg-gold/5"
+      className="block rounded-xl border border-gborder p-4 transition hover:border-[#0532e6]/50 hover:bg-[#0532e6]/5"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -451,7 +451,7 @@ function ClassHistoryTab({
                   <div className="flex flex-wrap items-center gap-2">
                     <Link
                       to={`/admin/lop-hoc/${item.class_id}`}
-                      className="text-base font-bold text-navy-dark hover:text-gold-dark"
+                      className="text-base font-bold text-navy-dark hover:text-[#0532e6]"
                     >
                       {item.class_code} · {item.class_name}
                     </Link>
@@ -600,7 +600,7 @@ function AttendanceBreakdownTab({ studentId }: { studentId: string }) {
                 <div>
                   <Link
                     to={`/admin/lop-hoc/${item.class_id}`}
-                    className="font-bold text-navy-dark hover:text-gold-dark"
+                    className="font-bold text-navy-dark hover:text-[#0532e6]"
                   >
                     {item.class_code} · {item.class_name}
                   </Link>
@@ -890,7 +890,7 @@ function WorkloadSummaryTab({ teacherId }: { teacherId: string }) {
               <div>
                 <Link
                   to={`/admin/lop-hoc/${item.class_id}`}
-                  className="font-bold text-navy-dark hover:text-gold-dark"
+                  className="font-bold text-navy-dark hover:text-[#0532e6]"
                 >
                   {item.class_code} · {item.class_name}
                 </Link>

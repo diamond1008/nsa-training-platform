@@ -11,11 +11,12 @@ import (
 
 // Role codes used across the API (mirror the roles table seed).
 const (
-	RoleAdmin     = "ADMIN"
-	RoleTeacher   = "TEACHER"
-	RoleStudent   = "STUDENT"
-	RoleSale      = "SALE"
-	RoleSaleAdmin = "SALE_ADMIN"
+	RoleAdmin         = "ADMIN"
+	RoleAcademicAdmin = "ACADEMIC_ADMIN"
+	RoleTeacher       = "TEACHER"
+	RoleStudent       = "STUDENT"
+	RoleSale          = "SALE"
+	RoleSaleAdmin     = "SALE_ADMIN"
 )
 
 // IsSelf reports whether the authenticated user acts on their own account.
@@ -29,7 +30,7 @@ func OwnsStudentProfile(ctx context.Context, q *db.Queries, claims *AccessClaims
 	if claims == nil {
 		return false, nil
 	}
-	if claims.HasAnyRole(RoleAdmin) {
+	if claims.HasAnyRole(RoleAdmin, RoleAcademicAdmin) {
 		return true, nil // administrators have approved management access
 	}
 	userID, err := parseUUID(claims.UserID)
@@ -49,7 +50,7 @@ func IsAssignedTeacher(ctx context.Context, q *db.Queries, claims *AccessClaims,
 	if claims == nil {
 		return false, nil
 	}
-	if claims.HasAnyRole(RoleAdmin) {
+	if claims.HasAnyRole(RoleAdmin, RoleAcademicAdmin) {
 		return true, nil
 	}
 	if !claims.HasAnyRole(RoleTeacher) {

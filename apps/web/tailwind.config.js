@@ -7,18 +7,31 @@ export default {
     extend: {
       colors: {
         navy: {
-          DEFAULT: "#071426", // primary text / dark surfaces
-          dark: "#0B1F3A", // page headings
-          heading: "#142033",
-          soft: "#20334F",
+          DEFAULT: "#001258", // Deep Midnight Navy (Màu chính: Tiêu đề, Header, Footer)
+          dark: "#000e47",
+          heading: "#001258",
+          soft: "#082180",
         },
-        gtext: "#64748B", // secondary text
-        gbg: "#F5F7FB", // page background
-        gbg2: "#F1F4F9", // muted surface
-        gborder: "#E3E8F0", // borders
+        royal: {
+          DEFAULT: "#0532e6", // Electric / Royal Blue (Màu nhấn: Nút bấm, Icon, Link hover)
+          hover: "#1e45ee",
+          dark: "#0426b3",
+          light: "#eff3ff",
+        },
+        slate: {
+          charcoal: "#111c2c", // Màu chữ nội dung (Body text)
+        },
+        gtext: {
+          DEFAULT: "#64748b", // Slate Charcoal secondary
+          dark: "#111c2c",
+        },
+        gbg: "#f8fafc", // Màu nền trang web (Light Slate)
+        gbg2: "#f1f5f9", // Light Slate 100
+        gborder: "#e2e8f0", // Light Slate 200
         gold: {
-          DEFAULT: "#EFC04B", // NSA accent
-          dark: "#785A00", // accent hover / on-gold text
+          DEFAULT: "#C4A35A", // Champagne Gold (Màu nhấn phụ)
+          dark: "#A88B4A",
+          light: "#f7f3e8",
         },
         error: {
           DEFAULT: "#BA1A1A",
@@ -33,15 +46,19 @@ export default {
           bg: "#DDF7E9",
         },
         info: {
-          DEFAULT: "#2563EB",
-          bg: "#D6E3FF",
+          DEFAULT: "#0532e6",
+          bg: "#eff3ff",
         },
       },
       fontFamily: {
         sans: ['"Be Vietnam Pro"', "system-ui", "sans-serif"],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(7, 20, 38, 0.04), 0 8px 24px rgba(7, 20, 38, 0.05)",
+        card: "0 4px 24px rgba(7, 20, 38, 0.04), inset 0 1px 1px rgba(255, 255, 255, 0.95)",
+        "card-hover": "0 8px 32px rgba(7, 20, 38, 0.08), inset 0 1px 1px rgba(255, 255, 255, 1)",
+        glass: "0 8px 32px 0 rgba(10, 37, 64, 0.06), inset 0 1px 1px 0 rgba(255, 255, 255, 0.9)",
+        "glass-elevated":
+          "0 24px 64px rgba(7, 20, 38, 0.14), inset 0 1px 2px rgba(255, 255, 255, 0.95)",
         elevated: "0 16px 48px rgba(7, 20, 38, 0.14)",
       },
     },

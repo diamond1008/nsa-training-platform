@@ -79,7 +79,7 @@ export function OrdersPage() {
     {
       header: "Mã Đơn Hàng",
       className: "min-w-[130px]",
-      cell: (order) => <span className="font-mono font-bold text-navy">{order.order_code}</span>,
+      cell: (order) => <span className="font-bold text-navy">{order.order_code}</span>,
     },
     {
       header: "Học viên",
@@ -89,9 +89,7 @@ export function OrdersPage() {
           <span className="font-semibold text-navy">
             {order.student_name || order.lead_name || "—"}
           </span>
-          {order.student_code && (
-            <div className="font-mono text-xs text-gtext">{order.student_code}</div>
-          )}
+          {order.student_code && <div className="text-xs text-gtext">{order.student_code}</div>}
         </div>
       ),
     },
@@ -109,14 +107,16 @@ export function OrdersPage() {
       header: "Học phí niêm yết",
       className: "min-w-[120px] text-right",
       cell: (order) => (
-        <span className="text-xs font-mono text-gtext">{formatVND(order.amount)}</span>
+        <span className="text-sm font-medium text-gtext tabular-nums">
+          {formatVND(order.amount)}
+        </span>
       ),
     },
     {
       header: "Giảm giá",
       className: "min-w-[100px] text-right",
       cell: (order) => (
-        <span className="text-xs font-mono text-rose-600">
+        <span className="text-sm font-medium text-rose-600 tabular-nums">
           {order.discount_amount > 0 ? `-${formatVND(order.discount_amount)}` : "—"}
         </span>
       ),
@@ -125,7 +125,9 @@ export function OrdersPage() {
       header: "Thanh toán thực",
       className: "min-w-[130px] text-right",
       cell: (order) => (
-        <span className="font-mono font-bold text-navy">{formatVND(order.final_amount)}</span>
+        <span className="text-sm font-bold text-navy tabular-nums">
+          {formatVND(order.final_amount)}
+        </span>
       ),
     },
     {
@@ -145,7 +147,7 @@ export function OrdersPage() {
         <div className="flex items-center justify-end gap-1.5">
           <Button
             variant="soft"
-            className="h-8 px-2.5 text-xs font-semibold text-navy hover:bg-gold/20"
+            className="h-8 px-2.5 text-xs font-semibold text-[#0532e6] hover:bg-[#0532e6]/15"
             title="Đổi trạng thái thanh toán hoặc hủy đơn"
             onClick={() => {
               setSelectedOrder(order);
@@ -153,7 +155,7 @@ export function OrdersPage() {
               setModalError("");
             }}
           >
-            <Icon name="edit" className="mr-1 h-3.5 w-3.5 text-gold-dark" />
+            <Icon name="edit" className="mr-1 h-3.5 w-3.5 text-[#0532e6]" />
             Đổi trạng thái
           </Button>
 
@@ -293,7 +295,7 @@ export function OrdersPage() {
               )}
               <div className="flex justify-between">
                 <span className="text-gtext">Số tiền thực tế:</span>
-                <span className="font-mono font-bold text-navy text-sm">
+                <span className="font-bold text-navy text-base tabular-nums">
                   {formatVND(selectedOrder.final_amount)}
                 </span>
               </div>
@@ -305,7 +307,7 @@ export function OrdersPage() {
 
             {/* Quick 1-click actions for pending orders */}
             {selectedOrder.status === "pending" && (
-              <div className="rounded-xl border border-gold/30 bg-gold/10 p-3.5 space-y-2">
+              <div className="rounded-xl border border-[#0532e6]/20 bg-[#0532e6]/5 p-3.5 space-y-2">
                 <p className="text-xs font-bold text-navy-heading">Thao tác nhanh 1-Click:</p>
                 <div className="grid grid-cols-2 gap-2">
                   <Button

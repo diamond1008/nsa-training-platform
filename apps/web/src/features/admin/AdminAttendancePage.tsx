@@ -263,9 +263,9 @@ export function AdminAttendancePage() {
                     aria-pressed={filter === value}
                     onClick={() => setFilter(value)}
                     className={clsx(
-                      "rounded-2xl border p-4 text-left transition-all duration-200 cursor-pointer shadow-2xs",
+                      "rounded-2xl border p-4 text-left transition-all duration-200 cursor-pointer shadow-2xs hover:scale-105 active:scale-95",
                       filter === value
-                        ? "border-gold bg-gold/15 text-navy font-bold ring-2 ring-gold/30 shadow-xs scale-[1.02]"
+                        ? "border-[#0532e6] bg-[#0532e6]/10 text-navy font-bold ring-2 ring-[#0532e6]/25 shadow-xs scale-[1.02]"
                         : "border-gborder bg-white text-navy hover:bg-gbg2 hover:border-slate-300",
                     )}
                   >
@@ -359,7 +359,7 @@ export function AdminAttendancePage() {
                                   aria-pressed={projectedStatus === "present"}
                                   onClick={() => openCorrection(item, "present")}
                                   className={clsx(
-                                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer whitespace-nowrap flex items-center gap-1.5 shadow-2xs",
+                                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 border cursor-pointer whitespace-nowrap flex items-center gap-1.5 shadow-2xs hover:scale-105 active:scale-95 disabled:hover:scale-100 disabled:active:scale-100",
                                     projectedStatus === "present"
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow-xs ring-2 ring-emerald-200 scale-105"
                                       : "bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-600 hover:text-white",
@@ -376,7 +376,7 @@ export function AdminAttendancePage() {
                                   aria-pressed={projectedStatus === "absent"}
                                   onClick={() => openCorrection(item, "absent")}
                                   className={clsx(
-                                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer whitespace-nowrap flex items-center gap-1.5 shadow-2xs",
+                                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 border cursor-pointer whitespace-nowrap flex items-center gap-1.5 shadow-2xs hover:scale-105 active:scale-95 disabled:hover:scale-100 disabled:active:scale-100",
                                     projectedStatus === "absent"
                                       ? "bg-red-600 text-white border-red-600 shadow-xs ring-2 ring-red-200 scale-105"
                                       : "bg-red-50 text-red-700 border border-red-300 hover:bg-red-600 hover:text-white",

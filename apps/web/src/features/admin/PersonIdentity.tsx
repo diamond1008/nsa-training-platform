@@ -28,7 +28,7 @@ export function PersonAvatar({
   ) : (
     <div
       aria-label={`Avatar ${fullName}`}
-      className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/25 text-xs font-bold text-gold-dark shadow-2xs"
+      className="flex h-9 w-9 items-center justify-center rounded-full bg-navy text-xs font-bold text-white shadow-2xs"
     >
       {initials || "--"}
     </div>

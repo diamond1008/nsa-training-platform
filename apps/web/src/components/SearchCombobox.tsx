@@ -123,7 +123,7 @@ export function SearchCombobox({
               choose(options[activeIndex]);
             }
           }}
-          className="h-11 w-full rounded-xl border border-gborder bg-white px-3.5 pr-10 text-sm text-navy shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-gtext/60 focus:border-gold focus:shadow-[0_0_0_3px_rgba(239,192,75,0.16)] disabled:cursor-not-allowed disabled:bg-gbg2"
+          className="h-11 w-full rounded-xl border border-white/80 bg-white/70 backdrop-blur-md px-3.5 pr-10 text-sm text-[#111c2c] shadow-2xs outline-none transition-[border-color,box-shadow,background-color] placeholder:text-gtext/60 focus:bg-white/95 focus:border-[#0532e6] focus:ring-2 focus:ring-[#0532e6]/15 disabled:cursor-not-allowed disabled:bg-gbg2/60"
         />
         <Icon
           name="search"
@@ -136,7 +136,7 @@ export function SearchCombobox({
           id={listId}
           role="listbox"
           className={clsx(
-            "absolute left-0 right-0 z-[100] max-h-60 overflow-y-auto rounded-2xl border border-gborder bg-white p-1.5 shadow-xl",
+            "absolute left-0 right-0 z-[100] max-h-60 overflow-y-auto rounded-2xl border border-white/90 bg-white/90 backdrop-blur-2xl p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none",
             openUpward ? "bottom-full mb-1" : "top-full mt-1",
           )}
         >
@@ -158,7 +158,9 @@ export function SearchCombobox({
                 onMouseEnter={() => setActiveIndex(index)}
                 className={clsx(
                   "flex w-full items-start justify-between gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm transition-colors",
-                  index === activeIndex ? "bg-gold/15 text-navy" : "text-navy/80 hover:bg-gbg2",
+                  index === activeIndex
+                    ? "bg-[#0532e6]/10 text-[#001258] font-bold"
+                    : "text-[#111c2c]/80 hover:bg-white/80 hover:text-[#111c2c]",
                 )}
               >
                 <span className="min-w-0">
@@ -170,7 +172,7 @@ export function SearchCombobox({
                   ) : null}
                 </span>
                 {option.value === value ? (
-                  <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-gold-dark" />
+                  <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-[#0532e6]" />
                 ) : null}
               </div>
             ))

@@ -568,7 +568,7 @@ export function AdminOperationsPage() {
         {selectedDiplomaCandidate && (
           <div className="space-y-4">
             <div className="rounded-xl bg-gbg2 p-4">
-              <p className="text-xs font-semibold text-gold-dark">
+              <p className="text-xs font-semibold text-[#0532e6]">
                 Chứng chỉ: {selectedDiplomaCandidate.current_certificate_number}
               </p>
               <h3 className="font-bold text-navy">
@@ -736,8 +736,8 @@ function WeeklySessionChart() {
               <strong>{totalWeekSessions} buổi</strong>
             </span>
             {busiestDay && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-2.5 py-1 text-navy font-semibold">
-                <span className="h-2 w-2 rounded-full bg-gold" /> Cao điểm:{" "}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#0532e6]/10 px-2.5 py-1 text-navy font-semibold">
+                <span className="h-2 w-2 rounded-full bg-[#0532e6]" /> Cao điểm:{" "}
                 <strong>
                   {busiestDay.label} ({busiestDay.total})
                 </strong>
@@ -763,7 +763,7 @@ function WeeklySessionChart() {
                   <span
                     className={clsx(
                       "mb-1.5 text-xs font-bold transition-colors",
-                      d.isToday ? "scale-110 font-extrabold text-gold-dark" : "text-navy/70",
+                      d.isToday ? "scale-110 font-extrabold text-[#0532e6]" : "text-navy/70",
                     )}
                   >
                     {d.total}
@@ -774,9 +774,9 @@ function WeeklySessionChart() {
                     className={clsx(
                       "relative w-full max-w-[2.5rem] overflow-hidden rounded-t-xl shadow-2xs transition-all duration-500 group-hover:scale-105",
                       d.isToday
-                        ? "bg-gradient-to-t from-gold-dark via-gold to-amber-300 ring-2 ring-gold/40 shadow-xs"
+                        ? "bg-gradient-to-t from-[#001258] via-[#0532e6] to-[#1e45ee] ring-2 ring-[#0532e6]/30 shadow-xs"
                         : d.total > 0
-                          ? "bg-gradient-to-t from-navy to-slate-700 group-hover:from-navy group-hover:to-gold-dark"
+                          ? "bg-gradient-to-t from-navy to-slate-700 group-hover:from-navy group-hover:to-[#0532e6]"
                           : "border border-dashed border-gborder bg-gbg2",
                     )}
                   />
@@ -797,7 +797,7 @@ function WeeklySessionChart() {
                   {d.short}
                 </span>
                 {d.isToday && (
-                  <span className="mt-0.5 rounded-md bg-gold/20 px-1.5 py-0.5 text-[10px] font-bold text-navy">
+                  <span className="mt-0.5 rounded-md bg-[#0532e6]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#0532e6]">
                     Hôm nay
                   </span>
                 )}
@@ -889,7 +889,10 @@ export function AdminDashboardPage() {
               title="Lịch đào tạo sắp tới"
               subtitle="5 buổi gần nhất trên toàn hệ thống"
               action={
-                <Link className="text-xs font-semibold text-gold-dark" to="/admin/lich-hoc">
+                <Link
+                  className="text-xs font-semibold text-[#0532e6] hover:text-[#1e45ee]"
+                  to="/admin/lich-hoc"
+                >
                   Xem lịch →
                 </Link>
               }
@@ -930,9 +933,9 @@ export function AdminDashboardPage() {
                 </div>
                 <Badge tone="green">Ổn định</Badge>
               </div>
-              <div className="flex items-center justify-between rounded-xl bg-gold/10 p-4">
+              <div className="flex items-center justify-between rounded-xl bg-[#0532e6]/10 p-4">
                 <div className="flex items-center gap-3">
-                  <Icon name="clock" className="h-5 w-5 text-gold-dark" />
+                  <Icon name="clock" className="h-5 w-5 text-[#0532e6]" />
                   <div>
                     <b className="text-sm">Buổi sắp tới</b>
                     <p className="text-xs text-gtext">Cần theo dõi lịch</p>
@@ -1403,7 +1406,7 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
               header: "Mã",
               sortKey: isStudent ? "student_code" : "teacher_code",
               cell: (p) => (
-                <Link className="font-semibold text-navy hover:text-gold-dark" to={profilePath(p)}>
+                <Link className="font-semibold text-navy hover:text-[#0532e6]" to={profilePath(p)}>
                   {isStudent ? (p as Student).student_code : (p as Teacher).teacher_code}
                 </Link>
               ),
@@ -1417,7 +1420,7 @@ function PersonDirectory({ kind }: { kind: PersonKind }) {
               header: "Họ tên",
               sortKey: "full_name",
               cell: (p) => (
-                <Link className="font-semibold text-navy hover:text-gold-dark" to={profilePath(p)}>
+                <Link className="font-semibold text-navy hover:text-[#0532e6]" to={profilePath(p)}>
                   {p.full_name}
                 </Link>
               ),
@@ -1591,10 +1594,10 @@ function PersonForm({
               alt="Avatar Preview"
               width={64}
               height={64}
-              className="h-16 w-16 rounded-full object-cover border-2 border-gold shadow-xs shrink-0"
+              className="h-16 w-16 rounded-full object-cover border-2 border-navy shadow-xs shrink-0"
             />
           ) : (
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gold/25 text-lg font-bold text-gold-dark border border-gborder">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-navy text-lg font-bold text-white border border-gborder">
               {form.full_name
                 ? form.full_name
                     .split(" ")
@@ -1750,7 +1753,7 @@ function PersonForm({
           {history.error ? <ErrorBanner message="Không thể tải lịch sử trạng thái." /> : null}
           <div className="space-y-3">
             {(history.data ?? []).map((item) => (
-              <div key={item.id} className="border-l-2 border-gold pl-3 text-sm">
+              <div key={item.id} className="border-l-2 border-[#0532e6] pl-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   {item.from_status ? <StatusBadge value={item.from_status} /> : <Badge>Mới</Badge>}
                   <span aria-hidden="true">→</span>
@@ -2155,7 +2158,7 @@ function CourseTestsPanel({ course }: { course: Course }) {
             <button
               key={test.id}
               type="button"
-              className="flex w-full items-center justify-between rounded-xl border border-gborder p-3 text-left hover:border-gold"
+              className="flex w-full items-center justify-between rounded-xl border border-gborder p-3 text-left transition hover:border-[#0532e6] hover:bg-[#0532e6]/5"
               onClick={() => selectTest(test)}
             >
               <span>
@@ -3831,7 +3834,7 @@ function LocationManager({
               key={location.id}
               type="button"
               onClick={() => selectLocation(location)}
-              className="flex w-full items-center justify-between rounded-xl border border-gborder p-3 text-left transition hover:border-gold"
+              className="flex w-full items-center justify-between rounded-xl border border-gborder p-3 text-left transition hover:border-[#0532e6] hover:bg-[#0532e6]/5"
             >
               <span>
                 <b className="text-navy">
