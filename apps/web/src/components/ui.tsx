@@ -52,9 +52,8 @@ export function Button({
     <button
       className={clsx(
         "inline-flex h-10 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold select-none cursor-pointer",
-        "transition-all duration-200 ease-out",
-        "hover:scale-105 active:scale-95",
-        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 disabled:active:scale-100",
+        "transition-colors duration-150 active:opacity-90",
+        "disabled:cursor-not-allowed disabled:opacity-50",
         buttonStyles[variant],
         className,
       )}
@@ -689,7 +688,7 @@ export function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-all duration-200 ease-out hover:scale-110 active:scale-95 hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
+            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-colors duration-150 hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
             aria-label="Đóng"
           >
             <Icon name="close" className="h-5 w-5" />
@@ -808,7 +807,7 @@ export function Drawer({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-all duration-200 hover:scale-110 active:scale-95 hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
+              className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-gtext transition-colors duration-150 hover:bg-gbg2 hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0532e6]"
               aria-label="Đóng"
             >
               <Icon name="close" className="h-5 w-5" />

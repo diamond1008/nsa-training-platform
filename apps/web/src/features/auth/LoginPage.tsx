@@ -41,12 +41,8 @@ export default function LoginPage() {
         navigate("/doi-mat-khau", { replace: true });
         return;
       }
-      // Trigger PowerPoint-style smooth Zoom-out transition
-      setIsTransitioning(true);
-      setTimeout(() => {
-        const from = (location.state as { from?: string } | null)?.from;
-        navigate(from && from !== "/login" ? from : homePath(user), { replace: true });
-      }, 500);
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(from && from !== "/login" ? from : homePath(user), { replace: true });
     } catch (err) {
       setIsTransitioning(false);
       if (err instanceof ApiRequestError && err.status === 401) {

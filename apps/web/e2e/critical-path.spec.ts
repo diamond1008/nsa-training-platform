@@ -7,6 +7,7 @@ async function login(page: Page, email: string) {
   await page.getByLabel("Email").fill(email);
   await page.locator('input[type="password"]').fill(demoPassword);
   await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await page.waitForURL((url) => !url.pathname.endsWith("/login"));
 }
 
 test("admin login and role guard", async ({ page }) => {
